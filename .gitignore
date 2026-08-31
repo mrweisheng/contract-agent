@@ -1,0 +1,55 @@
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+.envrc
+
+# ============ 敏感信息 ============
+# 真实环境变量（含 LLM API Key），只提交 .env.example
+.env
+.env.local
+.env.*.local
+
+# ============ 运行时生成数据 ============
+# SQLite 历史数据库
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# 生成的合同文件（含客户隐私）
+server/data/out/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+
+# ============ 日志 ============
+*.log
+logs/
+server/logs/
+
+# ============ 编辑器 ============
+.idea/
+.vscode/
+*.iml
+*.suo
+
+# ============ Node（若有） ============
+node_modules/
+dist/
+build/
+
+# ============ 系统意外产物 ============
+# Windows 保留设备名，会让 git 无法读取
+server/nul
