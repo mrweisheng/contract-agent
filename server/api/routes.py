@@ -197,7 +197,7 @@ def generate(req: GenerateReq):
         text = extract_contract_text(doc)
         try:
             rv = llm.chat_json(review_messages(text, build_summary(req.type, form, payment)),
-                               max_tokens=1200, timeout=45)
+                               max_tokens=1200, timeout=60, thinking=True)
             if not rv.get("pass"):
                 for iss in rv.get("issues") or []:
                     if _is_confirmation(iss):
