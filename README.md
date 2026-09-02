@@ -59,3 +59,18 @@ contract-agent/
 - 模板第 4~7 号新办合同的"第二期款于 1 个工作日内支付"为固定文字（2026-08-31 核实）；
 - 签署栏（手写签名、盖章、日期）保持空白，供线下签署；
 - 生成失败（核对未通过）时文件不入历史下载列表，按红色问题清单修正后重新生成。
+
+## 开发模式（热更新）
+
+```bash
+# 终端 1：后端（改 Python 即时生效）
+cd server
+E:spressif	ools\python\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8300 --reload
+
+# 终端 2：前端（改 app.js / style.css 自动刷新，API 自动代理到 8300）
+cd web
+npm install   # 首次
+npm run dev   # 打开 http://localhost:5173
+```
+
+双击 start.bat 仍是免 Node 的直出模式（给非开发场景用），两种模式共用同一份代码。

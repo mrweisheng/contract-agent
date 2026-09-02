@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """API 路由。"""
 import os
+import re
 import traceback
 
 from fastapi import APIRouter, HTTPException
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 
 from engine.types_config import TYPES, CURRENCY_OPTIONS, PORTS, get_type, template_path
-from engine.builder import build_contract
+from engine.builder import build_contract, derive_payment
 from engine.checker import check_rules, check_fingerprint, extract_contract_text
 from engine import writer as W
 from llm import client as llm
@@ -21,6 +22,25 @@ router = APIRouter(prefix="/api")
 TYPE_LABEL_FILE = {  # 下载文件名用
     "car": "车辆买卖合约", "transfer_gx": "高新两地牌过户", "transfer_ns": "纳税两地牌过户", "new_port": "粤Z新办协议",
 }
+
+# LLM 复核确认项过滤：结论为「检查通过」的条目不作为警告展示（提示词已禁，此处兜底）
+NO_ISSUE_RE = re.compile(r"未发现.{0,8}(问题|异常|重复|缺失)")
+NEG_MARK_RE = re.compile(r"不一致|未|缺|存在|但|错误|异常|应|建议|需|问题")
+
+
+def _is_confirmation(iss: str) -> bool:
+    if NO_ISSUE_RE.search(iss):
+        return True
+    return bool(re.search(r"一致|正确|无误", iss)) and not NEG_MARK_RE.search(iss)
+
+
+# 解析 notes 噪音过滤：系统已自动处理的过程说明不算问题，不进提示/弹窗。
+# 噪音＝「与预设不符/不一致/不同」（自定义分期是设计内路径）＋「…一致」类正常确认（"不一致"除外）。
+NOTE_NOISE_RE = re.compile(r"与.{0,4}预设.{0,12}(不符|不一致|不同)|(?<!不)一致")
+
+
+def _filter_notes(notes: list) -> list:
+    return [n for n in (notes or []) if not NOTE_NOISE_RE.search(str(n))]
 
 
 @router.get("/types")
@@ -36,7 +56,7 @@ def get_types():
             "ports": PORTS if cfg.get("port_required") else None,
             "groups": cfg["groups"],
             "fee_fields": cfg["fee_fields"],
-            "default_pay_fields": cfg.get("default_pay_fields", []),
+            "pay_preset": cfg.get("pay_preset", []),
             "client_side": cfg["client_side"],
             "car_default": bool(cfg.get("car_default")),
         })
@@ -68,7 +88,7 @@ def extract(req: ExtractReq):
         "currency": data.get("currency"),
         "total": data.get("total"),
         "payment_text": data.get("payment_text"),
-        "notes": data.get("notes") or [],
+        "notes": _filter_notes(data.get("notes")),
     }
 
 
@@ -88,59 +108,55 @@ def parse_payment(req: ParsePayReq):
         ))
     except llm.LLMError as ex:
         raise HTTPException(502, f"LLM 解析失败：{ex}")
-    mode = data.get("mode")
-    if mode not in ("default", "one_time", "custom"):
-        raise HTTPException(422, "无法识别付款方式，请换种说法或手动填写")
-    result = {"mode": mode, "currency": data.get("currency"), "notes": data.get("notes") or []}
-    if mode == "one_time":
-        ot = data.get("one_time") or {}
-        result["one_time"] = {
-            "pay_date": ot.get("date"),
-            "pay_event": ot.get("event") or "",
-            "choice": ot.get("choice") if ot.get("choice") in ("较早者", "较晚者") else "较早者",
-        }
-    if mode == "custom":
-        inst = []
-        for x in (data.get("installments") or []):
-            try:
-                amt = int(str(x.get("amount", 0)).replace(",", ""))
-            except ValueError:
-                continue
-            if amt <= 0:
-                continue
-            inst.append({
-                "seq": len(inst) + 1,
-                "amount": amt,
-                "trigger": str(x.get("trigger") or "").strip(),
-                "trigger_date": str(x.get("trigger_date") or "").strip() or None,
-                "trigger_type": x.get("trigger_type") or "event",
-            })
-        if not inst:
-            raise HTTPException(422, "未解析出任何分期，请手动填写")
-        result["installments"] = inst
-        result["sum"] = sum(x["amount"] for x in inst)
+    matches = bool(data.get("matches_preset"))
+    result = {"matches_preset": matches, "notes": _filter_notes(data.get("notes"))}
+
+    inst, extra_notes = [], []
+    for x in (data.get("installments") or []):
+        try:
+            amt = int(str(x.get("amount", 0)).replace(",", ""))
+        except ValueError:
+            continue
+        if amt <= 0:
+            continue
+        td = str(x.get("trigger_date") or "").strip() or None
+        if td and not W.is_valid_iso_date(td):
+            extra_notes.append(f"第{len(inst) + 1}期推算日期「{td}」不是有效日期，已忽略，请核对付款条件")
+            td = None
+        if td and req.sign_date and td < req.sign_date:
+            extra_notes.append(f"第{len(inst) + 1}期付款日期 {td} 早于签署日期 {req.sign_date}，请核对")
+        trigger = str(x.get("trigger") or "").strip()
+        if not td and not trigger:
+            extra_notes.append(f"第{len(inst) + 1}期未写明付款时间／节点／条件，请补充后再生成")
+        inst.append({
+            "seq": len(inst) + 1,
+            "amount": amt,
+            "label": str(x.get("label") or "").strip()[:6],
+            "trigger": trigger,
+            "trigger_date": td,
+        })
+    if extra_notes:
+        result["notes"] = (result.get("notes") or []) + extra_notes
+    preset_n = len(get_type(req.type).get("pay_preset") or [])
+    if matches and len(inst) != preset_n:
+        matches = False
+        result["matches_preset"] = False  # 期数不符自动转自定义，属正常路径无需提示
+    if not inst:
+        raise HTTPException(422, "未解析出任何分期，请在付款计划表中手动填写")
+    result["installments"] = inst
+    result["sum"] = sum(x["amount"] for x in inst)
     return result
 
 
-class Installment(BaseModel):
-    seq: int
+class PayRow(BaseModel):
+    label: str = ""
     amount: int
-    trigger: str = ""
-    trigger_type: str = "event"
+    date: Optional[str] = None  # 绝对付款日期（YYYY-MM-DD）
+    event: str = ""              # 付款事件条件
 
 
 class Payment(BaseModel):
-    mode: str
-    deposit_amount: Optional[int] = None
-    deposit_date: Optional[str] = None
-    balance_date: Optional[str] = None
-    choice: Optional[str] = None
-    pay1: Optional[int] = None
-    pay2: Optional[int] = None
-    pay3: Optional[int] = None
-    pay_date: Optional[str] = None
-    pay_event: Optional[str] = None
-    installments: Optional[List[Installment]] = None
+    installments: List[PayRow]
     source_text: Optional[str] = None
 
 
@@ -153,41 +169,53 @@ class GenerateReq(BaseModel):
 @router.post("/generate")
 def generate(req: GenerateReq):
     cfg = get_type(req.type)
-    form, payment = req.form, req.payment.model_dump()
-    agreement_no = str(form.get("agreement_no") or "").strip()
-    auto_no = not agreement_no
-    no = store.next_no() if auto_no else agreement_no
-
-    filename = f"{no}-{TYPE_LABEL_FILE.get(req.type, req.type)}.docx"
-    out_path = os.path.join(store.OUT_DIR, filename)
-
-    # 生成前校验（早期失败不占流水）
+    form = req.form
+    # 统一分期表 → 生成器付款 dict（服务端判定 模板预设/一次性/自定义，并校验分期合计=总费用）
+    total = int(form.get("total_price") or form.get("total_fee") or 0)
     try:
-        report = build_contract(req.type, form, payment, no, out_path)
-        report["agreement_no"] = no
+        payment = derive_payment(req.type, req.payment.model_dump(), total)
     except ValueError as ex:
         raise HTTPException(422, str(ex))
 
-    from docx import Document
-    doc = Document(out_path)
-    errors = check_rules(req.type, form, payment, report, doc)
-    fp_issues = check_fingerprint(report["template"], out_path, req.type, report)
-    errors.extend(fp_issues)
+    # 编号一律服务端自动分配（预约制：分配即落库占位，失败自动释放，无并发重复窗口）
+    no = store.reserve_no()
+    filename = f"{no}-{TYPE_LABEL_FILE.get(req.type, req.type)}.docx"
+    out_path = os.path.join(store.OUT_DIR, filename)
 
-    # LLM 语义复核（软校验：失败不拦截，标注警告）
-    warnings = []
-    text = extract_contract_text(doc)
     try:
-        rv = llm.chat_json(review_messages(text, build_summary(req.type, form, payment)), max_tokens=1200)
-        if not rv.get("pass"):
-            for iss in rv.get("issues") or []:
-                warnings.append(f"LLM复核：{iss}")
-    except llm.LLMError as ex:
-        warnings.append(f"LLM复核未完成（{ex}），规则校验已通过")
+        report = build_contract(req.type, form, payment, no, out_path)
+        report["agreement_no"] = no
+
+        from docx import Document
+        doc = Document(out_path)
+        errors = check_rules(req.type, form, payment, report, doc)
+        fp_issues = check_fingerprint(report["template"], out_path, req.type, report)
+        errors.extend(fp_issues)
+
+        # LLM 语义复核（软校验：失败不拦截，标注警告）
+        warnings = []
+        text = extract_contract_text(doc)
+        try:
+            rv = llm.chat_json(review_messages(text, build_summary(req.type, form, payment)),
+                               max_tokens=1200, timeout=45)
+            if not rv.get("pass"):
+                for iss in rv.get("issues") or []:
+                    if _is_confirmation(iss):
+                        continue
+                    warnings.append(f"LLM复核：{iss}")
+        except llm.LLMError as ex:
+            warnings.append(f"LLM复核未完成（{ex}），规则校验已通过")
+    except ValueError as ex:
+        store.release_no(no)
+        raise HTTPException(422, str(ex))
+    except Exception as ex:
+        traceback.print_exc()
+        store.release_no(no)
+        raise HTTPException(500, f"生成失败：{ex}")
 
     status = "ok" if not errors else "failed"
-    client_name = form.get("client_name") or ""
-    store.save_gen(no, req.type, client_name, payment.get("mode", ""), form.get("currency", ""), filename, status)
+    store.confirm_no(no, req.type, form.get("client_name") or "", payment.get("mode", ""),
+                     form.get("currency", ""), filename, status)
 
     return {
         "ok": not errors,

@@ -37,7 +37,12 @@ TYPES = {
         "fee_cell_style": "single",        # 单格：「港币（大写）X元整（HK$X）」
         "fee_total_label": "车辆总售价",
         "payment_section": ("03", "04"),   # （条款号，下一条款号）
-        "car_default": True,               # 03 条有日期空与较早/较晚选择
+        "car_default": True,               # 03 条日期空由订金/尾款日期填入
+        # 付款计划预设（模板固定结构，前端分期表预置；dated=该期按日期付款）
+        "pay_preset": [
+            {"label": "订金", "dated": True},
+            {"label": "尾款", "event": "车辆完成香港运输署过户登记手续当日", "dated": True},
+        ],
         "fee_rows_default": ["车辆总售价", "订金", "订金支付日期", "购车尾款"],
         "exchange_fee": False,
         # 表单结构
@@ -50,7 +55,7 @@ TYPES = {
                 {"key": "client_address", "label": "联络地址", "type": "text", "required": False},
             ]},
             {"title": "车辆数据", "fields": [
-                {"key": "plate", "label": "车牌号码", "type": "text", "required": True},
+                {"key": "plate", "label": "车牌号码（新车未上牌可空）", "type": "text", "required": False},
                 {"key": "vin", "label": "底盘／识别号码（VIN/Chassis）", "type": "text", "required": True},
                 {"key": "model", "label": "品牌及型号", "type": "text", "required": True},
                 {"key": "year", "label": "登记年份", "type": "text", "required": True},
@@ -58,13 +63,6 @@ TYPES = {
         ],
         "fee_fields": [
             {"key": "total_price", "label": "车辆总售价", "type": "number", "required": True},
-        ],
-        # 默认两段式付款的额外输入
-        "default_pay_fields": [
-            {"key": "deposit_amount", "label": "订金金额", "type": "number", "required": True},
-            {"key": "deposit_date", "label": "订金支付日期", "type": "date", "required": True},
-            {"key": "balance_date", "label": "尾款支付日期", "type": "date", "required": True},
-            {"key": "choice", "label": "以较早者／较晚者为准备", "type": "select", "options": ["较早者", "较晚者"], "required": True},
         ],
     },
 
@@ -91,6 +89,12 @@ TYPES = {
         "fee_table_anchor": "服务总费用",
         "fee_cell_style": "split",          # 两格：「港币（大写）X元整」＋「HK$X」
         "fee_total_label": "服务总费用",
+        # 付款计划预设（模板固定结构，前端分期表预置）
+        "pay_preset": [
+            {"label": "定金", "dated": True},
+            {"label": "第二期款", "event": "甲方完成目标公司股权转让法律文件并书面通知乙方当日支付"},
+            {"label": "尾款", "event": "甲方向乙方交付新的车辆行驶证、新批文卡及铁牌资料时支付"},
+        ],
         "payment_section": ("04", "05"),
         "fee_rows_default": ["服务总费用", "第一期｜定金", "第二期款", "尾款"],
         "exchange_fee": {"anchor": "换车费用"},
@@ -112,11 +116,6 @@ TYPES = {
         "fee_fields": [
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
             {"key": "exchange_fee", "label": "换车费用（可为0，独立于服务总费用）", "type": "number", "required": False, "default": 0},
-        ],
-        "default_pay_fields": [
-            {"key": "pay1", "label": "第一期｜定金", "type": "number", "required": True},
-            {"key": "pay2", "label": "第二期款", "type": "number", "required": True},
-            {"key": "pay3", "label": "尾款", "type": "number", "required": True},
         ],
     },
 
@@ -144,6 +143,12 @@ TYPES = {
         "fee_table_anchor": "服务总费用",
         "fee_cell_style": "split",
         "fee_total_label": "服务总费用",
+        # 付款计划预设（模板固定结构，前端分期表预置）
+        "pay_preset": [
+            {"label": "定金", "dated": True},
+            {"label": "第二期款", "event": "甲方完成目标公司股权转让法律文件并书面通知乙方当日支付"},
+            {"label": "尾款", "event": "甲方向乙方交付新的车辆行驶证、新批文卡及铁牌资料时支付"},
+        ],
         "payment_section": ("04", "05"),
         "fee_rows_default": ["服务总费用", "第一期｜定金", "第二期款", "尾款"],
         "exchange_fee": {"anchor": "换车费用"},
@@ -166,11 +171,6 @@ TYPES = {
         "fee_fields": [
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
             {"key": "exchange_fee", "label": "换车费用（可为0，独立于服务总费用）", "type": "number", "required": False, "default": 0},
-        ],
-        "default_pay_fields": [
-            {"key": "pay1", "label": "第一期｜定金", "type": "number", "required": True},
-            {"key": "pay2", "label": "第二期款", "type": "number", "required": True},
-            {"key": "pay3", "label": "尾款", "type": "number", "required": True},
         ],
     },
 
@@ -195,6 +195,12 @@ TYPES = {
         "fee_table_anchor": "服务总费用",
         "fee_cell_style": "single_rmb",     # 「人民币（大写）X元整（¥X / $X）」→ 单币种改写
         "fee_total_label": "服务总费用",
+        # 付款计划预设（模板固定结构，前端分期表预置）
+        "pay_preset": [
+            {"label": "定金", "dated": True},
+            {"label": "第二期款", "event": "甲方香港公司成功入股大陆高新企业，完成省厅系统提交并获得提交编号后，于1个工作日内支付"},
+            {"label": "尾款", "event": "乙方完成两地牌代办申请并取得车辆行驶证、批文卡及禁区纸后，甲方在乙方处领取车辆铁牌等通关资料时现场支付"},
+        ],
         "payment_section": ("03", "04"),
         "fee_rows_default": ["服务总费用", "第一期｜定金", "第二期款", "第三期｜尾款"],
         "exchange_fee": False,
@@ -209,11 +215,6 @@ TYPES = {
         ],
         "fee_fields": [
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
-        ],
-        "default_pay_fields": [
-            {"key": "pay1", "label": "第一期｜定金（签约即日）", "type": "number", "required": True},
-            {"key": "pay2", "label": "第二期款（省厅提交获编号后1个工作日内）", "type": "number", "required": True},
-            {"key": "pay3", "label": "第三期｜尾款（领取铁牌等通关资料时）", "type": "number", "required": True},
         ],
     },
 }

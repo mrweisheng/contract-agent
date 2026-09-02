@@ -16,7 +16,7 @@ lines = [
     "echo   局域网访问: http://本机IP:8300",
     "echo   停止服务:   在本窗口按 Ctrl+C",
     "echo ============================================================",
-    '"%PY%" -m uvicorn main:app --host 0.0.0.0 --port 8300',
+    '"%PY%" -m uvicorn main:app --host 0.0.0.0 --port 8300 --reload',
     "pause",
 ]
 content = "\r\n".join(lines) + "\r\n"

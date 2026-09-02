@@ -37,17 +37,23 @@ body {
 
 button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
-/* ============== 整体布局 ============== */
+/* ============== 整体布局 ==============
+ * 取消 height: 100vh 锁定：让 shell 高度由内容决定，
+ * 长表单时主区向下延伸，body 整体滚动；侧栏用 sticky
+ * 保持在视口内；底部 action-bar 落到表单最后(滚到底才看到)。
+ */
 .shell {
-  display: grid;
-  grid-template-columns: 232px 1fr;
+  /* 应用外壳：整页不滚动，滚动只发生在主区 .scroll 内 */
+  display: flex;
   height: 100vh;
-  width: 100vw;
   background: var(--paper-2);
 }
 
 /* ============== 侧栏 ============== */
 .side {
+  flex: none;
+  width: 232px;
+  height: 100%;
   background: var(--ink);
   color: #d8d0bc;
   display: flex;
@@ -119,19 +125,14 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   border-radius: 2px;
   margin-left: -8px;
 }
-.side-foot {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 12px 18px;
-  font-size: 11px;
-  color: #6e8276;
-  line-height: 1.6;
-}
 
 /* ============== 主区 ============== */
 .main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   background: var(--paper);
 }
 .topbar {
@@ -169,9 +170,11 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .topbar .meta-pill b { color: var(--ink-text); font-weight: 600; }
 
 .scroll {
+  /* 主区唯一滚动容器 */
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px 120px;
+  padding: 24px 28px 28px;
 }
 
 /* ============== 合同基本信息(横向紧凑行) ============== */
@@ -284,6 +287,62 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 14px 18px;
 }
+
+/* 多卡片并排行（业务字段 group 横排）：默认 2 列，1 个 group 时 auto-fit 让它占满 */
+.groups-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.groups-row > .card { margin-bottom: 0; }
+/* 并排时卡片宽度变窄，字段网格随之更紧凑（每个字段最小宽度从 260 缩到 180） */
+.groups-row .field-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px 14px;
+}
+@media (max-width: 880px) {
+  .groups-row { grid-template-columns: 1fr; }
+}
+
+/* 费用卡片 — 单行紧凑：label + input 横排，合计贴右 */
+.fee-card { padding: 12px 22px; }
+.fee-row {
+  display: flex;
+  align-items: center;
+  gap: 12px 18px;
+  flex-wrap: wrap;
+}
+.fee-row .field.inline {
+  display: grid;
+  grid-template-columns: max-content minmax(180px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.fee-row .field.inline label {
+  margin: 0;
+  white-space: nowrap;
+}
+.fee-row .fee-cn {
+  grid-column: 2;
+  font-size: 11.5px;
+  color: #3d5e44;
+}
+.fee-sum {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fee-sum b {
+  color: var(--accent);
+  font-family: "Noto Serif SC", serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
 .field {
   display: flex;
   flex-direction: column;
@@ -389,27 +448,6 @@ input[type="number"].ctrl { padding-right: 4px; }
 .radio-row input { display: none; }
 
 /* ============== 智能录入 ============== */
-.type-hint {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  background: #ecf3ec;
-  border-left: 3px solid var(--ok);
-  border-radius: 2px;
-  font-size: 12.5px;
-  color: #3d5e44;
-  line-height: 1.7;
-}
-.type-hint .dot {
-  display: inline-block;
-  width: 6px; height: 6px;
-  background: var(--ok);
-  border-radius: 50%;
-  margin-top: 7px;
-  flex: none;
-}
 .nl-box { display: flex; flex-direction: column; gap: 10px; }
 .nl-box textarea { min-height: 84px; }
 .notes {
@@ -599,16 +637,14 @@ input[type="number"].ctrl { padding-right: 4px; }
 
 /* ============== 操作栏(底部固定) ============== */
 .action-bar {
-  position: sticky;
-  bottom: 0;
-  margin-top: -110px;   /* 让 scroll 内 padding-bottom 生效 */
+  /* 主区 flex 底栏：常驻可见，天然占位（无需 sticky/负边距/z-index） */
+  flex: none;
   background: var(--paper);
   border-top: 1px solid var(--line);
   padding: 12px 28px;
   display: flex;
   align-items: center;
   gap: 14px;
-  z-index: 5;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.04);
 }
 .action-bar .status {
@@ -774,3 +810,567 @@ input[type="number"].ctrl { padding-right: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 .side-groups::-webkit-scrollbar-thumb { background: #355e4f; }
 .side-groups::-webkit-scrollbar-thumb:hover { background: #4a7866; }
+   v3 升级 · 减法重构
+   目标：合并冗余卡片 → 单合同信息卡；付款表紧凑精致；
+   顶栏极简，币种/编号/签署日期收进卡头；action-bar 悬浮跟随。
+   保留 :root 变量不动；旧类名仍被使用故不删。
+   ============================================================ */
+
+/* 顶栏精简：去掉 meta-pill / topbar-form */
+.shell .topbar { flex: none; padding: 14px 28px 12px; gap: 14px; }
+.shell .topbar .crumb { font-size: 16px; letter-spacing: 2px; }
+.shell .topbar .crumb .meta { color: var(--muted); font-size: 12.5px; margin-left: 4px; }
+
+/* —— 智能录入（紧凑单行）—— */
+.nl-compact {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.nl-compact textarea.ctrl {
+  flex: 1;
+  min-height: 64px;
+  max-height: 140px;
+  resize: vertical;
+  padding: 12px 14px;
+  line-height: 1.65;
+  background: linear-gradient(180deg, #fffefa 0%, #faf6ec 100%);
+  border-color: var(--line-2);
+}
+.nl-compact .btn { align-self: stretch; padding: 0 18px; white-space: nowrap; }
+.nl-compact .btn.primary { font-weight: 600; letter-spacing: 1px; }
+
+/* —— 合同信息卡头右侧：币种/编号/签署日期 —— */
+.basic-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.basic-bar .pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background: linear-gradient(135deg, var(--ink) 0%, var(--ink-2) 100%);
+  color: #f1ead7;
+  border-radius: 2px;
+  font-family: "Noto Serif SC", serif;
+  font-size: 12px;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+.basic-bar .lbl {
+  font-family: "Noto Serif SC", serif;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin-left: 4px;
+}
+.basic-bar .h-inp {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  color: var(--ink-text);
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--paper);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.basic-bar .h-inp.num { width: 100px; }
+.basic-bar .h-inp.date { width: 140px; }
+.basic-bar .h-inp:hover { border-color: var(--line-2); }
+.basic-bar .h-inp:focus { border-color: var(--ink-3); box-shadow: 0 0 0 2px rgba(53, 94, 79, 0.18); }
+
+/* —— 合同信息卡头：朱砂竖条渐变 + 印章色标题 —— */
+.shell .card .card-head {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(176, 74, 62, 0.04) 0%, transparent 30%);
+}
+.shell .card .card-head h3 {
+  font-family: "Noto Serif SC", serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: var(--ink);
+  position: relative;
+  padding-left: 12px;
+}
+.shell .card .card-head h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
+  border-radius: 1px;
+}
+
+/* 币种内联小控件（价款 label 内，替代整格 select） */
+.cur-inline {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border: none;
+  border-bottom: 1px dotted var(--line-2);
+  background: transparent;
+  padding: 0 2px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  font-family: "Noto Sans SC", sans-serif;
+  outline: none;
+}
+.cur-inline:hover { color: var(--accent); }
+.cur-inline:focus { border-bottom-color: var(--accent); }
+
+
+/* —— 字段左侧 AI / 必填细带 —— */
+.field {
+  position: relative;
+}
+.field.is-ai::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  background: var(--amber-line);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.field.is-miss::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  background: var(--warn);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.field.is-ai label { color: #8a5a1f; }
+.field.is-ai label::after {
+  content: "AI";
+  margin-left: 6px;
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--amber);
+  border: 1px solid var(--amber-line);
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #8a5a1f;
+  vertical-align: middle;
+}
+
+
+/* —— 付款表（精致双线表头 + tabular-nums + AI 行细带） —— */
+.pay-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pay-table thead {
+  background: linear-gradient(180deg, #faf5e9 0%, #f3ecda 100%);
+}
+.pay-table th {
+  padding: 10px 10px;
+  font-family: "Noto Serif SC", serif;
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 2px;
+  color: var(--ink);
+  text-align: left;
+  border-bottom: 2px double var(--line-2);
+}
+.pay-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  font-size: 13px;
+}
+.pay-table tr:last-child td { border-bottom: none; }
+.pay-table tbody tr:hover td { background: #fdfbf4; }
+.pay-table tbody tr.ai td { background: linear-gradient(90deg, var(--amber) 0%, transparent 60%); }
+
+/* 期数列：朱砂小方块 + 序号 */
+.pay-table .seq {
+  font-family: "Noto Serif SC", serif;
+  color: var(--ink);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.pay-table .seq .seq-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: #fbf2ec;
+  border-radius: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  vertical-align: -4px;
+}
+
+/* 付款表内 input 紧凑 */
+.pay-table .p-in {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #fffefa;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink-text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pay-table .p-in:hover { border-color: var(--line-2); }
+.pay-table .p-in:focus { border-color: var(--ink-3); box-shadow: 0 0 0 2px rgba(53, 94, 79, 0.18); }
+.pay-table .p-in[type="number"] { text-align: right; font-variant-numeric: tabular-nums; }
+.pay-table .p-cn {
+  display: block;
+  margin-top: 3px;
+  font-family: "Noto Serif SC", serif;
+  font-size: 11px;
+  color: var(--accent-2);
+  letter-spacing: 1px;
+}
+
+/* —— 合计行：渐变 + 印章动画 —— */
+.sum-line {
+  position: relative;
+  margin-top: 14px;
+  padding: 14px 18px 14px 16px;
+  background: linear-gradient(90deg, #faf6ec 0%, var(--paper) 70%);
+  border-left: 3px solid var(--ink-3);
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--ink-text);
+}
+.sum-line .big {
+  font-family: "Noto Serif SC", serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 1.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sum-line .big-cn {
+  font-family: "Noto Serif SC", serif;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+.sum-line.ok {
+  background: linear-gradient(90deg, #e6f0e3 0%, var(--paper) 70%);
+  border-left-color: var(--ok);
+}
+.sum-line.bad {
+  background: linear-gradient(90deg, #fbe5e0 0%, var(--paper) 70%);
+  border-left-color: var(--warn);
+}
+.sum-line .seal-mini {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  font-family: "Noto Serif SC", serif;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0;
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(176, 74, 62, 0.35);
+  margin-left: 6px;
+  transform: rotate(-6deg);
+  animation: sealPop 0.35s ease-out;
+}
+@keyframes sealPop {
+  from { transform: rotate(-6deg) scale(0.4); opacity: 0; }
+  to   { transform: rotate(-6deg) scale(1);   opacity: 1; }
+}
+
+/* 卡内 note 条 */
+.note-strip-in-card {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fdf8ec;
+  border: 1px solid var(--amber-line);
+  border-radius: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: #8a5a1f;
+  font-family: "Noto Serif SC", serif;
+  letter-spacing: 0.5px;
+}
+.note-strip-in-card span::before { content: "· "; color: var(--accent); }
+
+/* —— 底部操作栏：主区 flex 底栏，常驻可见 —— */
+.action-bar {
+  border-top: 1px solid var(--line-2);
+  box-shadow: 0 -10px 24px -18px rgba(40, 30, 15, 0.18);
+  padding: 14px 28px 16px;
+}
+.shell .action-bar .btn.accent.lg {
+  padding: 12px 28px;
+  font-family: "Noto Serif SC", serif;
+  font-size: 15px;
+  letter-spacing: 3px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  border: none;
+  color: #fbf2ec;
+  border-radius: 2px;
+  box-shadow: 0 4px 14px -4px rgba(176, 74, 62, 0.55);
+}
+.shell .action-bar .btn.accent.lg:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 6px 18px -4px rgba(176, 74, 62, 0.65);
+}
+
+/* ============================================================
+   v3.1 · 提取体验三件套：必填已填淡绿 / 全屏进度升级 / 解析提示弹窗
+   ============================================================ */
+
+
+/* —— 解析提示弹窗（遗漏集中提示，可关闭） —— */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 320;
+  background: rgba(27, 24, 20, 0.42);
+  backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.18s ease-out;
+}
+.modal-card {
+  width: 470px; max-width: 92vw;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-top: 3px solid #d8a93b;
+  border-radius: 4px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  animation: toastIn 0.22s ease-out;
+}
+.modal-head {
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(216, 169, 59, 0.08) 0%, transparent 40%);
+}
+.modal-head h3 {
+  margin: 0; padding-left: 12px; position: relative;
+  font-family: "Noto Serif SC", serif;
+  font-size: 15.5px; letter-spacing: 2px; font-weight: 600; color: var(--ink);
+}
+.modal-head h3::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 15px; background: #d8a93b; border-radius: 1px;
+}
+.modal-body {
+  padding: 14px 22px 8px; max-height: 46vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.modal-foot { padding: 14px 22px 18px; display: flex; justify-content: flex-end; }
+
+/* ============================================================
+   v3.2 · 合同信息 = 档案证件式（方案A落地）
+   每组一张档案卡：宋体栏位 + 点线分隔 + 淡水印 + 壹/貳印章；
+   价款并入最后一组（商品/标的信息）。状态：AI=琥珀标签 / miss=朱砂虚线 / done=绿点。
+   ============================================================ */
+.id-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 20px;
+}
+.idcard {
+  position: relative; overflow: hidden;
+  background: #fffdf8; border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 16px 20px 10px;
+  box-shadow: 0 12px 32px -20px rgba(40, 30, 15, 0.28);
+}
+.idcard::after {
+  content: attr(data-wm); position: absolute; right: -4px; bottom: -20px;
+  font-family: "Noto Serif SC", serif; font-weight: 900; font-size: 88px;
+  color: rgba(29, 58, 47, 0.05); letter-spacing: 6px; pointer-events: none;
+}
+.id-head {
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 2px solid var(--ink); padding-bottom: 8px; margin-bottom: 4px;
+}
+.id-head .t {
+  font-family: "Noto Serif SC", serif; font-size: 14px; font-weight: 600;
+  letter-spacing: 3px; color: var(--ink);
+}
+.id-head .stamp {
+  margin-left: auto; width: 28px; height: 28px; border: 1.5px solid var(--accent);
+  color: var(--accent); border-radius: 50%; display: inline-flex; align-items: center;
+  justify-content: center; font-family: "Noto Serif SC", serif; font-weight: 900;
+  font-size: 12.5px; transform: rotate(-8deg); opacity: .85; flex: none;
+}
+.id-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 2px; border-bottom: 1px dashed var(--line);
+}
+.id-row:last-child { border-bottom: none; }
+.id-row label {
+  width: 118px; flex: none; font-size: 12px; color: var(--muted);
+  letter-spacing: 1px; line-height: 1.4; display: flex; align-items: center; gap: 4px;
+}
+.id-row label .req { color: var(--accent); font-weight: 700; }
+.id-row .ctrl-id {
+  flex: 1; min-width: 0; border: none; border-bottom: 1.5px solid var(--line-2);
+  background: transparent; outline: none; padding: 3px 4px;
+  font-family: "Noto Serif SC", serif; font-size: 15px; color: var(--ink-text);
+  transition: border-color .15s, background .15s;
+}
+.id-row .ctrl-id:focus { border-bottom-color: var(--accent); background: #fffaf0; }
+.id-row .ctrl-id:disabled { color: var(--muted); cursor: not-allowed; }
+.id-row .ctrl-id.money {
+  text-align: right; font-weight: 700; font-size: 17px; color: var(--accent);
+  font-variant-numeric: tabular-nums; letter-spacing: 1px;
+}
+/* 状态 */
+.id-row.done label::before { content: "●"; color: var(--ok); font-size: 8px; margin-right: 5px; }
+.id-row.miss .ctrl-id { border-bottom-style: dashed; border-bottom-color: var(--warn); background: rgba(247, 228, 220, 0.3); }
+.id-row.miss label { color: var(--warn); }
+.st-ai {
+  font-size: 9.5px; color: #8a5a1f; background: var(--amber);
+  border: 1px solid var(--amber-line); border-radius: 2px;
+  padding: 1px 5px; letter-spacing: 1px; font-weight: 600; flex: none;
+}
+/* 价款行：档案卡底部的强调行 */
+.id-row.fee {
+  flex-wrap: wrap; border-top: 1px solid var(--line-2);
+  margin-top: 6px; padding-top: 12px; background: linear-gradient(90deg, rgba(250, 245, 233, .7) 0%, transparent 70%);
+}
+.id-row.fee .fee-cn {
+  flex-basis: 100%; text-align: right; margin-top: 2px;
+  font-family: "Noto Serif SC", serif; font-size: 11.5px; color: var(--accent-2);
+  letter-spacing: 2px;
+}
+
+/* 价款行：币种下拉在编辑区（金额前），与 label 解耦不挤压 */
+.id-row.fee .cur-inline { flex: none; margin: 0 6px 0 0; align-self: center; }
+
+/* ============================================================
+   v3.3 · AI 提取全屏进度：深墨幕布 + 纸面仪式感
+   深墨绿渐变幕布 + 巨字水印；中央米白纸面（印刷角线）承载
+   轮播阶段文案 → 完成时"成"章落下（失败"待"章）；底部墨线进度。
+   ============================================================ */
+.fs-mask {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #2c5747 0%, var(--ink) 52%, #142720 100%);
+  animation: fsIn .28s ease-out;
+}
+.fs-mask::after {  /* 幕布颗粒 */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.93 0 0 0 0 0.85 0 0 0 0.05 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}
+@keyframes fsIn { from { opacity: 0; } to { opacity: 1; } }
+/* 幕布巨字水印 */
+.fs-wm {
+  position: absolute; font-family: "Noto Serif SC", serif; font-weight: 900;
+  color: rgba(241, 234, 215, 0.045); user-select: none; pointer-events: none;
+}
+.fs-wm.w1 { font-size: 300px; left: 6vw; top: 8vh; animation: fsFloat 9s ease-in-out infinite; }
+.fs-wm.w2 { font-size: 240px; right: 7vw; bottom: 4vh; animation: fsFloat 11s ease-in-out infinite reverse; }
+@keyframes fsFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-18px); } }
+
+/* 纸面 */
+.fs-paper {
+  position: relative; width: 430px; max-width: 92vw;
+  background: linear-gradient(180deg, #fdfaf1 0%, #f8f3e4 100%);
+  border-radius: 3px; padding: 26px 30px 20px;
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(241, 234, 215, 0.12);
+  animation: fsPaper .38s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes fsPaper { from { transform: translateY(26px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+/* 印刷角线 */
+.fs-c { position: absolute; width: 14px; height: 14px; border-color: rgba(176, 74, 62, .5); border-style: solid; border-width: 0; }
+.fs-c.tl { top: 8px; left: 8px; border-top-width: 1.5px; border-left-width: 1.5px; }
+.fs-c.tr { top: 8px; right: 8px; border-top-width: 1.5px; border-right-width: 1.5px; }
+.fs-c.bl { bottom: 8px; left: 8px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.fs-c.br { bottom: 8px; right: 8px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+.fs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.fs-brand { font-family: "Noto Serif SC", serif; font-size: 12.5px; letter-spacing: 4px; color: var(--muted); }
+.fs-timer { font-size: 11px; color: var(--muted-2); letter-spacing: .5px; }
+.fs-timer b { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.fs-center {
+  min-height: 128px; display: flex; align-items: center; justify-content: center;
+  margin: 6px 0 10px;
+}
+.fs-phrase {
+  font-family: "Noto Serif SC", serif; font-size: 20px; font-weight: 600;
+  letter-spacing: 7px; color: var(--ink); text-indent: 7px;
+}
+.fsfade-enter-active, .fsfade-leave-active { transition: all .45s ease; }
+.fsfade-leave-to { opacity: 0; transform: translateY(-10px); filter: blur(3px); }
+.fsfade-enter-from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
+
+/* 完成章 / 失败章 */
+.fs-seal-big {
+  width: 84px; height: 84px; display: flex; align-items: center; justify-content: center;
+  border: 3px double var(--accent); border-radius: 50%;
+  color: var(--accent); font-family: "Noto Serif SC", serif; font-weight: 900; font-size: 38px;
+  transform: rotate(-8deg);
+  box-shadow: 0 10px 24px -10px rgba(176, 74, 62, 0.5), inset 0 0 0 4px rgba(176, 74, 62, 0.06);
+  animation: fsStamp .5s cubic-bezier(.3, 1.6, .5, 1) both;
+}
+.fs-seal-big.bad { border-color: var(--warn); color: var(--warn); font-size: 30px; }
+@keyframes fsStamp {
+  0% { transform: rotate(-14deg) scale(1.9); opacity: 0; }
+  60% { transform: rotate(-8deg) scale(.92); opacity: 1; }
+  100% { transform: rotate(-8deg) scale(1); opacity: 1; }
+}
+
+/* 墨线进度：运行=朱砂墨条游走；完成=整线转绿；失败=转红 */
+.fs-ink { height: 4px; border-radius: 2px; background: rgba(29, 58, 47, 0.12); overflow: hidden; margin-bottom: 14px; }
+.fs-ink span { display: block; height: 100%; width: 34%; border-radius: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 30%, #d8a93b 70%, transparent 100%); }
+.fs-ink span.run { animation: fsInk 1.3s ease-in-out infinite; }
+@keyframes fsInk { 0% { margin-left: -36%; } 100% { margin-left: 102%; } }
+.fs-ink span.ok { width: 100%; margin: 0; background: var(--ok); transition: all .5s ease; }
+.fs-ink span.bad { width: 100%; margin: 0; background: var(--warn); transition: all .3s ease; }
+
+/* 双任务步骥 */
+.fs-steps { display: flex; gap: 10px; }
+.fs-step {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 3px; padding: 8px 12px;
+  font-size: 12px; color: var(--muted); letter-spacing: 1px; background: rgba(255, 253, 248, .6);
+  transition: all .2s;
+}
+.fs-step em { margin-left: auto; font-style: normal; font-size: 11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.fs-step .fs-si { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; transition: all .2s; }
+.fs-step.run { border-color: var(--amber-line); background: var(--amber); color: #6e5a25; }
+.fs-step.run .fs-si { background: #d8a93b; animation: fsPulse 1s ease-in-out infinite; }
+.fs-step.run em { color: #a1802f; }
+.fs-step.done { border-color: #c8dac1; background: #eef4ea; color: #3d5e44; }
+.fs-step.done .fs-si { background: var(--ok); }
+.fs-step.done em { color: var(--ok); }
+.fs-step.fail { border-color: #f0d2c8; background: #fbe9e3; color: var(--accent); }
+.fs-step.fail .fs-si { background: var(--warn); }
+.fs-step.fail em { color: var(--warn); }
+@keyframes fsPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(216,169,59,.5); } 50% { box-shadow: 0 0 0 5px rgba(216,169,59,0); } }

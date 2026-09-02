@@ -153,17 +153,44 @@ def _parse_amount_cells(row, cfg):
 
 # ---------------- 格式指纹 ----------------
 
+def _fmt_of(r):
+    """单个 run 的格式签名（字体/字号/加粗/颜色）。"""
+    f = r.font
+    color = None
+    try:
+        color = str(f.color.rgb) if f.color and f.color.rgb else None
+    except Exception:
+        color = None
+    return (f.name, str(f.size) if f.size else None, bool(f.bold), color)
+
+
 def _run_sig(p):
     sigs = []
     for r in p.runs:
-        f = r.font
-        color = None
-        try:
-            color = str(f.color.rgb) if f.color and f.color.rgb else None
-        except Exception:
-            color = None
-        sigs.append((f.name, str(f.size) if f.size else None, bool(f.bold), color))
+        sigs.append(_fmt_of(r))
     return (p.style.name, str(p.alignment), tuple(sigs))
+
+
+def _body_run_sig(p):
+    """段落正文 run（最长非空 run）的格式签名——文字应挂在它上面。
+    指纹只比对 run 格式序列不看文字归属，文字若写进加粗前缀等特殊 run
+    序列不变但视觉已跑偏，此签名专抓该类问题。"""
+    runs = [r for r in p.runs if r.text]
+    if not runs:
+        return None
+    return _fmt_of(max(runs, key=lambda r: len(r.text)))
+
+
+def _fmt_multiset(row):
+    """一行内所有非空 run 的格式计数（比对生成行是否出现模板没有的格式）。"""
+    from collections import Counter
+    c = Counter()
+    for cell in row.cells:
+        for p in cell.paragraphs:
+            for r in p.runs:
+                if r.text:
+                    c[_fmt_of(r)] += 1
+    return c
 
 
 def _tbl_texts(t):
@@ -227,16 +254,32 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
             if _run_sig(a) != _run_sig(b):
                 issues.append("条款区之后段落格式变化")
                 break
-    # 条款区：段数=预期；每段样式签名=模板该区首段
+    # 条款区：段数=预期；改写块签名=模板首段，且文字必须落在正文 run 上；
+    # 未改写（default）时逐段与模板同序比对
     if report.get("section_paras"):
         n_expect = report["section_paras"]
         if oe - os_ != n_expect:
             issues.append(f"付款条款段数 {oe - os_} ≠ 预期 {n_expect}")
-        base_sig = _run_sig(tp[ts])
-        for p in op[os_:oe]:
-            if _run_sig(p) != base_sig:
-                issues.append("付款条款段落样式与模板不一致")
-                break
+        rw = report.get("payment_rewrite")
+        if rw:
+            a, b = rw
+            seg = op[os_ + a:os_ + b]
+            base_sig = _run_sig(tp[ts])
+            for p in seg:
+                if _run_sig(p) != base_sig:
+                    issues.append("付款条款段落样式与模板不一致")
+                    break
+            body = _body_run_sig(tp[ts])
+            if body:
+                for p in seg:
+                    if p.text.strip() and _body_run_sig(p) != body:
+                        issues.append("付款条款正文格式与模板不一致（文字落到了特殊格式 run）")
+                        break
+        else:
+            for p, q in zip(tp[ts:te], op[os_:oe]):
+                if _run_sig(p) != _run_sig(q):
+                    issues.append("付款条款段落样式与模板不一致")
+                    break
 
     # 表格：除设计内会变的表（甲乙双方/数据表/费用表/换车费表）外，其余必须一致
     skip_anchors = [cfg["fee_table_anchor"], cfg["party_table_anchor"]]
@@ -263,29 +306,43 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         if _tbl_texts(t_t) != _tbl_texts(t_o):
             issues.append(f"表格内容被意外改动：{t_first[:15]}")
 
-    # 费用表：列数一致；行样式签名=模板同标签行（无同标签时回退模板第1数据行）；标签符合预期
+    # 费用表：custom 日期列模式下允许列数 +1；行样式签名=模板同标签行（无同标签时回退模板第1数据行）；标签符合预期
     tpl_fee = W.find_table(tpl, cfg["fee_table_anchor"])
     out_fee = W.find_table(out, cfg["fee_table_anchor"])
     if tpl_fee is None or out_fee is None:
         issues.append("找不到费用表")
         return issues
-    if len(tpl_fee.columns) != len(out_fee.columns):
+    extra_cols = 1 if report.get("date_column") else 0
+    if len(tpl_fee.columns) + extra_cols != len(out_fee.columns):
         issues.append("费用表列数与模板不一致")
 
-    def _row_sig(row):
-        return tuple(_run_sig(p) for c in row.cells for p in c.paragraphs)
+    def _row_sig(row, trim=0):
+        cells = row.cells[: len(row.cells) - trim] if trim else row.cells
+        return tuple(_run_sig(p) for c in cells for p in c.paragraphs)
 
     sig_by_label = {r.cells[0].text.strip(): _row_sig(r) for r in tpl_fee.rows}
     fallback_sig = _row_sig(tpl_fee.rows[1])
     for row in out_fee.rows:
         label = row.cells[0].text.strip()
         expect = sig_by_label.get(label, fallback_sig)
-        if _row_sig(row) != expect:
+        if _row_sig(row, extra_cols) != expect:
             issues.append(f"费用表行样式与模板不一致：{label[:15]}")
             break
     expect_labels = report.get("fee_rows") or []
     actual_labels = [r.cells[0].text.strip() for r in out_fee.rows]
     if expect_labels and actual_labels != expect_labels:
         issues.append(f"费用表行标签与预期不符：{actual_labels}")
+    # 生成行非空 run 的格式必须都在模板同标签行（无同标签回退第1数据行）出现过，
+    # 否则说明写入文字挂到了模板中不存在的格式上（文字落点跑偏）
+    ms_by_label = {r.cells[0].text.strip(): _fmt_multiset(r) for r in tpl_fee.rows}
+    fb_ms = _fmt_multiset(tpl_fee.rows[1])
+    for row in out_fee.rows:
+        label = row.cells[0].text.strip()
+        expect_ms = ms_by_label.get(label, fb_ms)
+        got_ms = _fmt_multiset(row)
+        if got_ms and got_ms - expect_ms:
+            extra = sorted(got_ms - expect_ms)
+            issues.append(f"费用表出现模板中没有的格式：{label[:15]} {extra}")
+            break
 
     return issues

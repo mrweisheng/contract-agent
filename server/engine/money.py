@@ -1,9 +1,54 @@
 # -*- coding: utf-8 -*-
 """数字金额 → 中文大写（人民币/港币通用，模板格式为「……元整」）"""
+import re
 
 _DIGITS = "零壹贰叁肆伍陆柒捌玖"
 _UNITS = ["", "拾", "佰", "仟"]
 _GROUPS = ["", "万", "亿", "兆"]
+
+CURRENCIES = ("HKD", "CNY")
+
+_CUR_PREFIX_RE = re.compile(r"^(hk\$|rmb|rmb\$|¥|￥|cny|hkd)", re.IGNORECASE)
+
+
+def clean_amount(value, field_name: str = "金额") -> int:
+    """严格把任意输入解析为整数金额。
+
+    接受：int、整数值浮点（500000.0）、带千分位或货币符号的字符串（"500,000" / "HK$500000"）。
+    拒绝：带小数部分的值（500000.7）、含中文单位（"50万"）、空值、其它非数字内容。
+    一律抛 ValueError（由 API 层转 422），**绝不静默截断**——合同金额必须与约定一致。
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise ValueError(f"{field_name}不能为空")
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name}格式不正确：{value!r}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{field_name}必须为整数（合同为「元整」格式），当前为 {value}")
+        return int(value)
+    s = str(value).strip()
+    s = _CUR_PREFIX_RE.sub("", s).replace(",", "").replace("，", "").replace(" ", "")
+    if not s:
+        raise ValueError(f"{field_name}格式不正确：{value!r}")
+    if not re.fullmatch(r"\d+(\.\d+)?", s):
+        raise ValueError(
+            f"{field_name}「{value}」无法识别为数字金额，请填写阿拉伯数字（如 500000），不要使用「万」等中文单位")
+    if "." in s:
+        int_part, frac = s.split(".", 1)
+        if frac.strip("0"):
+            raise ValueError(f"{field_name}必须为整数（合同为「元整」格式），当前为 {value}")
+        s = int_part
+    return int(s)
+
+
+def clean_currency(code, field_name: str = "币种") -> str:
+    """币种白名单校验，非法币种抛 ValueError（转 422）而不是 KeyError（500）。"""
+    c = str(code or "").strip().upper()
+    if c not in CURRENCIES:
+        raise ValueError(f"{field_name}「{code}」不支持，可选：{' / '.join(CURRENCIES)}")
+    return c
 
 
 def _four_digits(n: int) -> str:

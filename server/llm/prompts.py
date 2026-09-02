@@ -29,6 +29,8 @@ def extract_messages(type_key: str, text: str) -> list:
         "规则：只输出 JSON 对象，不输出任何解释；没提到的字段填 null；"
         "金额只能是纯整数数字（不带货币符号、不带千分位）；日期统一为 YYYY-MM-DD；"
         "口岸必须从给定可选值中选；不要编造描述中没有的信息。"
+        "notes 只列需要用户核对的问题（如同一信息前后矛盾、描述含糊），"
+        "禁止输出抽取过程说明、正常确认或技术字段名，无问题时输出空数组。"
     )
     user_p = (
         f"业务类型：{cfg['label']}。待抽取字段：\n{_field_lines(cfg)}\n"
@@ -44,33 +46,43 @@ def extract_messages(type_key: str, text: str) -> list:
 
 def parse_payment_messages(type_key: str, currency: str, total: int, text: str, sign_date: str = "") -> list:
     cfg = get_type(type_key)
-    default_desc = ""
-    if type_key == "car":
-        default_desc = "默认两段：订金＋尾款（签约时定日期，尾款于指定日期或过户当日付）"
-    else:
-        default_desc = "默认三期：定金（签约即日）→ 第二期款 → 尾款（事件触发）"
+    preset = cfg.get("pay_preset") or []
+    plines = "\n".join(
+        f"{i + 1}. {p['label']}：{p.get('event') or '签约当日（trigger_date＝签署日期）'}"
+        for i, p in enumerate(preset)
+    )
     sys_p = (
         "你是付款计划解析助手。把客户口头约定解析成结构化分期数据，输出严格 JSON，不输出解释。"
-        "规则：amount 必须是纯整数；trigger 为该期付款条件的简洁中文描述（如「签约当日支付」「每月10号支付」「完成股权转让后3日内支付」）；"
-        "trigger_type 取值：date（具体日期型）/ event（事件触发型）/ mixed（混合）；"
-        "如果描述就是把货款/费用一次付清，mode 填 one_time；如果是常规的按合同默认分期，mode 填 default；其余任何分期方式 mode 填 custom。"
-        "【关键】trigger_date 必须输出为 YYYY-MM-DD 格式的绝对日期，"
-        "基于「合同签署日期」推算所有相对描述："
+        "规则：amount 必须是纯整数；"
+        "label 为该笔款项的称呼，只从客户原话中提取（如「定金」「订金」「尾款」「余款」「首期款」），2~6 个字，"
+        "客户没有明确称呼这笔款项时 label 填 null，禁止编造或自行起名；"
+        "trigger 为该期付款条件的简洁中文描述；"
+        "【关键】trigger_date 仅当能基于「合同签署日期」推算出绝对日期时输出为 YYYY-MM-DD："
         "「签约当日」「签约时」→ 等于签署日期；"
         "「之后每月 10 号」「下月起每月 10 号」→ 签约次月起每月 10 日（依次递增）；"
         "「下个月」「次月」→ 签约次月；"
         "「3 日内」「5 个工作日内」→ 签署日期后 3/5 个工作日；"
-        "无法推算的事件型 trigger（如「完成过户后」），trigger_date 填 null，trigger 保留原描述。"
+        "事件型条件（如「完成过户后」「领铁牌时」「获编号后 1 个工作日内」）无法推算绝对日期，trigger_date 填 null，trigger 保留原描述。"
+        f"\n该类型合同模板预设付款计划：\n{plines}\n"
+        "【matches_preset 判定】客户约定的期数与预设一致、且各期触发节点与预设含义相同（仅金额可以不同）→ "
+        "matches_preset=true，并把每期 trigger 改写为上面预设的原文（预设为「签约当日」的行 trigger 填「签约当日支付」、trigger_date 填签署日期）；"
+        "期数不同、任一节点含义不同、或一次性付清 → matches_preset=false，按客户描述如实输出各期。"
+        "【notes 纪律】notes 只列需要用户核对处理的问题（如金额与总价对不上、日期矛盾、描述含糊无法定分期）；客户分期期数或付款节点与模板预设不同不是问题（系统自动按自定义分期处理），禁止输出任何「与预设不符/不一致」类说明；各期合计与总金额一致属正常，同样禁止输出；"
+        "禁止输出解析过程说明、正常确认（如币种一致、期数说明、日期推算依据）或任何技术字段名，无问题时输出空数组。"
+        "【逐期对照改写】无论 matches_preset 真假，每一期 trigger 都要与上面预设逐条对照："
+        "客户表述与预设某期触发节点含义相同时（仅口语与书面的措辞差异，"
+        "如「完成转股当天付」＝「甲方完成目标公司股权转让法律文件并书面通知乙方当日支付」），"
+        "该期 trigger 必须改写为该预设行的原文表述，使合同用语与模板专业措辞一致；"
+        "预设中找不到含义对应节点的期次，保持客户原意如实描述。"
     )
     sign_hint = f"\n合同签署日期：{sign_date}（请基于此日期推算所有相对日期）" if sign_date else "\n合同签署日期：未提供（请尽量以 trigger 描述中可识别的日期为准，无法识别时 trigger_date 填 null）"
+    total_line = f"总金额 {total}" if total else "总金额未提供（以描述中的各期金额为准）"
     user_p = (
-        f"业务类型：{cfg['label']}；总金额 {total}；表单已选币种 {currency}（若描述中的币种与此不同，在 notes 里说明）。{sign_hint}\n"
-        f"该类型合同默认付款方式：{default_desc}。\n"
+        f"业务类型：{cfg['label']}；{total_line}；表单已选币种 {currency}（若描述中的币种与此不同，在 notes 里说明）。{sign_hint}\n"
         f"客户约定描述：\n{text}\n\n"
-        '输出格式：{"mode": "default|one_time|custom", "currency": "HKD|CNY|null", '
-        '"one_time": {"date": "YYYY-MM-DD|null", "event": "事件描述或null", "choice": "较早者|较晚者"}, '
-        '"installments": [{"seq": 1, "amount": 数字, "trigger": "付款条件描述", "trigger_date": "YYYY-MM-DD|null", "trigger_type": "date|event|mixed"}], '
-        '"notes": ["提示"]}'
+        '输出格式：{"matches_preset": true|false, '
+        '"installments": [{"seq": 1, "amount": 数字, "label": "款项称呼或null", "trigger": "付款条件描述", "trigger_date": "YYYY-MM-DD|null"}], '
+        '"notes": ["需用户核对的问题（无则空数组）"]}'
     )
     return [{"role": "system", "content": sys_p}, {"role": "user", "content": user_p}]
 
@@ -80,15 +92,22 @@ def review_messages(contract_text: str, summary: str) -> list:
         "你是合同质检员。给你「客户业务约定摘要」和「生成的合同全文」，检查合同是否准确反映约定。"
         "重点检查以下几类问题："
         "1) 【金额一致性】总价、各期金额、币种是否与约定一致；"
-        "2) 【日期明确性】付款条款是否使用具体日期（YYYY-MM-DD 或 X年X月X日），"
-        "   若仍使用相对描述（如「签约当日」「每月 10 号」「下个月」）且没有展开为绝对日期，"
-        "   视为问题（应明确具体哪一天）；"
+        "2) 【付款时点完整性】每一期款项必须有明确的付款时间、节点或条件之一，只有以下算问题："
+        "   ① 日期型描述（如「签约当日」「每月 10 号」「下个月」）应已展开为绝对日期"
+        "   （X年X月X日），仍为相对描述则视为问题；"
+        "   ② 某期既无日期也无事件条件（如仅写「按双方约定」「另行协商」），视为问题；"
+        "   事件触发型（如「过户完成当天」「取得批文后 3 日内」「交付铁牌时」）依赖未来事项，"
+        "   本身无确定日期，属正常且严谨的表述，不视为问题，只要求合同所载事件与客户约定一致"
+        "（客户约定以摘要中「各期节点」及「客户原话」为准，二者均无时才视为无约定时点）；"
         "3) 【冗余重复】多期付款描述中是否存在完全相同的修饰语被每期重复，"
         "   例如「共 N 期」「由乙方支付予甲方」这种只在第一期说一次就够的内容；"
-        "4) 【表格与文字信息重复堆叠】若费用表已列出「第一期 HK$100,000」，"
-        "   下方条款文字段是否再次完整重复该金额（应只在文字段描述付款时点，金额已在表格中）；"
+        "4) 【表格与文字信息重复堆叠】费用表已列明各期金额及付款日期时，"
+        "   下方付款条款不逐期复述日期或金额（一句话总括即可）——这是有意设计，"
+        "   正文未复述金额/日期不构成信息缺失，不得据此报告问题；"
         "5) 【主体信息】甲乙方信息是否正确填入。"
-        "只输出事实性问题,不评价合同排版美观度。输出严格 JSON。"
+        "只输出事实性问题，不评价合同排版美观度；issues 只列需要人工处理的缺陷，"
+        "「信息正确」「与约定一致」「未发现问题」等检查通过项严禁写入 issues，"
+        "全部无误时输出 pass=true 且 issues=[]。输出严格 JSON。"
     )
     user_p = (
         f"【客户业务约定摘要】\n{summary}\n\n"
@@ -113,17 +132,28 @@ def build_summary(type_key: str, form: dict, payment: dict) -> str:
     mode = payment.get("mode")
     if mode == "default":
         if type_key == "car":
-            parts.append(f"付款：订金 {payment.get('deposit_amount')}（{payment.get('deposit_date')}），尾款 {int(total) - int(payment.get('deposit_amount') or 0)} 于 {payment.get('balance_date')}（以{payment.get('choice')}为准）")
+            bd = payment.get("balance_date")
+            tail = f" 于 {bd} 或车辆完成过户登记当日" if bd else " 于车辆完成香港运输署过户登记手续当日"
+            parts.append(f"付款：订金 {payment.get('deposit_amount')}（{payment.get('deposit_date')}），尾款 {int(total) - int(payment.get('deposit_amount') or 0)}{tail}")
         else:
-            parts.append(f"付款：三期 {payment.get('pay1')}/{payment.get('pay2')}/{payment.get('pay3')}")
+            line = f"付款：三期 {payment.get('pay1')}/{payment.get('pay2')}/{payment.get('pay3')}"
+            nodes = [f"{p['label']}：{p.get('event') or '签约当日（即签署日期）'}" for p in cfg.get("pay_preset") or []]
+            if nodes:
+                line += f"（各期节点：{'；'.join(nodes)}）"
+            parts.append(line)
     elif mode == "one_time":
         parts.append(f"付款：一次性付清（{payment.get('pay_date')} {payment.get('pay_event') or ''}）")
     else:
-        rows = "；".join(
-            f"第{x.get('seq')}期 {x.get('amount')}（{x.get('trigger')}）"
-            for x in payment.get("installments", [])
-        )
-        parts.append(f"付款：自定义分期 {rows}")
-        if payment.get("source_text"):
-            parts.append(f"客户原话：{payment.get('source_text')}")
+        rows = []
+        for x in payment.get("installments", []):
+            lab = (x.get("label") or "").strip()
+            item = f"第{x.get('seq')}期" + (f"（{lab}）" if lab else "") + f" {x.get('amount')}"
+            if x.get("trigger_date"):
+                item += f"，推算日期 {x.get('trigger_date')}"
+            if x.get("trigger"):
+                item += f"（{x.get('trigger')}）"
+            rows.append(item)
+        parts.append(f"付款：自定义分期 {'；'.join(rows)}")
+    if payment.get("source_text"):
+        parts.append(f"客户原话：{payment.get('source_text')}")
     return "\n".join(str(x) for x in parts)

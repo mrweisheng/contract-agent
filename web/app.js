@@ -1,8 +1,12 @@
 /* 华星智能合同生成系统 · 前端
  * 布局：墨绿侧栏 + 米白主区，自写极简样式
  * 校验：必填项已填=绿光晕，未填=红光晕，AI回填=琥珀底
+ * 双模式加载：Vite 开发服务器（npm run dev，改完即自动刷新）
+ *            与 FastAPI 直出（start.bat，无需 Node）均适用
  */
-const { createApp, reactive, ref, computed, onMounted, nextTick } = Vue;
+import "/vendor/vue.global.prod.js";
+const { createApp, reactive, ref, computed, onMounted, nextTick } = window.Vue;
+if (import.meta.env?.DEV) import("/style.css");  // 开发态把样式纳入 Vite 模块图，改 CSS 也即时生效
 
 /* ---------- 工具 ---------- */
 const CN_D = "零壹贰叁肆伍陆柒捌玖";
@@ -66,9 +70,11 @@ const app = createApp({
     const aiFilled = reactive({});
     const nlText = ref("");
     const extractNotes = ref([]);
+    const warnNotes = ref([]);   // 问题类提示（未提及/币种不明等），只有它驱动弹窗
     const extracting = ref(false);
     const parsing = ref(false);
     const generating = ref(false);
+    const notesModal = ref(false);   // 解析提示弹窗（有遗漏/提示时自动弹出）
     const result = ref(null);
     const historyOpen = ref(false);
     const historyItems = ref([]);
@@ -80,15 +86,53 @@ const app = createApp({
       if (generating.value) elapsed.gen++; else elapsed.gen = 0;
     }, 1000);
 
-    const payment = reactive({
-      mode: "default",
-      deposit_amount: null, deposit_date: "", balance_date: "", choice: "较早者",
-      pay1: null, pay2: null, pay3: null,
-      pay_date: "", pay_event: "", one_choice: "较早者",
-      customText: "", installments: [],
-      parsedFromNL: false,    // 标记：是否经自然语言解析
-      parsedRaw: "",          // 解析时的原文
+    // 智能录入全屏进度：两个任务各自 run|done|skip|fail
+    const nlProg = reactive({ show: false, extract: "run", pay: "skip" });
+    // 派生态：总完成 / 任一失败 / 当前计时 / 轮播阶段文案
+    const allDone = computed(() => nlProg.extract === "done" && (nlProg.pay === "done" || nlProg.pay === "skip"));
+    const anyFail = computed(() => nlProg.extract === "fail" || nlProg.pay === "fail");
+    const activeSecs = computed(() => (nlProg.extract === "run" ? elapsed.extract : elapsed.parse));
+    const EXTRACT_PHRASES = ["正在理解客户描述", "正在识别主体信息", "正在提取业务字段", "正在核对口岸要素"];
+    const PAY_PHRASES = ["正在解析付款约定", "正在推算付款日期", "正在核对分期合计", "正在对齐模板条款"];
+    const loadingPhrase = computed(() => {
+      if (anyFail.value) return "解析未成功";
+      if (allDone.value) return "解析完成";
+      if (nlProg.extract === "run") return EXTRACT_PHRASES[elapsed.extract % EXTRACT_PHRASES.length];
+      return PAY_PHRASES[elapsed.parse % PAY_PHRASES.length];
     });
+
+    /* ---------- 在途请求管理（P1-1：防止切换业务类型后旧响应回填新表单）---------- */
+    // reqGen 每次切换业务类型自增；在途请求回调发现代次不符即丢弃结果
+    let reqGen = 0;
+    const pendingCtrls = new Set();
+
+    function cancelPending() {
+      reqGen += 1;
+      pendingCtrls.forEach(c => c.abort());
+      pendingCtrls.clear();
+      nlProg.show = false;
+      extracting.value = false;
+      parsing.value = false;
+    }
+
+    async function postJSON(url, body) {
+      const ctrl = new AbortController();
+      pendingCtrls.add(ctrl);
+      try {
+        const r = await fetch(url, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body), signal: ctrl.signal,
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.detail || "请求失败");
+        return data;
+      } finally {
+        pendingCtrls.delete(ctrl);
+      }
+    }
+
+    const payment = reactive({ rows: [], customText: "", parsedRaw: "" });
+    const payNotes = ref([]);
 
     const cfg = computed(() => types.value.find(t => t.key === selected.type) || null);
     const currencyLabel = c => ({ HKD: "港币 HK$", CNY: "人民币 ¥" }[c] || c);
@@ -128,20 +172,31 @@ const app = createApp({
       c.fee_fields.forEach(f => { form[f.key] = f.default !== undefined ? f.default : null; });
       form.port = selected.port;
     }
-    function resetPayment() {
-      Object.assign(payment, {
-        mode: "default", deposit_amount: null, deposit_date: "", balance_date: "",
-        choice: "较早者", pay1: null, pay2: null, pay3: null,
-        pay_date: "", pay_event: "", one_choice: "较早者",
-        customText: "", installments: [],
-        parsedFromNL: false, parsedRaw: "",
+    // 按合同模板预置分期行（金额待填；签约当日期预填签署日期，非卖车定金行锁定为签署日期）
+    function mkPresetRows(fill) {
+      return (cfg.value?.pay_preset || []).map((p, i) => {
+        const f = fill(i);
+        return {
+          seq: i + 1, label: f.label || p.label, amount: f.amount,
+          // 日期兜底仅限"签约当日"行（无事件的定金/订金行）；其余行客户没给就留空，绝不代填
+          date: (p.dated && !p.event) ? (f.date || form.sign_date || "") : (f.date || ""),
+          event: p.event || "",
+          preset: true,
+          lockDate: !!(p.dated && !p.event && !cfg.value?.car_default),
+        };
       });
+    }
+    function initPayment() {
+      payment.rows = mkPresetRows(() => ({ amount: null, date: "", label: "" }));
+      payment.customText = ""; payment.parsedRaw = "";
+      payNotes.value = [];
     }
     function selectMenu(it) {
       if (isActive(it)) return;
+      cancelPending();  // 作废在途的抽取/解析响应，避免旧类型数据回填新表单
       selected.type = it.key; selected.port = it.port;
-      result.value = null; extractNotes.value = [];
-      initForm(); resetPayment();
+      result.value = null; extractNotes.value = []; warnNotes.value = [];
+      initForm(); initPayment();
     }
 
     /* ---------- 必填字段校验 ---------- */
@@ -156,31 +211,20 @@ const app = createApp({
       if (c.port_required) s.add("port");
       return s;
     });
-    // 返回字段的 css class: { filled, missing, ai }
-    function fieldCls(key) {
-      const req = requiredKeys.value.has(key);
-      const val = form[key];
-      const filled = String(val ?? "").trim() !== "";
-      const ai = !!aiFilled[key];
-      return {
-        "is-required": req,
-        "is-filled": req && filled,
-        "is-missing": req && !filled,
-        "is-ai": ai,
-      };
-    }
 
     /* ---------- 智能抽取 ---------- */
     async function runExtract() {
       if (nlText.value.trim().length < 5) { toast("请先输入业务描述", "warn"); return; }
-      extracting.value = true; extractNotes.value = [];
+      extracting.value = true; extractNotes.value = []; warnNotes.value = [];
+      result.value = null;   // 新一轮解析开始：上一次的生成结果（含下载按钮）随之作废
+      const raw = nlText.value.trim();
+      const myGen = reqGen;  // 本次请求所属代次
+      // 付款约定就在原文里：与字段抽取并行解析，付款表可与表单回填同时出现
+      const payPromise = /付|款|分期|订金|定金|尾款/.test(raw) ? parseCustomText(raw, true) : null;
+      nlProg.show = true; nlProg.extract = "run"; nlProg.pay = payPromise ? "run" : "skip";
       try {
-        const r = await fetch("/api/extract", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: selected.type, text: nlText.value.trim() }),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.detail || "抽取失败");
+        const data = await postJSON("/api/extract", { type: selected.type, text: raw });
+        if (myGen !== reqGen) return;  // 期间切换了业务类型：丢弃旧响应，不回填新表单
         Object.entries(data.fields || {}).forEach(([k, v]) => {
           if (v === null || v === undefined) return;
           if (k === "quota_type") return;
@@ -192,84 +236,110 @@ const app = createApp({
         if (data.total) { form[totalKey.value] = data.total; aiFilled[totalKey.value] = true; }
         if (data.payment_text) {
           payment.customText = data.payment_text;
-          payment.parsedRaw = data.payment_text;
           extractNotes.value.push("已自动解析付款约定为分期表，请核对金额与条件");
-          // 自动调用付款解析(静默,不弹中间 toast)
-          await parseCustom(true);
+          // 并行解析未覆盖时（原文无付款关键词）退回串行解析
+          if (!payPromise) {
+            nlProg.pay = "run";
+            nlProg.pay = (await parseCustomText(data.payment_text, true)) ? "done" : "fail";
+          }
         }
-        (data.notes || []).forEach(n => extractNotes.value.push(n));
+        (data.notes || []).forEach(n => { extractNotes.value.push(n); warnNotes.value.push(n); });
         toast("已回填表单，请核对高亮字段", "ok");
       } catch (e) {
+        if (e.name === "AbortError") return;  // 主动取消（切换类型），不提示
         toast(String(e.message || e), "error");
-      } finally { extracting.value = false; }
+        nlProg.extract = "fail";
+      } finally {
+        extracting.value = false;  // 提取状态到此结束，付款解析由付款卡片自己的状态展示
+        if (myGen === reqGen && nlProg.extract === "run") nlProg.extract = "done";
+      }
+      if (myGen !== reqGen) return;  // 已切换类型，后续回填与遮罩收起都不再执行
+      if (payPromise) nlProg.pay = (await payPromise) ? "done" : "fail";
+      // 先展示印章、收起遮罩，再集中弹窗提示遗漏
+      const delay = nlProg.pay === "fail" ? 1600 : 1100;
+      setTimeout(() => {
+        nlProg.show = false;
+        if ([...warnNotes.value, ...payNotes.value].length) notesModal.value = true;
+      }, delay);
     }
 
     /* ---------- 付款解析 ---------- */
-    async function parseCustom(silent = false) {
-      const t = payment.customText.trim();
-      if (t.length < 3) { if (!silent) toast("请先填写付款约定的自然语言描述", "warn"); return; }
+    async function parseCustomText(t, silent = false) {
+      t = (t || "").trim();
+      if (t.length < 3) { if (!silent) toast("请先填写付款约定的自然语言描述", "warn"); return false; }
       parsing.value = true;
       payment.parsedRaw = t;
+      payNotes.value = [];
+      result.value = null;   // 付款计划即将变化：旧合同不再对应，清掉生成结果
+      const myGen = reqGen;  // 本次请求所属代次
       try {
-        const r = await fetch("/api/parse-payment", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: selected.type,
-            currency: form.currency,
-            total: total.value,
-            text: t,
-            sign_date: form.sign_date || "",
-          }),
+        const data = await postJSON("/api/parse-payment", {
+          type: selected.type,
+          currency: form.currency,
+          total: total.value,
+          text: t,
+          sign_date: form.sign_date || "",
         });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.detail || "解析失败");
-        if (data.mode === "default") {
-          payment.mode = "default";
-          if (!silent) toast("按合同默认分期处理", "ok");
-        } else if (data.mode === "one_time") {
-          payment.mode = "one_time";
-          const ot = data.one_time || {};
-          payment.pay_date = ot.pay_date || "";
-          payment.pay_event = ot.pay_event || "";
-          if (!silent) toast("已按一次性付清填充，请核对", "ok");
-        } else {
-          payment.mode = "custom";
-          payment.installments = (data.installments || []).map(x => ({
-            seq: x.seq, amount: parseInt(x.amount),
-            trigger: x.trigger || "",
-            trigger_date: x.trigger_date || "",
-            trigger_type: x.trigger_type || "event",
-            fromAI: true,
+        if (myGen !== reqGen) return false;  // 期间切换了业务类型：丢弃旧响应
+        const c = cfg.value?.pay_preset || [];
+        const inst = data.installments || [];
+        if (data.matches_preset && inst.length === c.length) {
+          // 与模板预设一致：保留预设行，只填金额与日期
+          payment.rows = mkPresetRows(i => ({
+            amount: inst[i].amount === null || inst[i].amount === undefined
+              ? null : parseInt(inst[i].amount),
+            date: inst[i].trigger_date || "",
+            label: (inst[i].label || "").trim().slice(0, 6),
           }));
-          payment.parsedFromNL = true;
-          if (!silent) toast(`已解析 ${payment.installments.length} 期（已基于签署日期展开为绝对日期）`, "ok");
+          if (!silent) toast("付款安排与合同模板一致，已填入各期金额，请核对", "ok");
+        } else {
+          payment.rows = inst.map((x, i) => ({
+            seq: i + 1,
+            label: (x.label || "").trim().slice(0, 6),
+            // 后端解析失败时 amount 为 null，此处保持空值让用户手动补（不再变成 NaN）
+            amount: x.amount === null || x.amount === undefined ? null : parseInt(x.amount),
+            date: x.trigger_date || "",
+            event: x.trigger || "",
+            preset: false,
+          }));
+          if (!silent) toast(`已按客户约定解析出 ${payment.rows.length} 期付款计划，请核对`, "ok");
         }
-        if (!silent) {
-          (data.notes || []).forEach(n => toast(n, "warn", 4500));
-        }
+        (data.notes || []).forEach(n => {
+          payNotes.value.push(n);
+          if (!silent) toast(n, "warn", 4500);
+        });
+        return true;
       } catch (e) {
+        if (e.name === "AbortError") return false;  // 主动取消（切换类型），不提示
         if (!silent) toast(String(e.message || e), "error");
-      } finally { parsing.value = false; }
+        else {
+          const msg = `付款约定自动解析未成功：${e.message || e}，请在付款计划中手动填写`;
+          extractNotes.value.push(msg); warnNotes.value.push(msg);
+        }
+        return false;
+      } finally { if (myGen === reqGen) parsing.value = false; }
     }
-    function addInst() {
-      payment.installments.push({
-        seq: payment.installments.length + 1, amount: null, trigger: "", trigger_type: "event"
-      });
+    function parseCustom() { return parseCustomText(payment.customText, false); }
+    function addRow() {
+      payment.rows.push({ seq: payment.rows.length + 1, label: "", amount: null, date: "", event: "", preset: false });
     }
-    function delInst(i) {
-      payment.installments.splice(i, 1);
-      payment.installments.forEach((x, j) => x.seq = j + 1);
-      payment.parsedFromNL = false;   // 手动改动后不再是单纯解析结果
+    function delRow(i) {
+      payment.rows.splice(i, 1);
+      payment.rows.forEach((r, j) => r.seq = j + 1);
     }
-    function resetInst() {
-      payment.installments = [];
-      payment.parsedFromNL = false;
+    function resetPayRows() { initPayment(); }
+    function onAmount(i) {
+      // 卖车预设两期：改订金后尾款自动 = 总费用 − 订金
+      const r = payment.rows;
+      if (cfg.value?.car_default && r.length === 2 && i === 0 && (parseInt(r[0].amount) > 0)) {
+        r[1].amount = total.value - parseInt(r[0].amount);
+      }
     }
-    const instSum = computed(() => payment.installments.reduce((s, x) => s + (parseInt(x.amount) || 0), 0));
-    const instOk = computed(() =>
-      payment.installments.length > 0 &&
-      instSum.value === total.value && total.value > 0 &&
-      payment.installments.every(x => (parseInt(x.amount) || 0) > 0 && (x.trigger || "").trim())
+    const paySum = computed(() => payment.rows.reduce((s, r) => s + (parseInt(r.amount) || 0), 0));
+    const payOk = computed(() =>
+      payment.rows.length > 0 && total.value > 0 && paySum.value === total.value &&
+      payment.rows.every(r => (parseInt(r.amount) || 0) > 0 &&
+        (String(r.date || "").trim() || String(r.event || "").trim()))
     );
 
     /* ---------- 校验 ---------- */
@@ -283,70 +353,39 @@ const app = createApp({
       }));
       c.fee_fields.forEach(f => { if (f.required && !form[f.key]) m.push(f.label); });
       if (c.port_required && !form.port) m.push("口岸");
-      const p = payment;
-      if (p.mode === "default") {
-        if (c.car_default) {
-          if (!(p.deposit_amount > 0)) m.push("订金金额");
-          if (!p.deposit_date) m.push("订金支付日期");
-          if (!p.balance_date) m.push("尾款支付日期");
-        } else {
-          ["pay1", "pay2", "pay3"].forEach((k, i) => {
-            if (!(p[k] > 0)) m.push(c.default_pay_fields[i].label);
-          });
-        }
-      } else if (p.mode === "one_time") {
-        if (!p.pay_date && !String(p.pay_event || "").trim()) m.push("一次性支付日期或条件");
-      } else {
-        if (!instOk.value) m.push("自定义分期（期数/金额/条件完整且合计=总费用）");
-      }
       return m;
     });
-    const defaultSumOk = computed(() => {
-      const p = payment;
-      if (cfg.value && cfg.value.car_default) return true;
-      const s = ["pay1", "pay2", "pay3"].reduce((a, k) => a + (parseInt(p[k]) || 0), 0);
-      return total.value > 0 && s === total.value;
-    });
-    const canGenerate = computed(() => missing.value.length === 0 && defaultSumOk.value && (payment.mode !== "custom" || instOk.value));
+    const canGenerate = computed(() => missing.value.length === 0 && payOk.value);
 
     /* ---------- 生成 ---------- */
     async function generate() {
       generating.value = true;
+      const myGen = reqGen;  // 同上：生成期间切换类型则丢弃结果
       try {
+        const rows = payment.rows.map(r => ({
+          seq: r.seq,
+          label: (r.label || "").trim(),
+          amount: parseInt(r.amount),
+          date: (r.lockDate ? (form.sign_date || null) : (r.date || null)),
+          event: (r.event || "").trim(),
+        }));
         const payload = {
           type: selected.type,
           form: JSON.parse(JSON.stringify(form)),
-          payment: {
-            mode: payment.mode,
-            deposit_amount: parseInt(payment.deposit_amount) || null,
-            deposit_date: payment.deposit_date || null,
-            balance_date: payment.balance_date || null,
-            choice: payment.mode === "one_time" ? payment.one_choice : payment.choice,
-            pay1: parseInt(payment.pay1) || null,
-            pay2: parseInt(payment.pay2) || null,
-            pay3: parseInt(payment.pay3) || null,
-            pay_date: payment.pay_date || null,
-            pay_event: payment.pay_event || null,
-            installments: payment.installments.map(x => ({
-              seq: x.seq, amount: parseInt(x.amount), trigger: x.trigger, trigger_type: x.trigger_type
-            })),
-            source_text: payment.customText || null,
-          },
+          // 统一分期表直发，模式（模板预设/一次性/自定义）由后端 derive_payment 判定
+          payment: { installments: rows, source_text: payment.customText || null },
         };
-        const r = await fetch("/api/generate", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.detail || "生成失败");
+        const data = await postJSON("/api/generate", payload);
+        if (myGen !== reqGen) return;  // 期间切换了业务类型：丢弃旧响应
         result.value = data;
         await nextTick();
         resultBox.value?.scrollIntoView({ behavior: "smooth", block: "start" });
         if (data.ok) toast(`合同 ${data.no} 生成并核对通过`, "ok", 3500);
         else toast("生成完成，但核对未通过，请查看问题清单", "error", 4000);
       } catch (e) {
+        if (e.name === "AbortError") return;  // 主动取消（切换生成类型），不提示
         toast(String(e.message || e), "error");
-      } finally { generating.value = false; }
+      } finally { if (myGen === reqGen) generating.value = false; }
     }
     function download() { if (result.value?.download_url) window.open(result.value.download_url); }
 
@@ -375,7 +414,6 @@ const app = createApp({
 
     /* ---------- 视图辅助 ---------- */
     function fmtDate(s) { return s || "—"; }
-    function choiceLabel(v) { return v === "较早者" ? "以较早者为准" : "以较晚者为准"; }
 
     // 各业务类型的智能录入示例文案(根据业务真实场景)
     const NL_PLACEHOLDERS = {
@@ -401,24 +439,16 @@ const app = createApp({
       if (selected.type === "new_port") return TEMPLATE_NAMES[form.port] || "粤Z新办协议";
       return TEMPLATE_NAMES[selected.type] || "";
     });
-    // 各业务类型的简短说明(用于粤 Z 新办的引导说明)
-    const TYPE_HINT = {
-      new_port: "新办流程：①签约交资料 → ②省厅审批获编号 → ③制铁牌 → ④激活通关；四阶段对应三期付款节奏。",
-      transfer_gx: "高新过户：客户已持有高新指标，本次仅办理两地牌主体变更(港→港)手续。",
-      transfer_ns: "纳税过户：客户需把两地牌过户至另一家香港公司及对应的内地公司(港+内地双变更)。",
-      car: "卖车：甲方(卖方)将车辆卖给乙方(买方),双方按合约条款完成产权转移及款项交收。",
-    };
-    const typeHint = computed(() => TYPE_HINT[selected.type] || "");
-
     return {
-      types, currencies, selected, form, aiFilled, nlText, extractNotes,
-      extracting, parsing, generating, result, historyOpen, historyItems, resultBox, elapsed,
+      types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
+      extracting, parsing, generating, result, historyOpen, historyItems, resultBox, elapsed, nlProg,
+      allDone, anyFail, activeSecs, loadingPhrase,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive,
-      selectMenu, runExtract, parseCustom, addInst, delInst, resetInst, instSum, instOk,
-      missing, defaultSumOk, canGenerate, generate, download,
+      selectMenu, runExtract, parseCustom, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
+      missing, canGenerate, generate, download,
       openHistory, historyDownload, toCN, commas, SEQ_CN,
-      fieldCls, fmtDate, choiceLabel, todayISO,
-      nlPlaceholder, templateName, typeHint,
+      fmtDate, todayISO, requiredKeys,
+      nlPlaceholder, templateName,
     };
   },
 
@@ -441,9 +471,6 @@ const app = createApp({
           </div>
         </template>
       </div>
-      <div class="side-foot">
-        切换业务类型<br/>将自动重置表单
-      </div>
     </aside>
 
     <!-- ================= 主区 ================= -->
@@ -452,336 +479,174 @@ const app = createApp({
         <div class="crumb">
           {{ cfg?.label || '华星智能合同' }}
           <span class="meta" v-if="cfg">
-            · 客户方：{{ cfg.client_side }}
-            <template v-if="form.port"> · 口岸：{{ form.port }}</template>
+            <template v-if="form.port"> · {{ form.port }}</template>
           </span>
         </div>
-        <div class="topbar-form" v-if="cfg">
-          <div class="bit">
-            <label>合约编号</label>
-            <input class="ctrl" v-model="form.agreement_no" placeholder="留空自动生成"/>
-          </div>
-          <div class="bit">
-            <label>签署日期</label>
-            <input class="ctrl" type="date" v-model="form.sign_date"/>
-          </div>
-        </div>
         <div class="spacer"></div>
-        <div class="meta-pill" v-if="templateName">模板 <b>{{ templateName }}</b></div>
-        <div class="meta-pill">币种 <b>{{ currencyLabel(form.currency) }}</b></div>
-        <div class="meta-pill">总费用 <b>{{ commas(total) }}</b></div>
         <button class="btn ghost" @click="openHistory">生成历史</button>
       </header>
 
       <div class="scroll">
-        <!-- ===== 智能录入 ===== -->
+        <!-- ===== 智能录入（单行紧凑） ===== -->
         <div class="card">
           <div class="card-head">
             <h3>智能录入</h3>
-            <span class="lead">一段话描述本单业务，AI 自动回填到下方表单（高亮字段=AI 提取）；解析后仍可任意修改</span>
           </div>
           <div class="card-body">
-            <div class="type-hint" v-if="typeHint">
-              <span class="dot"></span>{{ typeHint }}
-            </div>
-            <div class="nl-box">
+            <div class="nl-compact">
               <textarea class="ctrl" v-model="nlText" :placeholder="nlPlaceholder()"></textarea>
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                <button class="btn primary" :disabled="extracting" @click="runExtract">
-                  <span v-if="extracting" class="spin"></span>
-                  {{ extracting ? 'AI 提取中…' : 'AI 提取并回填' }}
-                </button>
-                <span v-if="extracting" class="muted" style="font-size:12px;color:#8a8276">
-                  AI 正在理解（已等 {{ elapsed.extract }} 秒，请勿重复点击）
-                </span>
-              </div>
-              <div class="notes" v-if="extractNotes.length">
-                <div v-for="(n, i) in extractNotes" :key="i" class="note info">{{ n }}</div>
-              </div>
+              <button class="btn primary" :disabled="extracting" @click="runExtract">
+                <span v-if="extracting" class="spin"></span>
+                {{ extracting ? '提取中…' : 'AI 提取' }}
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- ===== 业务字段 ===== -->
-        <div class="card" v-if="cfg" v-for="g in cfg.groups" :key="g.title">
-          <div class="card-head">
-            <h3>{{ g.title }}</h3>
-          </div>
-          <div class="card-body">
-            <div class="field-grid">
-              <div class="field" v-for="f in g.fields" :key="f.key">
-                <label>
-                  {{ f.label }}
-                  <span class="req" v-if="f.required && !f.auto">*</span>
-                  <span class="ai-tag" v-if="!f.auto && aiFilled[f.key]">AI</span>
-                </label>
-                <input v-if="f.auto" class="ctrl" :value="f.auto" disabled/>
-                <select v-else-if="f.type==='select'"
-                        class="ctrl" :class="fieldCls(f.key)"
-                        v-model="form[f.key]">
-                  <option value="" disabled>请选择</option>
-                  <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                </select>
-                <input v-else class="ctrl" :class="fieldCls(f.key)"
-                       v-model="form[f.key]" :placeholder="f.label"/>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ===== 费用 ===== -->
+        <!-- ===== 合同信息（合并：基础信息 + 业务字段分组 + 价款） ===== -->
         <div class="card" v-if="cfg">
           <div class="card-head">
-            <h3>费用信息</h3>
-            <span class="lead">合计：<b style="color:#b04a3e;font-family:'Noto Serif SC',serif;font-size:16px;letter-spacing:1px">
-              {{ currencyLabel(form.currency) }} {{ commas(total) }}
-            </b></span>
+            <h3>合同信息</h3>
+            <div class="basic-bar" style="margin-left:auto">
+              <span class="lbl">编号</span>
+              <input class="h-inp num" v-model="form.agreement_no" placeholder="自动">
+              <span class="lbl">签署</span>
+              <input class="h-inp date" type="date" v-model="form.sign_date">
+            </div>
           </div>
           <div class="card-body">
-            <div class="field-grid">
-              <div class="field" v-for="f in cfg.fee_fields" :key="f.key">
-                <label>
-                  {{ f.label }}
-                  <span class="req" v-if="f.required">*</span>
-                  <span class="ai-tag" v-if="aiFilled[f.key]">AI</span>
-                </label>
-                <input class="ctrl" type="number" min="0" step="1000"
-                       :class="fieldCls(f.key)"
-                       v-model.number="form[f.key]"
-                       placeholder="请输入金额"/>
-                <div v-if="form[f.key] > 0" style="font-size:11.5px;color:#3d5e44;margin-top:-2px">
-                  {{ toCN(form[f.key]) }}（{{ currencyLabel(form.currency) }} {{ commas(form[f.key]) }}）
+            <!-- 档案证件式：每组一张档案卡（宋体栏位+水印+印章角标）；价款并入最后一组（商品/标的信息） -->
+            <div class="id-cards">
+              <div class="idcard" v-for="(g, gi) in cfg.groups" :key="g.title"
+                   :data-wm="g.title.replace(/（.*）/, '').slice(0, 2)">
+                <div class="id-head">
+                  <span class="t">{{ g.title }}</span>
+                  <span class="stamp">{{ SEQ_CN(gi + 1) }}</span>
                 </div>
+                <div class="id-row" v-for="f in g.fields" :key="f.key"
+                     :class="{
+                       ai: aiFilled[f.key] && !f.auto,
+                       done: requiredKeys.has(f.key) && !f.auto && String(form[f.key] ?? '').trim() !== '',
+                       miss: requiredKeys.has(f.key) && !f.auto && String(form[f.key] ?? '').trim() === ''
+                     }">
+                  <label>{{ f.label }}<span class="req" v-if="f.required && !f.auto">*</span></label>
+                  <input v-if="f.auto" class="ctrl-id" :value="f.auto" disabled/>
+                  <select v-else-if="f.type==='select'" class="ctrl-id" v-model="form[f.key]">
+                    <option value="" disabled>请选择</option>
+                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                  </select>
+                  <input v-else class="ctrl-id" v-model="form[f.key]" :placeholder="f.auto ? '' : '待填'"/>
+                  <span v-if="aiFilled[f.key] && !f.auto" class="st-ai">AI</span>
+                </div>
+
+                <!-- 价款：商品信息的一部分，并入最后一张档案卡；币种在编辑区、金额前 -->
+                <template v-if="gi === cfg.groups.length - 1">
+                  <div class="id-row fee" v-for="(f, fi) in cfg.fee_fields" :key="f.key"
+                       :class="{
+                         ai: aiFilled[f.key],
+                         done: requiredKeys.has(f.key) && !!form[f.key],
+                         miss: requiredKeys.has(f.key) && !form[f.key]
+                       }">
+                    <label>{{ f.label }}<span class="req" v-if="f.required">*</span></label>
+                    <select v-if="fi === 0" class="cur-inline" v-model="form.currency">
+                      <option v-for="c in currencies" :key="c.value" :value="c.value">{{ c.label }}</option>
+                    </select>
+                    <input class="ctrl-id money" type="number" min="0" step="1000"
+                           v-model.number="form[f.key]" placeholder="待补"/>
+                    <span v-if="aiFilled[f.key]" class="st-ai">AI</span>
+                    <div v-if="form[f.key] > 0" class="fee-cn">
+                      {{ form.currency === 'HKD' ? '港币' : '人民币' }}{{ toCN(form[f.key]) }}
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- ===== 付款计划 ===== -->
+        <!-- ===== 付款计划（紧凑表，移除独立 AI 解析） ===== -->
         <div class="card" v-if="cfg">
           <div class="card-head">
             <h3>付款计划</h3>
-            <span class="lead">总费用 = {{ currencyLabel(form.currency) }} {{ commas(total) }}（{{ toCN(total) }}）</span>
+            <span style="font-size:12px;color:var(--muted);margin-left:8px">各期合计须等于{{ totalKey === 'total_price' ? '总售价' : '总费用' }}</span>
+            <button class="btn sm" style="margin-left:auto" @click="addRow">＋ 加一期</button>
           </div>
           <div class="card-body">
-            <div class="pay-tabs">
-              <button :class="{on: payment.mode==='default'}" @click="payment.mode='default'">按合同默认</button>
-              <button :class="{on: payment.mode==='one_time'}" @click="payment.mode='one_time'">一次性付清</button>
-              <button :class="{on: payment.mode==='custom'}" @click="payment.mode='custom'">自定义分期</button>
+            <div style="overflow-x:auto">
+              <table class="pay-table">
+                <thead>
+                  <tr>
+                    <th style="width:110px">期数</th>
+                    <th style="width:130px">款项名称</th>
+                    <th style="width:170px">金额</th>
+                    <th style="width:150px">付款日期</th>
+                    <th>付款事件条件</th>
+                    <th style="width:60px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(it, idx) in payment.rows" :key="idx"
+                      :class="{ ai: it.preset && !it.edited }">
+                    <td class="seq">
+                      <span class="seq-n">{{ SEQ_CN(idx + 1) }}</span>第{{ SEQ_CN(idx + 1) }}期
+                    </td>
+                    <td>
+                      <input class="p-in" v-model="it.label" maxlength="6"
+                             placeholder="如：定金"
+                             @input="it.edited = true; it.preset = false"/>
+                    </td>
+                    <td class="amt">
+                      <input class="p-in" type="number" min="1" step="1000"
+                             v-model.number="it.amount"
+                             @input="onAmount(idx); it.edited = true; it.preset = false"/>
+                      <span class="p-cn" v-if="it.amount > 0">{{ toCN(it.amount) }}</span>
+                    </td>
+                    <td>
+                      <input v-if="it.lockDate" class="p-in" type="date" :value="form.sign_date" disabled/>
+                      <input v-else class="p-in" type="date" v-model="it.date" @input="it.edited = true; it.preset = false"/>
+                    </td>
+                    <td>
+                      <input class="p-in" v-model="it.event"
+                             placeholder="付款日期或触发条件"
+                             @input="it.edited = true; it.preset = false"/>
+                    </td>
+                    <td>
+                      <button class="btn ghost sm" @click="delRow(idx)">删除</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
-            <!-- 默认模式 -->
-            <div v-if="payment.mode==='default'">
-              <p class="pay-mode-desc">
-                <template v-if="cfg.car_default">
-                  按车辆买卖模板：订金 + 尾款两段式支付。请填写订金金额与日期、尾款日期。
-                </template>
-                <template v-else>
-                  按合同模板的三期付款。请填写每期金额，合计须等于总费用。
-                </template>
-              </p>
-
-              <div v-if="cfg.car_default" class="field-grid">
-                <div class="field">
-                  <label>订金金额 <span class="req">*</span></label>
-                  <input class="ctrl" type="number" min="1" step="1000"
-                         :class="{'is-filled': payment.deposit_amount > 0, 'is-missing': !(payment.deposit_amount > 0)}"
-                         v-model.number="payment.deposit_amount"/>
-                </div>
-                <div class="field">
-                  <label>订金支付日期 <span class="req">*</span></label>
-                  <input class="ctrl" type="date"
-                         :class="{'is-filled': !!payment.deposit_date, 'is-missing': !payment.deposit_date}"
-                         v-model="payment.deposit_date"/>
-                </div>
-                <div class="field">
-                  <label>尾款支付日期 <span class="req">*</span></label>
-                  <input class="ctrl" type="date"
-                         :class="{'is-filled': !!payment.balance_date, 'is-missing': !payment.balance_date}"
-                         v-model="payment.balance_date"/>
-                </div>
-                <div class="field">
-                  <label>日期与过户日以何者为准 <span class="req">*</span></label>
-                  <select class="ctrl" v-model="payment.choice">
-                    <option value="较早者">较早者</option>
-                    <option value="较晚者">较晚者</option>
-                  </select>
-                </div>
-                <div class="field full" v-if="payment.deposit_amount > 0 && total > 0">
-                  <div class="sum-line ok">
-                    尾款 = <span class="big">{{ currencyLabel(form.currency) }} {{ commas(total - payment.deposit_amount) }}</span>
-                    <span style="margin-left:10px;color:#8a8276;font-size:12px">
-                      （{{ toCN(total - payment.deposit_amount) }}）
-                    </span>
+            <div class="sum-line" :class="payOk ? 'ok' : (total > 0 ? 'bad' : '')">
+              <template v-if="total === 0">
+                <span style="color:var(--muted)">请先在上方「合同信息」填写总费用</span>
+              </template>
+              <template v-else-if="payOk">
+                <span style="color:var(--muted);font-size:13px;letter-spacing:1px">分期合计</span>
+                <span class="big">{{ currencyLabel(form.currency) }} {{ commas(paySum) }}</span>
+                <span class="big-cn">＝ {{ totalKey === 'total_price' ? '总售价' : '服务总费用' }} · 两讫</span>
+                <span style="color:var(--muted);font-size:12.5px;margin-left:auto">共 {{ payment.rows.length }} 期</span>
+                <span class="seal-mini">讫</span>
+              </template>
+              <template v-else>
+                <div style="width:100%">
+                  <div>分期需满足：每期金额 &gt; 0、有付款日期或事件条件、各期合计 = 总费用</div>
+                  <div style="margin-top:4px;font-size:12.5px">
+                    当前合计 <b style="color:var(--accent)">{{ currencyLabel(form.currency) }} {{ commas(paySum) }}</b>
+                    <span style="margin:0 6px">/</span> 需 <b style="color:var(--accent)">{{ commas(total) }}</b>
                   </div>
                 </div>
-              </div>
-
-              <div v-else class="field-grid">
-                <div class="field" v-for="f in cfg.default_pay_fields" :key="f.key">
-                  <label>{{ f.label }} <span class="req">*</span></label>
-                  <input class="ctrl" type="number" min="1" step="1000"
-                         :class="{'is-filled': payment[f.key] > 0, 'is-missing': !(payment[f.key] > 0)}"
-                         v-model.number="payment[f.key]"/>
-                </div>
-                <div class="field full">
-                  <div v-if="total === 0" class="sum-line">
-                    <span style="color:#8a8276">请先在上方「费用信息」填写总费用</span>
-                  </div>
-                  <div v-else-if="defaultSumOk" class="sum-line ok">
-                    三期合计 <span class="big">= 总费用</span> ✔
-                    <span style="margin-left:10px;color:#8a8276;font-size:12px">
-                      当前合计 {{ commas(total) }}（{{ toCN(total) }}）
-                    </span>
-                  </div>
-                  <div v-else class="sum-line bad">
-                    三期合计须等于总费用：当前 <b style="color:#b04a3e">{{ commas((payment.pay1||0)+(payment.pay2||0)+(payment.pay3||0)) }}</b>
-                    <span style="margin:0 6px">/</span> 需 <b style="color:#b04a3e">{{ commas(total) }}</b>
-                  </div>
-                </div>
-              </div>
+              </template>
             </div>
 
-            <!-- 一次性付清 -->
-            <div v-if="payment.mode==='one_time'">
-              <p class="pay-mode-desc">
-                一次性支付全部 {{ currencyLabel(form.currency) }} {{ commas(total) }}（{{ toCN(total) }}）。可指定日期，也可描述事件条件，二者并存时取所选项。
-              </p>
-              <div class="pay-oneline">
-                <div class="field">
-                  <label>支付日期</label>
-                  <input class="ctrl" type="date"
-                         :class="{'is-filled': !!payment.pay_date}"
-                         v-model="payment.pay_date"/>
-                </div>
-                <div class="field" v-if="cfg.car_default">
-                  <label>日期与事件以何者为准</label>
-                  <select class="ctrl" v-model="payment.one_choice">
-                    <option value="较早者">较早者</option>
-                    <option value="较晚者">较晚者</option>
-                  </select>
-                </div>
-                <div class="field full">
-                  <label>或事件条件（可与日期并存）</label>
-                  <input class="ctrl" v-model="payment.pay_event"
-                         placeholder="如：车辆完成香港运输署过户登记手续当日"/>
-                </div>
-              </div>
-            </div>
-
-            <!-- 自定义分期 -->
-            <div v-if="payment.mode==='custom'">
-              <p class="pay-mode-desc">
-                用自然语言描述分期约定，AI 将解析为分期表；解析后可在表格中直接调整金额、条件或类型。
-              </p>
-
-              <!-- 解析摘要 -->
-              <div class="parse-summary" v-if="payment.parsedRaw">
-                <div>
-                  <span style="color:#1d3a2f;font-weight:600">📜 原文</span>
-                  <span style="color:#8a8276;margin-left:6px;font-size:11.5px">（已由 AI 解析，可点击「重新解析」刷新）</span>
-                </div>
-                <div class="src">{{ payment.parsedRaw }}</div>
-                <div v-if="payment.parsedFromNL" style="margin-top:8px;font-size:12px;color:#3d5e44">
-                  ✓ 共解析出 <b style="color:#1d3a2f">{{ payment.installments.length }} 期</b>，
-                  合计 {{ currencyLabel(form.currency) }} {{ commas(instSum) }}（{{ toCN(instSum) }}）
-                </div>
-              </div>
-
-              <div class="nl-box">
-                <textarea class="ctrl" v-model="payment.customText" rows="2"
-                  placeholder="示例：分五期，每期合同金额五分之一，签完下个月起每月 10 号付一期；最后一期于车辆过户完成后支付。"></textarea>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  <button class="btn primary" :disabled="parsing" @click="parseCustom">
-                    <span v-if="parsing" class="spin"></span>
-                    {{ parsing ? 'AI 解析中…' : 'AI 解析付款约定' }}
-                  </button>
-                  <button class="btn" @click="addInst">手动加一期</button>
-                  <button class="btn ghost" v-if="payment.installments.length" @click="resetInst">清空分期</button>
-                  <span v-if="parsing" style="font-size:12px;color:#8a8276">
-                    解析中（已等 {{ elapsed.parse }} 秒）
-                  </span>
-                  <span v-else-if="payment.installments.length" style="font-size:12.5px;color:#8a8276">
-                    合计 <b :style="{color: instSum===total?'#4f8a5b':'#c75a3e'}">
-                      {{ currencyLabel(form.currency) }} {{ commas(instSum) }}
-                    </b>
-                    / 总费用 {{ commas(total) }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- 分期表 -->
-              <div v-if="payment.installments.length" style="margin-top:14px;overflow-x:auto">
-                <table class="pay-table">
-                  <thead>
-                    <tr>
-                      <th style="width:80px">期数</th>
-                      <th style="width:200px">金额</th>
-                      <th>付款条件（日期 / 事件 / 混合）</th>
-                      <th style="width:120px">类型</th>
-                      <th style="width:80px">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(it, idx) in payment.installments" :key="idx">
-                      <td class="seq">
-                        第 {{ SEQ_CN(it.seq) }} 期
-                        <span v-if="it.fromAI" class="ai-tag" style="margin-left:6px;font-size:9.5px;vertical-align:middle">AI</span>
-                      </td>
-                      <td>
-                        <input class="ctrl" type="number" min="1" step="1000"
-                               :class="{'is-filled': it.amount > 0, 'is-missing': !(it.amount > 0), 'is-ai': it.fromAI}"
-                               v-model.number="it.amount"
-                               @input="it.fromAI = false"/>
-                      </td>
-                      <td>
-                        <input class="ctrl" v-model="it.trigger"
-                               :class="{'is-filled': !!it.trigger.trim(), 'is-missing': !it.trigger.trim(), 'is-ai': it.fromAI}"
-                               :placeholder="'如：签约当日 / 2026年10月10日 / 完成股权转让后3日内'"
-                               @input="it.fromAI = false"/>
-                        <div v-if="it.trigger_date" class="trigger-date" :title="'AI 基于签署日期推算的绝对日期'">
-                          📅 {{ it.trigger_date }}
-                        </div>
-                      </td>
-                      <td>
-                        <select class="ctrl" v-model="it.trigger_type" @change="it.fromAI = false">
-                          <option value="date">日期</option>
-                          <option value="event">事件</option>
-                          <option value="mixed">混合</option>
-                        </select>
-                      </td>
-                      <td>
-                        <button class="btn ghost sm" @click="delInst(idx)">删除</button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- 合计校验 -->
-              <div v-if="payment.installments.length" style="margin-top:14px">
-                <div v-if="total === 0" class="sum-line">
-                  <span style="color:#8a8276">请先在上方「费用信息」填写总费用</span>
-                </div>
-                <div v-else-if="instOk" class="sum-line ok">
-                  分期合计 <span class="big">= 总费用</span> ✔
-                  <span style="margin-left:10px;color:#8a8276;font-size:12px">
-                    共 {{ payment.installments.length }} 期 · {{ commas(instSum) }}（{{ toCN(instSum) }}）
-                  </span>
-                </div>
-                <div v-else class="sum-line bad">
-                  <div>分期需满足：每期金额 &gt; 0、付款条件不为空、各期合计 = 总费用</div>
-                  <div style="margin-top:4px;font-size:12px">
-                    当前合计 <b style="color:#b04a3e">{{ currencyLabel(form.currency) }} {{ commas(instSum) }}</b>
-                    <span style="margin:0 6px">/</span> 需 <b style="color:#b04a3e">{{ commas(total) }}</b>
-                  </div>
-                </div>
-              </div>
+            <div class="note-strip-in-card" v-if="payNotes.length || extractNotes.length">
+              <span v-for="(n, i) in [...payNotes, ...extractNotes]" :key="i">{{ n }}</span>
             </div>
           </div>
         </div>
 
-        <!-- ===== 生成结果 ===== -->
+      <!-- ===== 生成结果 ===== -->
         <div class="card" v-if="result" ref="resultBox">
           <div class="card-head">
             <h3>生成结果</h3>
@@ -811,9 +676,10 @@ const app = createApp({
             </details>
           </div>
         </div>
-      </div>
 
-      <!-- ===== 底部操作栏（固定） ===== -->
+      </div>
+      <!-- ===== 底部操作栏（主区常驻底栏） ===== -->
+      <!-- ===== 底部操作栏（内容主体内，跟随表单） ===== -->
       <div class="action-bar" v-if="cfg">
         <div class="status">
           <span class="pill" :class="missing.length ? 'bad' : 'ok'">
@@ -878,6 +744,57 @@ const app = createApp({
     </div>
 
     <!-- ===== Toast ===== -->
+    <!-- ===== AI 提取全屏进度（v3.3 · 深墨幕布 + 纸面仪式感） ===== -->
+    <div class="fs-mask" v-if="nlProg.show" :class="{done: allDone, fail: anyFail}">
+      <span class="fs-wm w1">契</span><span class="fs-wm w2">約</span>
+      <div class="fs-paper">
+        <i class="fs-c tl"></i><i class="fs-c tr"></i><i class="fs-c bl"></i><i class="fs-c br"></i>
+        <div class="fs-head">
+          <span class="fs-brand">華星 · 智能解析</span>
+          <span class="fs-timer" v-if="!allDone && !anyFail">已等 <b>{{ activeSecs }}</b> 秒 · 通常 5~40 秒</span>
+        </div>
+        <div class="fs-center">
+          <div class="fs-seal-big" v-if="allDone">成</div>
+          <div class="fs-seal-big bad" v-else-if="anyFail">待</div>
+          <transition name="fsfade" v-else>
+            <div class="fs-phrase" :key="loadingPhrase">{{ loadingPhrase }}</div>
+          </transition>
+        </div>
+        <div class="fs-ink"><span :class="{run: !allDone && !anyFail, ok: allDone, bad: anyFail}"></span></div>
+        <div class="fs-steps">
+          <div class="fs-step" :class="nlProg.extract">
+            <i class="fs-si"></i><span>客户与业务信息</span>
+            <em v-if="nlProg.extract === 'run'">{{ elapsed.extract }}s</em>
+            <em v-else-if="nlProg.extract === 'done'">完成</em>
+            <em v-else-if="nlProg.extract === 'fail'">失败</em>
+            <em v-else>—</em>
+          </div>
+          <div class="fs-step" :class="nlProg.pay">
+            <i class="fs-si"></i><span>付款约定</span>
+            <em v-if="nlProg.pay === 'run'">{{ elapsed.parse }}s</em>
+            <em v-else-if="nlProg.pay === 'done'">完成</em>
+            <em v-else-if="nlProg.pay === 'fail'">失败</em>
+            <em v-else>跳过</em>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 解析提示弹窗（有遗漏/提示时弹出，可关闭） ===== -->
+    <div class="modal-mask" v-if="notesModal" @click.self="notesModal = false">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>解析完成 · 共 {{ warnNotes.length + payNotes.length }} 条提示</h3>
+        </div>
+        <div class="modal-body">
+          <div v-for="(n, i) in [...warnNotes, ...payNotes]" :key="i" class="note">{{ n }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn primary" @click="notesModal = false">知道了，去核对</button>
+        </div>
+      </div>
+    </div>
+
     <div class="toast-wrap">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">{{ t.msg }}</div>
     </div>
@@ -886,3 +803,4 @@ const app = createApp({
 });
 
 app.mount("#app");
+
