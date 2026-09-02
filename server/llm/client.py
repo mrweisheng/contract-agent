@@ -49,7 +49,9 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     msgs = list(messages)
     last_err = None
-    last_content = None    # 上次模型真实输出（重试注入用；任何路径用到前先初始化，避免 NameError）
+    last_content = None    # 上次模型真实输出（重试注入用）
+    content = None         # 本轮模型原始输出；必须在循环外初始化，否则 HTTP 层异常时
+                           # except 分支读它会抛 UnboundLocalError（不属于任何已知异常，会直接冒泡）
     use_json_mode = True   # 强制 JSON 输出，避免围栏/解释文字导致的解析重试
     use_fast_mode = not thinking
     for attempt in range(retries):
@@ -106,8 +108,10 @@ def _parse_json(content: str):
     """解析 LLM 返回的 JSON 对象。
 
     优先级：
-    1) `json.JSONDecoder().raw_decode` 从首个 `{` 起状态机扫描，直接跳到第一个完整对象结束。
-       比 find/rfind 更稳——后者会在字符串内 `}`、尾随垃圾、多对象拼接等场景截坏。
+    1) `json.JSONDecoder().raw_decode` 从首个 `{` 起状态机扫描，遇到第一个完整对象就停。
+       比 find/rfind 更稳：后者会一直截到「最后一个」`}`，在 JSON 后跟了含 `}` 的解释文字、
+       或一次吐出多个 JSON 对象时会把多余内容一起截进来而解析失败。
+       注：字符串内部的 `}` 不会让 find/rfind 出错（它在结尾 `}` 之前），别按这个理由改代码。
     2) 围栏兜底（```json ... ```）。
     3) 终极截取（首/末大括号），仍失败则抛 JSONDecodeError 给上层重试。
     """
