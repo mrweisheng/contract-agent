@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""生成 CRLF 换行的 start.bat（cmd 要求 CRLF，LF 会被截断解析）。"""
+"""生成 CRLF 换行的 start.bat（cmd 要求 CRLF，LF 会被截断解析）。输出到项目根目录。"""
+import os
+
 lines = [
     "@echo off",
     "chcp 65001 >nul",
@@ -20,7 +22,8 @@ lines = [
     "pause",
 ]
 content = "\r\n".join(lines) + "\r\n"
-path = r"E:\华星客服\简体\contract-agent\start.bat"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+path = os.path.join(ROOT, "start.bat")
 with open(path, "w", encoding="utf-8", newline="") as f:
     f.write(content)
 raw = open(path, "rb").read()

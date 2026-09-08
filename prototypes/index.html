@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>華星 · 合同生成前端改造方案对比</title>
+<style>
+  :root{
+    --ink:#0f1419;
+    --ink-2:#1c2127;
+    --paper:#f4efe6;
+    --paper-2:#faf7f2;
+    --line:rgba(255,255,255,.08);
+    --line-2:rgba(255,255,255,.14);
+    --text:#d6cfc1;
+    --muted:#8a8276;
+    --accent:#c75a3e;
+    --gold:#d4a373;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"Noto Serif SC","Songti SC","Source Han Serif SC",serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:80px 48px 120px}
+  .topbar{
+    display:flex;align-items:baseline;gap:24px;
+    padding-bottom:36px;border-bottom:1px solid var(--line);
+    margin-bottom:64px;
+  }
+  .brand{
+    font-family:"Noto Serif SC",serif;font-size:24px;font-weight:700;
+    letter-spacing:6px;color:#f1ead7;
+  }
+  .brand .sub{font-size:11px;letter-spacing:3px;color:#7a9083;margin-top:2px;display:block;font-family:"Noto Sans SC",sans-serif}
+  .meta{margin-left:auto;display:flex;gap:18px;font-family:"Noto Sans SC",sans-serif;font-size:12.5px;color:#8a8276;letter-spacing:1px}
+  .meta b{color:#f1ead7;font-weight:400}
+  .hero{margin-bottom:80px;display:grid;grid-template-columns:1.1fr 1fr;gap:64px;align-items:end}
+  .hero h1{
+    font-size:72px;font-weight:600;line-height:1.05;letter-spacing:-1px;
+    color:#f1ead7;
+  }
+  .hero h1 em{font-style:normal;color:var(--accent);font-family:"Noto Serif SC",serif}
+  .hero p.lede{
+    font-family:"Noto Sans SC",sans-serif;font-size:15px;line-height:1.85;
+    color:#cfc7b3;max-width:520px;
+  }
+  .hero p.lede .num{color:var(--gold);font-family:"Noto Serif SC",serif;font-size:18px;margin-right:6px}
+  .section{margin-bottom:96px}
+  .section-head{display:flex;align-items:baseline;gap:16px;margin-bottom:32px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+  .section-head .roman{font-family:"Times New Roman",serif;font-size:14px;letter-spacing:4px;color:#7a9083}
+  .section-head h2{font-size:28px;font-weight:500;letter-spacing:2px;color:#f1ead7}
+  .section-head .en{margin-left:auto;font-family:"Times New Roman",serif;font-size:12px;letter-spacing:3px;color:#8a8276;text-transform:uppercase}
+
+  .findings{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-left:1px solid var(--line-2)}
+  .finding{padding:28px 26px;border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+  .finding .k{font-family:"Times New Roman",serif;font-size:11px;letter-spacing:3px;color:#7a9083;margin-bottom:10px;text-transform:uppercase}
+  .finding .t{font-size:18px;font-weight:500;color:#f1ead7;line-height:1.5;margin-bottom:12px;letter-spacing:1px}
+  .finding .d{font-family:"Noto Sans SC",sans-serif;font-size:13px;line-height:1.8;color:#a8a08f}
+  .finding .d b{color:#d4a373;font-weight:400;border-bottom:1px dotted #d4a373}
+
+  .compare{width:100%;border-collapse:collapse;font-family:"Noto Sans SC",sans-serif;font-size:13px}
+  .compare th{text-align:left;padding:18px 16px;color:#7a9083;font-weight:400;letter-spacing:2px;font-size:11px;text-transform:uppercase;border-bottom:1px solid var(--line-2)}
+  .compare td{padding:18px 16px;border-bottom:1px solid var(--line);color:#cfc7b3;vertical-align:top;line-height:1.7}
+  .compare td.dim{color:#8a8276}
+  .compare tr:hover td{background:rgba(255,255,255,.02)}
+  .compare td.label{color:#f1ead7;letter-spacing:1px}
+  .compare td .swatch{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+  .sw-a{background:#7c5cff}.sw-b{background:#c75a3e}.sw-c{background:#4f8a5b}.sw-d{background:#d4a373}
+
+  .grid4{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;margin-top:24px}
+  .card{
+    display:block;text-decoration:none;color:inherit;
+    background:var(--ink-2);border:1px solid var(--line);
+    transition:all .25s ease;position:relative;overflow:hidden;
+  }
+  .card:hover{border-color:var(--line-2);background:#20262d;transform:translateY(-2px)}
+  .card .ph{
+    height:200px;background:var(--ink);position:relative;overflow:hidden;
+    border-bottom:1px solid var(--line);
+  }
+  .card .num{
+    position:absolute;top:16px;left:18px;z-index:3;
+    font-family:"Times New Roman",serif;font-size:11px;letter-spacing:3px;color:#7a9083;
+  }
+  .card .badge{
+    position:absolute;top:16px;right:18px;z-index:3;
+    font-family:"Noto Sans SC",sans-serif;font-size:11px;color:#7a9083;letter-spacing:1px;
+    padding:3px 8px;border:1px solid var(--line-2);border-radius:2px;
+  }
+  .card .body{padding:24px 26px 28px}
+  .card .body h3{font-size:20px;font-weight:500;letter-spacing:2px;color:#f1ead7;margin-bottom:10px}
+  .card .body .d{font-family:"Noto Sans SC",sans-serif;font-size:13px;line-height:1.85;color:#a8a08f;margin-bottom:16px}
+  .card .body .meta{display:flex;gap:18px;font-size:12px;color:#7a9083;letter-spacing:1px}
+  .card .body .meta span b{color:#d4a373;font-weight:400;margin-right:4px}
+  .card .body .go{
+    margin-top:18px;display:inline-flex;align-items:center;gap:8px;
+    color:#f1ead7;font-family:"Noto Sans SC",sans-serif;font-size:13px;letter-spacing:2px;
+    border-bottom:1px solid #f1ead7;padding-bottom:2px;
+  }
+
+  /* Mini preview screens for each card */
+  .prev{position:absolute;inset:0;display:flex}
+  /* A: chat bubbles */
+  .prev-a{background:#faf7f2;padding:14px;flex-direction:column;gap:6px;justify-content:center}
+  .prev-a .b{font-family:"Noto Sans SC",sans-serif;font-size:8px;padding:6px 9px;max-width:75%;line-height:1.45;border-radius:2px}
+  .prev-a .u1{align-self:flex-start;background:#fff;color:#2b2622;border:1px solid #e3dccb}
+  .prev-a .u2{align-self:flex-end;background:#1d3a2f;color:#f1ead7}
+  .prev-a .b span{color:#c75a3e}
+  /* B: contract doc */
+  .prev-b{background:#f4efe6;padding:10px 14px;flex-direction:column;gap:3px;justify-content:center}
+  .prev-b .l{font-family:"Noto Serif SC",serif;color:#2b2622;font-size:7px;line-height:1.4}
+  .prev-b .l .h{color:#1d3a2f;font-weight:700;font-size:8px;letter-spacing:1px}
+  .prev-b .l .g{background:#fef0d5;padding:0 3px}
+  .prev-b .l .r{color:#c75a3e}
+  .prev-b .stamp{align-self:flex-end;font-family:"Noto Serif SC",serif;font-size:14px;color:#c75a3e;border:1px solid #c75a3e;padding:1px 5px;transform:rotate(-8deg);letter-spacing:2px;margin-top:3px}
+  /* C: stream */
+  .prev-c{background:#faf7f2;padding:14px;flex-direction:column;gap:8px;justify-content:center}
+  .prev-c .row{display:flex;gap:6px;align-items:center}
+  .prev-c .row .k{font-family:"Noto Sans SC",sans-serif;font-size:7.5px;color:#8a8276;width:46px;flex:none}
+  .prev-c .row .v{font-family:"Noto Sans SC",sans-serif;font-size:8px;color:#2b2622;background:#fff;border:1px solid #e3dccb;flex:1;padding:3px 6px}
+  .prev-c .row .v.hi{background:#fef0d5;border-color:#f3d19e}
+  /* D: cards */
+  .prev-d{background:#f4efe6;padding:10px;flex-direction:column;gap:4px;justify-content:center}
+  .prev-d .cd{background:#faf7f2;border:1px solid #e3dccb;padding:6px 8px;display:flex;justify-content:space-between;align-items:center}
+  .prev-d .cd .l{font-family:"Noto Serif SC",serif;font-size:7.5px;color:#1d3a2f;letter-spacing:1px}
+  .prev-d .cd .v{font-family:"Noto Sans SC",sans-serif;font-size:7px;color:#8a8276}
+
+  .rec{
+    background:linear-gradient(135deg,#1c2127,#161b20);
+    border:1px solid var(--line-2);
+    padding:36px 40px;display:grid;grid-template-columns:1.5fr 1fr;gap:48px;
+    margin-top:40px;
+  }
+  .rec h3{font-size:24px;color:#f1ead7;letter-spacing:2px;margin-bottom:14px}
+  .rec p{font-family:"Noto Sans SC",sans-serif;font-size:14px;line-height:1.95;color:#a8a08f}
+  .rec .right .pri{font-family:"Noto Sans SC",sans-serif;font-size:12px;color:#7a9083;letter-spacing:3px;margin-bottom:14px}
+  .rec .right .pick{
+    display:flex;gap:14px;align-items:baseline;margin-bottom:18px;padding-bottom:14px;
+    border-bottom:1px solid var(--line);
+  }
+  .rec .right .pick .ltr{font-family:"Noto Serif SC",serif;font-size:34px;color:var(--accent);font-weight:600}
+  .rec .right .pick .name{font-size:18px;color:#f1ead7;letter-spacing:2px}
+
+  .foot{margin-top:120px;padding-top:32px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-family:"Noto Sans SC",sans-serif;font-size:12px;color:#7a9083;letter-spacing:1px}
+  .foot a{color:#d4a373;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">華星<small class="sub">CONTRACT · AGENT</small></div>
+    <div class="meta">
+      <span><b>4</b> 种方案</span>
+      <span><b>1</b> 个示例业务</span>
+      <span>高新两地牌现牌过户</span>
+      <span>2026·09·03</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>把<br/><em>粘文字 ·</em><br/>放到正中央。</h1>
+    <p class="lede">
+      <span class="num">壹</span> 客户最常见的动作是「把微信消息复制过来」——但现在打开页面要先看一堆表单。AI 抽取的能力被埋在侧栏的窄条里。<br/><br/>
+      <span class="num">贰</span> 下面是 4 套高保真交互原型，同一份教学数据，同一个业务流程。挑一个最像你想用的产品，剩下的作为对比参考。
+    </p>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="roman">I.</span>
+      <h2>现状三个真问题</h2>
+      <span class="en">DIAGNOSIS</span>
+    </div>
+    <div class="findings">
+      <div class="finding">
+        <div class="k">FORM-FIRST REVERSAL</div>
+        <div class="t">「填表」被当成了主舞台</div>
+        <div class="d">进站默认展开 3 张「档案卡」+ 5~10 个 input + 1 张付款表。<b>粘文字</b>只是一行窄 textarea + 一个按钮。视觉重量和实际使用频率完全反过来。</div>
+      </div>
+      <div class="finding">
+        <div class="k">SIGNAL LOSS</div>
+        <div class="t">「还差 X 项」离字段太远</div>
+        <div class="d">底部一个 pill 写着"未完成 5 项"，要人眼对照 5 个 input 找。AI 填了什么、改了什么、漏了什么——三个状态<b>用同一种颜色高亮</b>，分不清。</div>
+      </div>
+      <div class="finding">
+        <div class="k">CONTEXT ORPHAN</div>
+        <div class="t">历史和当前合同互相看不见</div>
+        <div class="d">历史抽屉是孤岛，跟当前正在编的合同毫无关联。同一个客户上周签的合同、续约记录，<b>没有任何提示</b>。生成按钮也藏在付款表后面。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="roman">II.</span>
+      <h2>四个改造方向</h2>
+      <span class="en">FOUR DIRECTIONS</span>
+    </div>
+    <div class="grid4">
+
+      <a class="card" href="01-conversational.html">
+        <div class="ph">
+          <span class="num">OPTION A</span>
+          <span class="badge">高改造</span>
+          <div class="prev prev-a">
+            <div class="b u1">把客户描述粘进来</div>
+            <div class="b u2">我帮你抽</div>
+            <div class="b u1">客户<span>张三</span>，<span>LN1234</span>，总费用 <span>30 万</span>…</div>
+            <div class="b u2">已识别 7 项，请核对</div>
+          </div>
+        </div>
+        <div class="body">
+          <h3>对话优先</h3>
+          <div class="d">跟 AI 同事聊天起手。对话到一半弹出"Review Card"承接结构化字段。最适合新人 / 不熟字段 / 不常做的人。</div>
+          <div class="meta">
+            <span><b>隐喻</b>ChatGPT</span>
+            <span><b>学习</b>中</span>
+            <span><b>风险</b>节律失真</span>
+          </div>
+          <div class="go">进入原型 →</div>
+        </div>
+      </a>
+
+      <a class="card" href="02-document-view.html">
+        <div class="ph">
+          <span class="num">OPTION B</span>
+          <span class="badge">★ 推荐</span>
+          <div class="prev prev-b">
+            <div class="l"><span class="h">第二条 · 服务内容</span></div>
+            <div class="l">甲方同意为乙方办理 <span class="g">车牌 LN1234</span> 的两地牌过户</div>
+            <div class="l">目标香港公司：<span class="g">XX 物流</span> · 通行 <span class="g">莲塘口岸</span></div>
+            <div class="l">服务总费用：港币 <span class="g">叁拾万元整</span>（HK$300,000）</div>
+            <div class="stamp">華星</div>
+          </div>
+        </div>
+        <div class="body">
+          <h3>合同草稿视图</h3>
+          <div class="d">直接把合同文档铺开。AI 抽取的字段在文里以"色块"高亮，点哪改哪。最贴合业务语义——你做的是合同，不是表单。</div>
+          <div class="meta">
+            <span><b>隐喻</b>Ironclad</span>
+            <span><b>学习</b>低</span>
+            <span><b>风险</b>视觉改动大</span>
+          </div>
+          <div class="go">进入原型 →</div>
+        </div>
+      </a>
+
+      <a class="card" href="03-notion-stream.html">
+        <div class="ph">
+          <span class="num">OPTION C</span>
+          <span class="badge">备选</span>
+          <div class="prev prev-c">
+            <div class="row"><span class="k">客户</span><span class="v hi">鸿达投资有限公司</span></div>
+            <div class="row"><span class="k">车牌</span><span class="v">LN1234</span></div>
+            <div class="row"><span class="k">口岸</span><span class="v hi">莲塘口岸</span></div>
+            <div class="row"><span class="k">总费</span><span class="v">HK$ 300,000</span></div>
+          </div>
+        </div>
+        <div class="body">
+          <h3>Notion · 单页流式</h3>
+          <div class="d">一屏到底，paste 区在最上，往下滚就是抽好的字段、分期表、生成按钮。极简、干净、所有人能上手。</div>
+          <div class="meta">
+            <span><b>隐喻</b>Notion / Linear</span>
+            <span><b>学习</b>极低</span>
+            <span><b>风险</b>长滚动易累</span>
+          </div>
+          <div class="go">进入原型 →</div>
+        </div>
+      </a>
+
+      <a class="card" href="04-refactor-conservative.html">
+        <div class="ph">
+          <span class="num">OPTION D</span>
+          <span class="badge">低风险</span>
+          <div class="prev prev-d">
+            <div class="cd"><span class="l">委托方信息</span><span class="v">已填 4/5</span></div>
+            <div class="cd"><span class="l">指标与车辆</span><span class="v">已填 3/4</span></div>
+            <div class="cd"><span class="l">付款计划</span><span class="v">3 期 · ✓</span></div>
+          </div>
+        </div>
+        <div class="body">
+          <h3>保守过渡</h3>
+          <div class="d">保留现有 3 卡结构、墨绿配色、档案卡视觉。只调间距、信号对比、按钮可寻性。改造量最小，老用户零不适。</div>
+          <div class="meta">
+            <span><b>隐喻</b>现版的瘦身</span>
+            <span><b>学习</b>零</span>
+            <span><b>风险</b>解决不了根本问题</span>
+          </div>
+          <div class="go">进入原型 →</div>
+        </div>
+      </a>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <span class="roman">III.</span>
+      <h2>四方案横向对比</h2>
+      <span class="en">COMPARISON</span>
+    </div>
+    <table class="compare">
+      <thead>
+        <tr><th></th><th><span class="swatch sw-a"></span>A · 对话</th><th><span class="swatch sw-b"></span>B · 草稿</th><th><span class="swatch sw-c"></span>C · 流式</th><th><span class="swatch sw-d"></span>D · 过渡</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="label">核心隐喻</td><td>聊天</td><td>合同文档</td><td>一页可滚动</td><td>现版保留</td></tr>
+        <tr><td class="label">AI 反馈位置</td><td>聊天流内</td><td>文档中红/琥珀色块</td><td>字段旁小气泡</td><td>顶部通知条</td></tr>
+        <tr><td class="label">表单存在感</td><td>中段弹出</td><td>隐藏在文里</td><td>主舞台，干净</td><td>3 卡保留</td></tr>
+        <tr><td class="label">改造成本</td><td class="dim">高</td><td class="dim">高</td><td>中</td><td>低</td></tr>
+        <tr><td class="label">学习成本</td><td>中</td><td>低</td><td>低</td><td>极低</td></tr>
+        <tr><td class="label">适合谁</td><td>新人 / 低频</td><td>业务老手</td><td>所有人</td><td>极保守用户</td></tr>
+        <tr><td class="label">最大风险</td><td>对话节律难调</td><td>老用户视觉跳变</td><td>长页面疲劳</td><td>没解决根问题</td></tr>
+      </tbody>
+    </table>
+
+    <div class="rec">
+      <div>
+        <h3>推荐组合</h3>
+        <p><b style="color:#d4a373">首推 B（合同草稿视图）</b>——最贴合「合同生成系统」这个产品语义。用户面对的不是表单而是合同本身，AI 抽取的成果直接在文档里高亮呈现，最自然。改造量虽大但收益也最显著。</p>
+        <p style="margin-top:14px"><b style="color:#d4a373">备选 C（Notion 流式）</b>——如果不想动现有视觉语言、走最稳路线，扫一眼就能上手。</p>
+        <p style="margin-top:14px"><b style="color:#d4a373">A 不建议作主方案</b>——对话单独撑不起结构化录入，会失去表单的速度优势。</p>
+        <p style="margin-top:14px"><b style="color:#d4a373">D 作为新视觉上线前的过渡</b>——保留为"主题二"，给老用户回退路径。</p>
+      </div>
+      <div class="right">
+        <div class="pri">★ 首选</div>
+        <div class="pick"><span class="ltr">B</span><span class="name">合同草稿视图</span></div>
+        <div class="pri">— 备选</div>
+        <div class="pick"><span class="ltr">C</span><span class="name">Notion 流式</span></div>
+        <div class="pri">— 兜底</div>
+        <div class="pick"><span class="ltr">D</span><span class="name">保守过渡</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>華星 · 合同生成前端改造方案对比 · 4 prototypes</span>
+    <span><a href="research.md">查看完整调研 →</a></span>
+  </footer>
+
+</div>
+</body>
+</html>

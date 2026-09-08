@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 C · Notion 流式 · 華星合同生成</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:#ffffff;
+    color:#37352f;
+    font-family:"Inter","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(55,53,47,.08)}
+
+  .app{display:flex;flex-direction:column;min-height:100vh;background:#fff}
+
+  /* ============ TOP BAR ============ */
+  .topbar{
+    height:48px;background:rgba(255,255,255,.85);
+    border-bottom:1px solid #ebebeb;
+    display:flex;align-items:center;padding:0 24px;gap:8px;flex:none;
+    position:sticky;top:0;z-index:30;backdrop-filter:blur(8px);
+  }
+  .topbar .logo{font-size:13.5px;font-weight:600;color:#0f1419;letter-spacing:.5px}
+  .topbar .logo .d{color:#b8b0a0;font-weight:400;margin-left:6px}
+  .topbar .divider{width:1px;height:20px;background:#ebebeb;margin:0 8px}
+  .topbar .crumb{font-size:13px;color:#7a9083;letter-spacing:.3px}
+  .topbar .crumb b{color:#37352f;font-weight:500}
+  .topbar .sep{color:#b8b0a0;margin:0 6px}
+  .topbar .spacer{flex:1}
+  .topbar .icon{
+    width:30px;height:30px;border-radius:5px;
+    display:flex;align-items:center;justify-content:center;
+    color:#7a9083;cursor:pointer;font-size:14px;transition:all .12s;
+  }
+  .topbar .icon:hover{background:#f7f6f3;color:#37352f}
+  .topbar .btn{
+    font-family:inherit;font-size:13px;color:#37352f;
+    background:none;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;
+  }
+  .topbar .btn:hover{background:#f7f6f3}
+
+  .sub-bar{
+    background:#fbfbfa;border-bottom:1px solid #ebebeb;
+    padding:8px 24px;display:flex;align-items:center;gap:14px;
+    font-size:12.5px;color:#7a9083;flex:none;
+  }
+  .sub-bar .seg{
+    display:flex;background:#fff;border:1px solid #ebebeb;border-radius:5px;padding:2px;
+  }
+  .sub-bar .seg button{
+    font-family:inherit;font-size:12.5px;color:#7a9083;
+    background:none;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;
+    letter-spacing:.3px;
+  }
+  .sub-bar .seg button.on{background:#37352f;color:#fff}
+  .sub-bar .seg button:hover:not(.on){color:#37352f}
+  .sub-bar .currency{
+    display:flex;gap:5px;align-items:center;
+  }
+  .sub-bar .currency .lbl{font-size:11.5px;letter-spacing:1.5px;color:#7a9083}
+  .sub-bar .spacer{flex:1}
+  .sub-bar .save-status{font-size:11.5px;color:#7a9083;display:flex;align-items:center;gap:6px}
+  .sub-bar .save-status .dot{width:6px;height:6px;border-radius:50%;background:#4f8a5b}
+
+  /* ============ PAGE ============ */
+  .page{
+    flex:1;max-width:780px;width:100%;margin:0 auto;
+    padding:48px 60px 200px;position:relative;
+  }
+
+  .cover{
+    height:84px;background:linear-gradient(135deg,#1d3a2f,#2a4d40);
+    border-radius:6px;margin-bottom:24px;position:relative;overflow:hidden;
+  }
+  .cover::after{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(ellipse at 70% 30%, rgba(212,163,115,.3), transparent 50%),
+      radial-gradient(ellipse at 30% 80%, rgba(199,90,62,.2), transparent 50%);
+  }
+  .cover .tag{
+    position:absolute;top:14px;right:18px;z-index:2;
+    font-size:11px;color:rgba(255,255,255,.85);letter-spacing:2px;
+    background:rgba(255,255,255,.12);padding:3px 10px;border-radius:3px;
+    backdrop-filter:blur(8px);
+  }
+
+  .page-title{
+    font-size:36px;font-weight:700;letter-spacing:-.5px;color:#0f1419;
+    margin-bottom:6px;
+  }
+  .page-meta{
+    display:flex;gap:14px;font-size:12.5px;color:#7a9083;margin-bottom:36px;
+    letter-spacing:.3px;
+  }
+  .page-meta .item{display:flex;align-items:center;gap:5px}
+  .page-meta .item b{color:#37352f;font-weight:500}
+
+  /* ============ PASTE / AI AREA ============ */
+  .ai-input{
+    background:#fbfbfa;border:1px solid #ebebeb;border-radius:8px;
+    padding:16px 18px;margin-bottom:24px;transition:all .15s;
+  }
+  .ai-input:focus-within{border-color:#d4cab4;background:#fff}
+  .ai-input .head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .ai-input .head .star{
+    font-family:"Noto Serif SC",serif;font-size:12px;letter-spacing:2px;
+    color:#c75a3e;background:#fef0d5;padding:2px 8px;border-radius:3px;
+  }
+  .ai-input .head .spacer{flex:1}
+  .ai-input .head .counter{font-size:11px;color:#b8b0a0;letter-spacing:1px}
+  .ai-input textarea{
+    width:100%;border:none;outline:none;background:transparent;resize:none;
+    font-family:inherit;font-size:14px;line-height:1.7;color:#37352f;
+    min-height:64px;
+  }
+  .ai-input textarea::placeholder{color:#b8b0a0}
+  .ai-input .bar{
+    display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;
+    border-top:1px solid #ebebeb;
+  }
+  .ai-input .templates{display:flex;gap:6px}
+  .ai-input .tpl{
+    font-size:11.5px;color:#7a9083;background:#fff;border:1px solid #ebebeb;
+    padding:3px 9px;border-radius:3px;cursor:pointer;letter-spacing:.3px;
+    transition:all .12s;
+  }
+  .ai-input .tpl:hover{border-color:#37352f;color:#37352f}
+  .ai-input .tpl.here{background:#37352f;color:#fff;border-color:#37352f}
+  .ai-input .spacer{flex:1}
+  .ai-input .ai-btn{
+    background:#37352f;color:#fff;border:none;
+    padding:6px 14px;border-radius:5px;cursor:pointer;
+    font-size:12.5px;letter-spacing:1px;font-family:inherit;
+    display:flex;align-items:center;gap:6px;
+  }
+  .ai-input .ai-btn:hover{background:#1f1d1a}
+  .ai-input .ai-btn:disabled{background:#b8b0a0;cursor:not-allowed}
+  .ai-input .ai-btn .ic{font-size:11px}
+
+  /* Thinking stages */
+  .stages-line{
+    display:flex;align-items:center;gap:8px;padding:8px 14px;
+    background:#fbfbfa;border:1px solid #ebebeb;border-radius:6px;
+    margin-bottom:24px;font-size:12px;color:#7a9083;
+  }
+  .stages-line .step{display:flex;align-items:center;gap:6px}
+  .stages-line .step .ic{
+    width:14px;height:14px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:9px;
+    background:#fff;border:1px solid #d4cab4;color:#b8b0a0;
+  }
+  .stages-line .step.done .ic{background:#4f8a5b;border-color:#4f8a5b;color:#fff}
+  .stages-line .step.run .ic{background:#fef0d5;border-color:#d4a373;color:#5a4416}
+  .stages-line .step.run .ic::after{content:"";width:4px;height:4px;background:#c75a3e;border-radius:50%;animation:p 1s infinite}
+  @keyframes p{0%,100%{opacity:.4}50%{opacity:1}}
+  .stages-line .sep{color:#ebebeb}
+  .stages-line .timer{margin-left:auto;font-size:11px;color:#7a9083;font-family:"JetBrains Mono",monospace}
+
+  /* ============ H2 section title ============ */
+  .sec-h{
+    display:flex;align-items:center;gap:6px;margin:32px 0 10px;cursor:pointer;
+  }
+  .sec-h .bar{
+    width:18px;height:18px;border-radius:3px;
+    display:flex;align-items:center;justify-content:center;
+    color:#b8b0a0;font-size:11px;cursor:pointer;
+  }
+  .sec-h .bar:hover{background:#f7f6f3;color:#37352f}
+  .sec-h .t{font-size:14.5px;font-weight:600;color:#37352f;letter-spacing:.3px}
+  .sec-h .badge{
+    font-size:10.5px;color:#7a9083;background:#f7f6f3;
+    padding:1px 7px;border-radius:3px;letter-spacing:1px;
+  }
+  .sec-h .dot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:#d4a373}
+
+  /* ============ FIELD ROW ============ */
+  .rows{
+    display:flex;flex-direction:column;gap:1px;background:#ebebeb;
+    border-radius:6px;overflow:hidden;border:1px solid #ebebeb;
+  }
+  .row{
+    display:grid;grid-template-columns:200px 1fr 28px;gap:16px;
+    background:#fff;padding:10px 16px;align-items:center;
+    transition:background .12s;
+  }
+  .row:hover{background:#fbfbfa}
+  .row .k{
+    font-size:13px;color:#7a9083;letter-spacing:.3px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .row .k .req{color:#c75a3e;font-size:11px}
+  .row .v{
+    display:flex;align-items:center;gap:8px;min-width:0;
+  }
+  .row .v .text{
+    flex:1;font-size:14px;color:#37352f;font-weight:500;
+    background:transparent;border:none;outline:none;padding:4px 0;width:100%;
+  }
+  .row .v .text:read-only{color:#9b9a97}
+  .row.ai-fill{background:linear-gradient(to right, rgba(254,240,213,.4), transparent 60%)}
+  .row.ai-fill .v .text{color:#5a4416}
+  .row.miss .v .text{color:#c75a3e;font-style:italic}
+  .row.verified .v .text{color:#37352f}
+  .row .ai-tag{
+    font-size:9.5px;letter-spacing:1.5px;font-weight:600;
+    color:#fff;background:#c75a3e;padding:1px 5px;border-radius:2px;
+    flex:none;
+  }
+  .row.verified .ai-tag{background:#4f8a5b}
+  .row .more{
+    width:24px;height:24px;border-radius:4px;
+    display:flex;align-items:center;justify-content:center;
+    color:#b8b0a0;cursor:pointer;font-size:14px;opacity:0;transition:all .12s;
+  }
+  .row:hover .more{opacity:1}
+  .row .more:hover{background:#f7f6f3;color:#37352f}
+
+  /* ============ FEE BIG NUMBER ============ */
+  .fee-block{
+    background:linear-gradient(135deg,#fbfbfa,#f7f6f3);
+    border:1px solid #ebebeb;border-radius:8px;padding:20px 24px;
+    display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:center;
+  }
+  .fee-block .left .k{font-size:11px;color:#7a9083;letter-spacing:2.5px;margin-bottom:6px;text-transform:uppercase}
+  .fee-block .left .amt{
+    font-family:"Inter",sans-serif;font-size:36px;font-weight:700;color:#0f1419;
+    letter-spacing:-.5px;line-height:1;display:flex;align-items:baseline;gap:6px;
+  }
+  .fee-block .left .amt .cur{font-size:14px;color:#7a9083;font-weight:400}
+  .fee-block .left .cn{
+    font-family:"Noto Serif SC",serif;font-size:13px;color:#5a5040;margin-top:6px;letter-spacing:1px;
+  }
+  .fee-block .right{
+    background:#fff;border:1px solid #ebebeb;border-radius:6px;padding:12px 14px;
+  }
+  .fee-block .right .k{font-size:11px;color:#7a9083;letter-spacing:1.5px;margin-bottom:4px}
+  .fee-block .right .v{font-size:18px;font-weight:600;color:#0f1419}
+
+  /* ============ PAYMENT CARDS ============ */
+  .pay-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  }
+  .pay-card{
+    background:#fff;border:1px solid #ebebeb;border-radius:8px;padding:14px 16px;
+    transition:all .15s;cursor:pointer;position:relative;
+  }
+  .pay-card:hover{border-color:#d4cab4;background:#fbfbfa}
+  .pay-card.ai-fill{background:linear-gradient(135deg,#fbfbfa,#fef0d5);border-color:#f3d19e}
+  .pay-card .top{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+  .pay-card .seq{
+    font-size:11px;letter-spacing:1.5px;color:#7a9083;
+    background:#f7f6f3;padding:2px 7px;border-radius:3px;
+  }
+  .pay-card .ai-tag{
+    font-size:9px;letter-spacing:1.5px;font-weight:600;color:#fff;
+    background:#c75a3e;padding:1px 4px;border-radius:2px;
+  }
+  .pay-card .amt{
+    font-family:"Inter",sans-serif;font-size:24px;font-weight:600;color:#0f1419;
+    letter-spacing:-.3px;line-height:1.1;
+  }
+  .pay-card .amt .cur{font-size:11px;color:#7a9083;font-weight:400;margin-right:3px}
+  .pay-card .cn{font-family:"Noto Serif SC",serif;font-size:12px;color:#5a5040;margin-top:3px}
+  .pay-card .ev{
+    font-size:11.5px;color:#7a9083;margin-top:8px;padding-top:8px;
+    border-top:1px solid #f0ede5;line-height:1.55;
+  }
+  .pay-card .ev .d{display:block;color:#37352f;font-weight:500;margin-bottom:2px}
+
+  .pay-sum{
+    margin-top:12px;padding:12px 16px;background:#f7f6f3;
+    border-radius:6px;display:flex;align-items:center;gap:14px;
+    font-size:13px;
+  }
+  .pay-sum .lbl{color:#7a9083;letter-spacing:1px}
+  .pay-sum .v{color:#0f1419;font-weight:600;font-size:15px}
+  .pay-sum .ok{color:#4f8a5b;font-weight:500;letter-spacing:1px}
+  .pay-sum .spacer{flex:1}
+  .pay-sum .add{
+    background:#fff;border:1px solid #d4cab4;padding:4px 10px;border-radius:4px;
+    font-size:12px;color:#5a5040;cursor:pointer;letter-spacing:.5px;
+  }
+  .pay-sum .add:hover{border-color:#37352f;color:#37352f}
+
+  /* ============ CALLOUT ============ */
+  .callout{
+    display:flex;gap:10px;padding:12px 14px;border-radius:6px;
+    background:#fef0d5;border:1px solid #f3d19e;
+    font-size:13px;color:#5a4416;line-height:1.6;
+  }
+  .callout .ic{font-size:14px;flex:none;line-height:1.5}
+  .callout b{color:#5a4416}
+
+  /* ============ HISTORY (compact) ============ */
+  .hist{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+  }
+  .hist-item{
+    background:#fbfbfa;border:1px solid #ebebeb;border-radius:6px;
+    padding:10px 12px;transition:all .12s;cursor:pointer;
+  }
+  .hist-item:hover{border-color:#d4cab4;background:#fff}
+  .hist-item .no{font-size:12px;color:#0f1419;font-weight:500;letter-spacing:.5px}
+  .hist-item .meta{font-size:11px;color:#7a9083;margin-top:2px}
+  .hist-item .badge{
+    display:inline-block;margin-top:6px;font-size:10px;letter-spacing:1px;
+    padding:1px 6px;border-radius:2px;
+  }
+  .hist-item .badge.ok{background:#e8f0e9;color:#3d6a48}
+  .hist-item .badge.fail{background:#fdf2ee;color:#c75a3e}
+
+  /* ============ STICKY BOTTOM ACTION ============ */
+  .sticky-action{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+    width:min(720px,calc(100% - 48px));
+    background:#fff;border:1px solid #ebebeb;border-radius:12px;
+    box-shadow:0 8px 24px -8px rgba(0,0,0,.12),0 2px 6px -2px rgba(0,0,0,.04);
+    padding:12px 16px;display:flex;align-items:center;gap:14px;z-index:50;
+  }
+  .sticky-action .left{
+    display:flex;gap:14px;align-items:center;flex:1;min-width:0;
+  }
+  .sticky-action .prog{
+    width:32px;height:32px;border-radius:50%;
+    background:#e8f0e9;display:flex;align-items:center;justify-content:center;
+    color:#3d6a48;font-size:14px;font-weight:600;flex:none;
+  }
+  .sticky-action .t{font-size:13px;color:#37352f;font-weight:500;letter-spacing:.3px}
+  .sticky-action .sub{font-size:11.5px;color:#7a9083;letter-spacing:.3px}
+  .sticky-action .spacer{flex:1}
+  .sticky-action .ghost{
+    background:none;border:1px solid #ebebeb;border-radius:6px;
+    padding:7px 12px;font-size:12.5px;color:#5a5040;cursor:pointer;letter-spacing:.3px;
+    font-family:inherit;
+  }
+  .sticky-action .ghost:hover{border-color:#37352f;color:#37352f}
+  .sticky-action .primary{
+    background:#0f1419;color:#fff;border:none;border-radius:6px;
+    padding:8px 18px;font-size:13px;letter-spacing:1.5px;cursor:pointer;
+    font-family:inherit;font-weight:500;display:flex;align-items:center;gap:6px;
+  }
+  .sticky-action .primary:hover{background:#1c2127}
+  .sticky-action .primary:disabled{background:#b8b0a0;cursor:not-allowed}
+
+  /* ============ ICONS ============ */
+  .icon-svg{width:14px;height:14px;display:inline-block;vertical-align:middle}
+
+  /* Mention blocks */
+  .mention{
+    display:inline-block;background:rgba(55,53,47,.08);border-radius:3px;
+    padding:0 4px;font-size:13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="logo">華星<span class="d">合同生成</span></div>
+    <div class="divider"></div>
+    <div class="crumb">现牌过户 <span class="sep">/</span> <b>高新两地牌过户</b></div>
+    <div class="spacer"></div>
+    <button class="btn">分享</button>
+    <button class="btn">评论</button>
+    <div class="icon">⋯</div>
+    <div class="icon" style="background:#c75a3e;color:#fff">盛</div>
+  </div>
+
+  <!-- SUB BAR -->
+  <div class="sub-bar">
+    <div class="seg">
+      <button>个人</button>
+      <button class="on">公司</button>
+    </div>
+    <div class="divider" style="width:1px;height:16px;background:#ebebeb"></div>
+    <div class="currency">
+      <span class="lbl">币种</span>
+      <div class="seg">
+        <button class="on">HKD</button>
+        <button>CNY</button>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="save-status"><span class="dot"></span>已自动保存 · 2 秒前</div>
+  </div>
+
+  <!-- PAGE -->
+  <div class="page">
+
+    <div class="cover">
+      <div class="tag">合同 0826-004 · 草稿</div>
+    </div>
+
+    <h1 class="page-title">高新两地牌现牌过户</h1>
+    <div class="page-meta">
+      <div class="item">📅 签署日期 <b>2026-08-26</b></div>
+      <div class="item">📄 合同编号 <b>0826-004</b></div>
+      <div class="item">🏷️ 模板 <b>2-过户-高新两地牌</b></div>
+      <div class="item">👤 客户 <b>鸿达投资有限公司</b></div>
+    </div>
+
+    <!-- AI INPUT -->
+    <div class="ai-input">
+      <div class="head">
+        <span class="star">★ AI 抽取</span>
+        <div class="counter">142 / 1000</div>
+      </div>
+      <textarea placeholder="把客户的描述粘进来——微信、邮件、电话记录都行。
+
+例：
+客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用港币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。">客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用港币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。</textarea>
+      <div class="bar">
+        <div class="templates">
+          <span class="tpl">卖车示例</span>
+          <span class="tpl">高新过户</span>
+          <span class="tpl here">纳税过户</span>
+          <span class="tpl">新办·莲塘</span>
+          <span class="tpl">新办·深圳湾</span>
+        </div>
+        <div class="spacer"></div>
+        <button class="ai-btn"><span class="ic">✦</span> 重新抽取</button>
+      </div>
+    </div>
+
+    <!-- Stages -->
+    <div class="stages-line">
+      <div class="step done"><span class="ic">✓</span>理解描述</div>
+      <div class="sep">·</div>
+      <div class="step done"><span class="ic">✓</span>抽取字段</div>
+      <div class="sep">·</div>
+      <div class="step run"><span class="ic"></span>解析付款</div>
+      <div class="sep">·</div>
+      <div class="step"><span class="ic">·</span>核对结果</div>
+      <div class="timer">3.2s</div>
+    </div>
+
+    <!-- 委托方信息 -->
+    <div class="sec-h">
+      <div class="bar">▾</div>
+      <div class="t">委托方信息</div>
+      <div class="badge">5 / 5</div>
+    </div>
+    <div class="rows">
+      <div class="row ai-fill verified">
+        <div class="k">委托方名称</div>
+        <div class="v"><input class="text" value="鸿达投资有限公司" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row ai-fill verified">
+        <div class="k">证件 / 公司编号 <span class="req">*</span></div>
+        <div class="v"><input class="text" value="91110000MA0000000X" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row ai-fill verified">
+        <div class="k">联络人</div>
+        <div class="v"><input class="text" value="李四" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row ai-fill verified">
+        <div class="k">联络电话 <span class="req">*</span></div>
+        <div class="v"><input class="text" value="13800001234" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row">
+        <div class="k">联络地址</div>
+        <div class="v"><input class="text" placeholder="选填" /></div>
+        <div class="more">⋯</div>
+      </div>
+    </div>
+
+    <!-- 指标与车辆 -->
+    <div class="sec-h">
+      <div class="bar">▾</div>
+      <div class="t">指标与车辆数据</div>
+      <div class="badge">3 / 4</div>
+    </div>
+    <div class="rows">
+      <div class="row ai-fill verified">
+        <div class="k">车牌号码 <span class="req">*</span></div>
+        <div class="v"><input class="text" value="LN1234" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row ai-fill verified">
+        <div class="k">通行口岸 <span class="req">*</span></div>
+        <div class="v">
+          <input class="text" value="莲塘口岸" readonly />
+          <span class="ai-tag">AI</span>
+        </div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row">
+        <div class="k">两地牌类型</div>
+        <div class="v"><input class="text" value="高新" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+      <div class="row ai-fill verified">
+        <div class="k">目标香港公司 <span class="req">*</span></div>
+        <div class="v"><input class="text" value="XX 物流有限公司" readonly /></div>
+        <div class="more">⋯</div>
+      </div>
+    </div>
+
+    <!-- 服务费用 -->
+    <div class="sec-h">
+      <div class="bar">▾</div>
+      <div class="t">服务费用</div>
+      <div class="badge">已确认</div>
+    </div>
+    <div class="fee-block">
+      <div class="left">
+        <div class="k">服务总费用</div>
+        <div class="amt"><span class="cur">HK$</span>300,000</div>
+        <div class="cn">港币叁拾万元整</div>
+      </div>
+      <div class="right">
+        <div class="k">分期方案</div>
+        <div class="v">3 期 · 等额 100,000 / 期</div>
+      </div>
+    </div>
+
+    <!-- 付款计划 -->
+    <div class="sec-h">
+      <div class="bar">▾</div>
+      <div class="t">付款计划</div>
+      <div class="badge">3 期</div>
+    </div>
+    <div class="pay-grid">
+      <div class="pay-card ai-fill">
+        <div class="top">
+          <span class="seq">第一期｜定金</span>
+          <span class="ai-tag">AI</span>
+        </div>
+        <div class="amt"><span class="cur">HK$</span>100,000</div>
+        <div class="cn">港币壹拾万元整</div>
+        <div class="ev">
+          <span class="d">2026-08-26</span>
+          签约当日
+        </div>
+      </div>
+      <div class="pay-card ai-fill">
+        <div class="top">
+          <span class="seq">第二期款</span>
+          <span class="ai-tag">AI</span>
+        </div>
+        <div class="amt"><span class="cur">HK$</span>100,000</div>
+        <div class="cn">港币壹拾万元整</div>
+        <div class="ev">
+          <span class="d">2026-08-29</span>
+          提交资料后 3 日内
+        </div>
+      </div>
+      <div class="pay-card ai-fill">
+        <div class="top">
+          <span class="seq">尾款</span>
+          <span class="ai-tag">AI</span>
+        </div>
+        <div class="amt"><span class="cur">HK$</span>100,000</div>
+        <div class="cn">港币壹拾万元整</div>
+        <div class="ev">
+          <span class="d">过户完成后</span>
+          甲方交付行驶证 / 批文卡 / 铁牌
+        </div>
+      </div>
+    </div>
+    <div class="pay-sum">
+      <span class="lbl">三期合计</span>
+      <span class="v">HK$ 300,000</span>
+      <span class="ok">= 总费用 ✓</span>
+      <div class="spacer"></div>
+      <button class="add">＋ 加一期</button>
+    </div>
+
+    <!-- Callout -->
+    <div style="margin-top:24px">
+      <div class="callout">
+        <div class="ic">💡</div>
+        <div>
+          <b>AI 小提示：</b>客户描述里没提<b>目标内地公司</b>，高新过户不强制需要。如果客户后续要做纳税过户，再补也行。
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史 -->
+    <div class="sec-h" style="margin-top:36px">
+      <div class="bar">▾</div>
+      <div class="t">今日已生成</div>
+      <div class="badge">3 单</div>
+    </div>
+    <div class="hist">
+      <div class="hist-item">
+        <div class="no">0826-001</div>
+        <div class="meta">鸿达投资 · 高新过户</div>
+        <div class="badge ok">通过 · 10:24</div>
+      </div>
+      <div class="hist-item">
+        <div class="no">0826-002</div>
+        <div class="meta">华南物流 · 新办·莲塘</div>
+        <div class="badge ok">通过 · 11:08</div>
+      </div>
+      <div class="hist-item">
+        <div class="no">0826-003</div>
+        <div class="meta">王先生 · 卖车</div>
+        <div class="badge fail">待补 · 14:55</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- STICKY ACTION -->
+  <div class="sticky-action">
+    <div class="left">
+      <div class="prog">7/7</div>
+      <div>
+        <div class="t">全部字段就绪 · 付款 3 期合计 = 总费用</div>
+        <div class="sub">预计生成耗时 10~60 秒 · 规则 + AI 双重核对</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="ghost">预览合同</button>
+    <button class="primary">生成合同 →</button>
+  </div>
+
+</div>
+
+<script>
+  // Click to edit any AI-filled field
+  document.querySelectorAll('.row.ai-fill .text, .pay-card .amt').forEach(el=>{
+    el.style.cursor = 'text';
+  });
+
+  // Click to verify a field
+  document.querySelectorAll('.row .more').forEach(more=>{
+    more.addEventListener('click',()=>{
+      const row = more.closest('.row');
+      row.classList.remove('ai-fill');
+      row.classList.add('verified');
+    });
+  });
+
+  // Toggle template chip
+  document.querySelectorAll('.tpl').forEach(t=>{
+    t.addEventListener('click',()=>{
+      document.querySelectorAll('.tpl').forEach(x=>x.classList.remove('here'));
+      t.classList.add('here');
+    });
+  });
+
+  // Stages timer demo
+  let t = 3.2;
+  setInterval(()=>{
+    const el = document.querySelector('.stages-line .timer');
+    if(!el) return;
+    t = Math.min(t + 0.1, 4.5);
+    el.textContent = t.toFixed(1) + 's';
+  },100);
+</script>
+</body>
+</html>

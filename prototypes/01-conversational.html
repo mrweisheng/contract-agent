@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 A · 对话优先 · 華星合同生成</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:#fafaf9;
+    color:#1f1d1a;
+    font-family:"Inter","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .app{display:grid;grid-template-columns:240px 1fr 340px;height:100vh}
+
+  /* ===== Left rail: business types ===== */
+  .rail{
+    background:#0f1419;color:#a8a08f;
+    display:flex;flex-direction:column;
+    border-right:1px solid #1c2127;
+  }
+  .rail .brand{padding:22px 22px 18px;border-bottom:1px solid #1c2127}
+  .rail .brand .name{font-family:"Noto Serif SC",serif;font-size:22px;font-weight:700;letter-spacing:4px;color:#f1ead7}
+  .rail .brand .sub{font-size:10.5px;letter-spacing:3px;color:#7a9083;margin-top:2px}
+  .rail .group{padding:20px 14px 8px;font-size:10.5px;letter-spacing:2px;color:#7a9083;text-transform:uppercase}
+  .rail .item{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 14px;margin:1px 6px;border-radius:6px;
+    font-size:13.5px;cursor:pointer;transition:background .15s;
+  }
+  .rail .item:hover{background:#1c2127}
+  .rail .item.active{background:#1c2127;color:#f1ead7}
+  .rail .item .dot{width:6px;height:6px;border-radius:50%;background:#4f8a5b}
+  .rail .item .num{font-family:"Times New Roman",serif;font-size:10px;color:#7a9083;letter-spacing:1px;margin-left:auto}
+  .rail .recent{margin-top:auto;padding:18px 18px 22px;border-top:1px solid #1c2127}
+  .rail .recent .k{font-size:10.5px;letter-spacing:2px;color:#7a9083;margin-bottom:10px}
+  .rail .recent .row{font-size:12px;color:#8a8276;display:flex;justify-content:space-between;padding:4px 0}
+  .rail .recent .row b{color:#d4a373;font-weight:400}
+
+  /* ===== Center: chat ===== */
+  .chat{display:flex;flex-direction:column;background:#fafaf9;position:relative;overflow:hidden}
+  .topbar{
+    height:56px;background:#fff;border-bottom:1px solid #e5e3df;
+    display:flex;align-items:center;gap:14px;padding:0 22px;flex:none;
+  }
+  .topbar .crumb{font-size:13.5px;color:#1f1d1a}
+  .topbar .crumb .sep{color:#b8b0a0;margin:0 6px}
+  .topbar .crumb .type{color:#1f1d1a;font-weight:500}
+  .topbar .badge{
+    font-size:11px;color:#7a9083;background:#f0ede5;
+    padding:2px 8px;border-radius:3px;letter-spacing:1px;
+  }
+  .topbar .spacer{flex:1}
+  .topbar .ghost{
+    background:none;border:1px solid #d4cab4;border-radius:5px;
+    padding:5px 12px;font-size:12.5px;color:#5a5040;cursor:pointer;letter-spacing:1px;
+  }
+  .topbar .ghost:hover{background:#f4efe6}
+
+  .stream{
+    flex:1;overflow-y:auto;padding:30px 0 24px;
+    scroll-behavior:smooth;
+  }
+  .stream .inner{max-width:760px;margin:0 auto;padding:0 32px}
+
+  .msg{display:flex;gap:14px;margin-bottom:24px;align-items:flex-start}
+  .msg .av{
+    width:32px;height:32px;border-radius:6px;flex:none;
+    display:flex;align-items:center;justify-content:center;
+    font-family:"Noto Serif SC",serif;font-size:14px;letter-spacing:0;
+  }
+  .msg.ai .av{background:#0f1419;color:#d4a373}
+  .msg.user .av{background:#fff;border:1px solid #d4cab4;color:#5a5040}
+  .msg .body{flex:1;min-width:0;padding-top:4px}
+  .msg .name{font-size:12px;color:#7a9083;letter-spacing:1px;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+  .msg .name .role{color:#b8b0a0;font-size:11px}
+  .msg .text{font-size:14.5px;line-height:1.75;color:#1f1d1a}
+  .msg .text p{margin-bottom:8px}
+  .msg .text p:last-child{margin-bottom:0}
+  .msg .text code{font-family:"JetBrains Mono",monospace;font-size:13px;background:#f0ede5;padding:1px 6px;border-radius:3px;color:#5a5040}
+  .msg .text mark{background:#fef0d5;color:#5a4416;padding:1px 4px;border-radius:2px}
+
+  .typing{display:flex;gap:5px;padding:6px 0}
+  .typing span{width:6px;height:6px;background:#b8b0a0;border-radius:50%;animation:b 1.4s infinite ease-in-out both}
+  .typing span:nth-child(1){animation-delay:-0.32s}
+  .typing span:nth-child(2){animation-delay:-0.16s}
+  @keyframes b{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+
+  /* Stages pill */
+  .stages{
+    display:flex;gap:8px;flex-wrap:wrap;padding:8px 0 4px;
+  }
+  .stage{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:4px 10px;border-radius:14px;
+    font-size:12px;background:#fff;border:1px solid #e5e3df;color:#7a9083;
+    transition:all .3s;
+  }
+  .stage.run{background:#0f1419;border-color:#0f1419;color:#d4a373}
+  .stage.done{background:#fff;border-color:#4f8a5b;color:#4f8a5b}
+  .stage.fail{background:#fff;border-color:#c75a3e;color:#c75a3e}
+  .stage .ic{width:10px;height:10px;display:inline-flex;align-items:center;justify-content:center;font-size:10px}
+  .stage.run .ic{animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* Review card - the star of the show */
+  .review{
+    margin:14px 0;background:#fff;border:1px solid #e5e3df;
+    border-radius:10px;overflow:hidden;
+    box-shadow:0 1px 0 rgba(0,0,0,.02),0 6px 24px -12px rgba(15,20,25,.12);
+  }
+  .review .head{
+    padding:14px 18px;background:#faf7f2;border-bottom:1px solid #e5e3df;
+    display:flex;align-items:center;gap:10px;
+  }
+  .review .head .t{font-size:13.5px;font-weight:500;color:#1f1d1a;letter-spacing:1px}
+  .review .head .count{
+    font-size:11px;letter-spacing:1.5px;
+    background:#0f1419;color:#d4a373;padding:2px 7px;border-radius:3px;
+    font-family:"Times New Roman",serif;
+  }
+  .review .head .ai-tag{
+    font-size:10.5px;letter-spacing:2px;color:#7a9083;
+    border:1px solid #d4cab4;padding:2px 6px;border-radius:3px;
+    margin-left:auto;
+  }
+  .review .row{
+    display:grid;grid-template-columns:140px 1fr auto;gap:14px;
+    padding:10px 18px;align-items:center;
+    border-bottom:1px solid #f0ede5;
+    transition:background .2s;
+  }
+  .review .row:last-child{border-bottom:none}
+  .review .row:hover{background:#faf7f2}
+  .review .row .k{font-size:13px;color:#7a9083;letter-spacing:1px}
+  .review .row .v{
+    font-size:14px;color:#1f1d1a;font-weight:500;
+    background:transparent;border:none;outline:none;width:100%;
+    padding:4px 8px;border-radius:4px;border:1px solid transparent;
+    transition:all .15s;
+  }
+  .review .row .v:hover{background:#fff;border-color:#e5e3df}
+  .review .row .v:focus{background:#fff;border-color:#0f1419}
+  .review .row .v.ai-fill{background:#fef0d5;color:#5a4416}
+  .review .row .v.miss{border:1px dashed #c75a3e;color:#c75a3e;background:#fdf2ee}
+  .review .row .badge{
+    font-size:10.5px;letter-spacing:1.5px;
+    padding:2px 7px;border-radius:3px;
+    font-family:"Noto Sans SC",sans-serif;
+  }
+  .review .row .badge.ai{background:#fef0d5;color:#5a4416}
+  .review .row .badge.verified{background:#e8f0e9;color:#3d6a48}
+  .review .row .badge.req{color:#c75a3e;font-size:11px}
+
+  .review .pay{
+    padding:16px 18px;background:#faf7f2;border-top:1px solid #e5e3df;
+  }
+  .review .pay .k{font-size:12px;color:#7a9083;letter-spacing:1.5px;margin-bottom:10px}
+  .review .pay .ph{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:8px 12px;background:#fff;border:1px solid #e5e3df;border-radius:6px;
+    margin-bottom:6px;font-size:13px;
+  }
+  .review .pay .ph .seq{font-family:"Noto Serif SC",serif;color:#0f1419;font-weight:600}
+  .review .pay .ph .ev{color:#5a5040;flex:1;margin:0 12px;font-size:12.5px}
+  .review .pay .ph .am{color:#1f1d1a;font-weight:500}
+  .review .pay .sum{
+    margin-top:10px;padding-top:10px;border-top:1px solid #e5e3df;
+    display:flex;justify-content:space-between;align-items:center;
+    font-size:12.5px;color:#7a9083;
+  }
+  .review .pay .sum b{color:#4f8a5b;font-size:14px;font-weight:500}
+
+  .review .foot{
+    padding:12px 18px;background:#fff;border-top:1px solid #e5e3df;
+    display:flex;gap:10px;align-items:center;
+  }
+  .review .foot .left{font-size:12px;color:#7a9083}
+  .review .foot .spacer{flex:1}
+  .review .foot button{
+    font-family:inherit;font-size:13px;
+    padding:7px 14px;border-radius:6px;cursor:pointer;
+    border:1px solid #d4cab4;background:#fff;color:#1f1d1a;letter-spacing:1px;
+  }
+  .review .foot button.primary{background:#0f1419;color:#f1ead7;border-color:#0f1419}
+  .review .foot button.primary:hover{background:#1c2127}
+  .review .foot button:hover{border-color:#0f1419}
+
+  /* Input box at bottom of chat */
+  .composer{
+    border-top:1px solid #e5e3df;background:#fff;padding:18px 22px;flex:none;
+  }
+  .composer .inner{max-width:760px;margin:0 auto}
+  .composer .box{
+    background:#faf7f2;border:1px solid #e5e3df;border-radius:10px;
+    transition:all .15s;
+  }
+  .composer .box:focus-within{background:#fff;border-color:#0f1419;box-shadow:0 0 0 3px rgba(15,20,25,.06)}
+  .composer textarea{
+    width:100%;border:none;background:transparent;outline:none;resize:none;
+    padding:12px 16px 4px;font-family:inherit;font-size:14px;line-height:1.7;
+    color:#1f1d1a;min-height:48px;max-height:200px;
+  }
+  .composer textarea::placeholder{color:#b8b0a0}
+  .composer .bar{
+    display:flex;align-items:center;gap:8px;padding:6px 10px 8px;
+  }
+  .composer .bar .left{display:flex;gap:6px;align-items:center}
+  .composer .chip{
+    font-size:11.5px;color:#5a5040;background:#fff;border:1px solid #d4cab4;
+    padding:3px 8px;border-radius:3px;cursor:pointer;letter-spacing:1px;
+  }
+  .composer .chip:hover{background:#f4efe6}
+  .composer .bar .spacer{flex:1}
+  .composer .send{
+    background:#0f1419;color:#f1ead7;border:none;border-radius:6px;
+    padding:6px 14px;font-size:12.5px;letter-spacing:1.5px;cursor:pointer;
+    font-family:inherit;
+  }
+  .composer .send:hover{background:#1c2127}
+  .composer .send:disabled{background:#b8b0a0;cursor:not-allowed}
+  .composer .hint{
+    font-size:11.5px;color:#7a9083;margin-top:8px;letter-spacing:.5px;
+  }
+  .composer .hint kbd{
+    background:#fff;border:1px solid #d4cab4;border-radius:3px;padding:1px 5px;
+    font-family:"JetBrains Mono",monospace;font-size:11px;
+  }
+
+  /* ===== Right panel: live preview / status ===== */
+  .side{
+    background:#fff;border-left:1px solid #e5e3df;
+    overflow-y:auto;
+  }
+  .side .sec{padding:18px 22px;border-bottom:1px solid #f0ede5}
+  .side .sec:last-child{border-bottom:none}
+  .side .label{font-size:10.5px;letter-spacing:2.5px;color:#7a9083;margin-bottom:10px;text-transform:uppercase}
+  .side .progress{
+    display:flex;align-items:center;gap:8px;padding:10px 12px;
+    background:#faf7f2;border:1px solid #e5e3df;border-radius:6px;
+  }
+  .side .progress .pct{font-family:"Times New Roman",serif;font-size:18px;color:#1f1d1a;font-weight:500}
+  .side .progress .v{flex:1;font-size:12px;color:#5a5040}
+  .side .progress .v b{color:#4f8a5b;font-weight:500}
+
+  .side .check{
+    display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;
+  }
+  .side .check .ic{
+    width:16px;height:16px;border-radius:50%;flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:10px;
+  }
+  .side .check.done .ic{background:#4f8a5b;color:#fff}
+  .side .check.todo .ic{background:#fff;border:1px solid #d4cab4;color:#b8b0a0}
+  .side .check.now .ic{background:#fef0d5;color:#5a4416}
+  .side .check .t{color:#1f1d1a;flex:1}
+  .side .check .h{font-size:11px;color:#7a9083}
+
+  .side .stat{
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;
+  }
+  .side .stat .cell{
+    background:#faf7f2;border:1px solid #e5e3df;border-radius:6px;padding:10px 12px;
+  }
+  .side .stat .cell .k{font-size:10.5px;color:#7a9083;letter-spacing:1.5px;margin-bottom:4px}
+  .side .stat .cell .v{font-size:15px;color:#1f1d1a;font-weight:500}
+  .side .stat .cell .v .cny{color:#7a9083;font-size:11px;margin-left:4px;font-weight:400}
+
+  .side .history-row{
+    display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px;
+    color:#5a5040;
+  }
+  .side .history-row .no{font-family:"Times New Roman",serif;color:#0f1419;letter-spacing:1px}
+  .side .history-row .meta{margin-left:auto;font-size:11px;color:#b8b0a0}
+  .side .history-row .dot{width:5px;height:5px;border-radius:50%;background:#4f8a5b;flex:none}
+
+  .side .big-btn{
+    display:block;width:100%;background:#0f1419;color:#f1ead7;
+    text-align:center;padding:12px;border-radius:7px;cursor:pointer;
+    font-size:13.5px;letter-spacing:2px;border:none;font-family:inherit;
+  }
+  .side .big-btn:hover{background:#1c2127}
+  .side .big-btn:disabled{background:#d4cab4;color:#8a8276;cursor:not-allowed}
+  .side .big-btn .sub{display:block;font-size:10.5px;color:#d4a373;letter-spacing:1.5px;margin-top:3px;font-weight:400}
+
+  .side .inline-warn{
+    font-size:11.5px;color:#5a4416;background:#fef0d5;
+    padding:8px 10px;border-radius:5px;margin-top:8px;line-height:1.55;
+  }
+  .side .inline-warn b{color:#5a4416}
+
+  .flash{position:absolute;top:20px;right:20px;background:#0f1419;color:#f1ead7;
+    padding:8px 14px;border-radius:6px;font-size:12.5px;letter-spacing:1px;
+    box-shadow:0 8px 24px -8px rgba(0,0,0,.4);
+    opacity:0;transform:translateY(-6px);transition:all .3s;z-index:10;
+  }
+  .flash.show{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ============ LEFT RAIL ============ -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="name">華星</div>
+      <div class="sub">CONTRACT · AGENT</div>
+    </div>
+    <div class="group">现牌过户</div>
+    <div class="item active"><span class="dot"></span>高新两地牌过户<span class="num">02</span></div>
+    <div class="item"><span class="dot"></span>纳税两地牌过户<span class="num">03</span></div>
+    <div class="group">粤Z新办</div>
+    <div class="item"><span class="dot"></span>莲塘口岸<span class="num">04</span></div>
+    <div class="item"><span class="dot"></span>深圳湾口岸<span class="num">05</span></div>
+    <div class="item"><span class="dot"></span>港珠澳大桥口岸<span class="num">06</span></div>
+    <div class="item"><span class="dot"></span>沙头角口岸<span class="num">07</span></div>
+    <div class="group">车辆买卖</div>
+    <div class="item"><span class="dot"></span>香港车辆买卖<span class="num">01</span></div>
+    <div class="recent">
+      <div class="k">今日已生成</div>
+      <div class="row"><span>0826-001</span><b>✓</b></div>
+      <div class="row"><span>0826-002</span><b>✓</b></div>
+      <div class="row"><span>0826-003</span><b>↻</b></div>
+    </div>
+  </aside>
+
+  <!-- ============ CHAT ============ -->
+  <main class="chat">
+    <div class="topbar">
+      <div class="crumb">華星 <span class="sep">/</span> <span class="type">高新两地牌现牌过户</span></div>
+      <div class="badge">合同模板 02</div>
+      <div class="spacer"></div>
+      <button class="ghost" onclick="openHistory()">生成历史</button>
+    </div>
+
+    <div class="stream" id="stream">
+      <div class="inner">
+
+        <!-- AI 1: greeting -->
+        <div class="msg ai">
+          <div class="av">星</div>
+          <div class="body">
+            <div class="name">華星助手 <span class="role">· 合同生成</span></div>
+            <div class="text">
+              <p>你好，我是華星。把你客户的描述贴过来就行——微信消息、邮件、电话记录都可以。我会帮你抽成结构化字段，你最后核对一下就能生成合同。</p>
+              <p>如果你想看个例子，可以点下方"示例"加载一段。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- User 1: paste -->
+        <div class="msg user">
+          <div class="av">你</div>
+          <div class="body">
+            <div class="name">我 <span class="role">· 2 秒前</span></div>
+            <div class="text">
+              <p>客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用港币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 2: thinking -->
+        <div class="msg ai">
+          <div class="av">星</div>
+          <div class="body">
+            <div class="name">華星助手 <span class="role">· 思考中</span></div>
+            <div class="stages">
+              <span class="stage done"><span class="ic">✓</span>理解客户描述</span>
+              <span class="stage done"><span class="ic">✓</span>抽取业务字段</span>
+              <span class="stage run"><span class="ic">◐</span>解析付款约定</span>
+              <span class="stage">核对口岸要素</span>
+            </div>
+            <div class="text" style="margin-top:6px">
+              <p>正在推算第二期付款日期（你刚说了"提交资料后 3 日内"，我用今天作为提交起点）……</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 3: review card -->
+        <div class="msg ai">
+          <div class="av">星</div>
+          <div class="body">
+            <div class="name">華星助手 <span class="role">· 抽取完成</span></div>
+            <div class="text">
+              <p>识别出 <code>7</code> 个字段，<code>3</code> 期付款。我把结果摆在下面这条卡片里，<mark>琥珀色</mark>的是我抽的，你点哪条就改哪条。</p>
+            </div>
+
+            <div class="review">
+              <div class="head">
+                <div class="t">高新两地牌现牌过户</div>
+                <div class="count">7 / 7</div>
+                <div class="ai-tag">AI 抽取</div>
+              </div>
+
+              <div class="row">
+                <div class="k">委托方</div>
+                <input class="v ai-fill" value="鸿达投资有限公司" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">证件号码</div>
+                <input class="v ai-fill" value="91110000MA0000000X" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">联络人</div>
+                <input class="v ai-fill" value="李四" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">联络电话</div>
+                <input class="v ai-fill" value="13800001234" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">车牌号码</div>
+                <input class="v ai-fill" value="LN1234" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">通行口岸 <span class="badge req">必选</span></div>
+                <input class="v ai-fill" value="莲塘口岸" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+              <div class="row">
+                <div class="k">目标香港公司</div>
+                <input class="v ai-fill" value="XX 物流有限公司" readonly />
+                <span class="badge ai">AI</span>
+              </div>
+
+              <div class="pay">
+                <div class="k">付款计划 · 自动解析</div>
+                <div class="ph">
+                  <span class="seq">第一期</span>
+                  <span class="ev">签约当日</span>
+                  <span class="am">HK$ 100,000</span>
+                </div>
+                <div class="ph">
+                  <span class="seq">第二期</span>
+                  <span class="ev">提交资料后 3 日内</span>
+                  <span class="am">HK$ 100,000</span>
+                </div>
+                <div class="ph">
+                  <span class="seq">尾款</span>
+                  <span class="ev">过户完成后</span>
+                  <span class="am">HK$ 100,000</span>
+                </div>
+                <div class="sum">
+                  <span>三期合计</span>
+                  <b>HK$ 300,000 = 服务总费用 · 两讫</b>
+                </div>
+              </div>
+
+              <div class="foot">
+                <div class="left">金额、币种、口岸、合计都没问题？</div>
+                <div class="spacer"></div>
+                <button>补充信息</button>
+                <button class="primary">全部对的</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- User 2: confirm -->
+        <div class="msg user">
+          <div class="av">你</div>
+          <div class="body">
+            <div class="name">我 <span class="role">· 刚刚</span></div>
+            <div class="text">
+              <p>全部对的，生成。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 4: generation -->
+        <div class="msg ai">
+          <div class="av">星</div>
+          <div class="body">
+            <div class="name">華星助手 <span class="role">· 生成中</span></div>
+            <div class="stages">
+              <span class="stage done"><span class="ic">✓</span>复制合同模板</span>
+              <span class="stage done"><span class="ic">✓</span>落盘字段</span>
+              <span class="stage run"><span class="ic">◐</span>规则核对</span>
+              <span class="stage">AI 语义复核</span>
+              <span class="stage">归档</span>
+            </div>
+            <div class="text" style="margin-top:6px">
+              <p>已等 <b id="elapsed">7</b> 秒 · 通常 10~60 秒</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 5: success -->
+        <div class="msg ai">
+          <div class="av">星</div>
+          <div class="body">
+            <div class="name">華星助手 <span class="role">· 完成</span></div>
+            <div class="text">
+              <p>合同 <code>0826-004</code> 已生成并通过双重核对。可以下载了——</p>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:10px">
+              <button class="primary" style="background:#0f1419;color:#f1ead7;border:none;padding:9px 18px;border-radius:7px;cursor:pointer;font-size:13.5px;letter-spacing:1.5px;font-family:inherit">↓ 下载合同 (.docx)</button>
+              <button style="background:#fff;color:#1f1d1a;border:1px solid #d4cab4;padding:9px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-family:inherit">查看合同正文</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="inner">
+        <div class="box">
+          <textarea placeholder="追加说明：比如"总费用改 35 万" / "改用纳税过户"……  也可直接回车发送" placeholder=""></textarea>
+          <div class="bar">
+            <div class="left">
+              <span class="chip" onclick="loadSample()">示例</span>
+              <span class="chip">+ 附件</span>
+            </div>
+            <div class="spacer"></div>
+            <button class="send">发送 ↵</button>
+          </div>
+        </div>
+        <div class="hint">回车发送 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行 · 合同编号自动生成 <b>0826-004</b></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============ RIGHT SIDE: live status ============ -->
+  <aside class="side">
+
+    <div class="sec">
+      <div class="label">生成进度</div>
+      <div class="progress">
+        <span class="pct">85%</span>
+        <span class="v">规则核对中 · 剩 <b>2 步</b></span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">待核对项</div>
+      <div class="check done"><span class="ic">✓</span><span class="t">委托方信息（5 项）</span></div>
+      <div class="check done"><span class="ic">✓</span><span class="t">指标与车辆（4 项）</span></div>
+      <div class="check done"><span class="ic">✓</span><span class="t">付款计划 3 期（合计相等）</span></div>
+      <div class="check now"><span class="ic">◐</span><span class="t">币种 & 模板指纹</span><span class="h">核对中</span></div>
+    </div>
+
+    <div class="sec">
+      <div class="label">核心数据</div>
+      <div class="stat">
+        <div class="cell"><div class="k">服务总费用</div><div class="v">300,000<span class="cny">HKD</span></div></div>
+        <div class="cell"><div class="k">大写</div><div class="v" style="font-family:'Noto Serif SC',serif;font-size:14px">叁拾万</div></div>
+        <div class="cell"><div class="k">分期</div><div class="v">3 期</div></div>
+        <div class="cell"><div class="k">签署日期</div><div class="v" style="font-size:14px">2026-08-26</div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">智能提示</div>
+      <div class="inline-warn">
+        <b>已注意到：</b>客户描述里没有提目标内地公司——纳税过户才需要，高新过户不强制。
+      </div>
+      <div class="inline-warn" style="margin-top:6px;background:#f4efe6;color:#5a5040">
+        <b>小建议：</b>"第二期款于 3 日内付" 模板条款行文为"于 3 个工作日内"，是否按模板表述？
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">今日历史 · 3 单</div>
+      <div class="history-row"><span class="dot"></span><span class="no">0826-001</span> 鸿达投资 · 高新过户<span class="meta">10:24</span></div>
+      <div class="history-row"><span class="dot"></span><span class="no">0826-002</span> 华南物流 · 新办·莲塘<span class="meta">11:08</span></div>
+      <div class="history-row"><span class="dot" style="background:#d4a373"></span><span class="no">0826-003</span> 王先生 · 卖车<span class="meta">14:55 · 待补</span></div>
+    </div>
+
+    <div class="sec">
+      <button class="big-btn" disabled>等待生成完成<span class="sub">已等 7 秒</span></button>
+    </div>
+
+  </aside>
+</div>
+
+<div class="flash" id="flash">已切换到纳税两地牌过户</div>
+
+<script>
+  // ===== Tiny interactivity for the demo =====
+  const flash = document.getElementById('flash');
+  function showFlash(msg){
+    flash.textContent = msg;
+    flash.classList.add('show');
+    clearTimeout(flash._t);
+    flash._t = setTimeout(()=>flash.classList.remove('show'), 1800);
+  }
+
+  // Click AI-filled field → switch to editable
+  document.querySelectorAll('.review .row .v').forEach(inp=>{
+    inp.addEventListener('dblclick',()=>{
+      inp.readOnly = false;
+      inp.classList.remove('ai-fill');
+      inp.focus();
+      const badge = inp.parentElement.querySelector('.badge');
+      if(badge && badge.classList.contains('ai')){
+        badge.classList.remove('ai'); badge.classList.add('verified');
+        badge.textContent = '已核对';
+      }
+    });
+  });
+
+  // Click "全部对的" button
+  document.querySelectorAll('.review .foot .primary').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      showFlash('已确认全部字段，正在生成合同…');
+      const stream = document.getElementById('stream');
+      stream.scrollTop = stream.scrollHeight;
+    });
+  });
+
+  // Click "示例" chip
+  function loadSample(){
+    const ta = document.querySelector('.composer textarea');
+    ta.value = '客户张三，身份证 440000000000000000，电话 13900001111，通过深圳湾口岸新办粤Z两地牌，人民币 25 万，分 3 期付。';
+    showFlash('已加载新办·深圳湾示例');
+  }
+
+  // Elapsed counter for the in-progress AI msg
+  let sec = 7;
+  setInterval(()=>{
+    const el = document.getElementById('elapsed');
+    if(!el) return;
+    sec++;
+    el.textContent = sec;
+  },1000);
+
+  // open history simulation
+  function openHistory(){ showFlash('历史抽屉（原型演示）'); }
+</script>
+</body>
+</html>
