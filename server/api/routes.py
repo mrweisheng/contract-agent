@@ -233,6 +233,8 @@ def download(no: str):
     rec = store.get_gen(no)
     if not rec:
         raise HTTPException(404, "记录不存在")
+    if rec["status"] != "ok":
+        raise HTTPException(403, "该合同未通过核对，不提供下载；请按问题清单修正后重新生成")
     path = os.path.join(store.OUT_DIR, rec["filename"])
     if not os.path.exists(path):
         raise HTTPException(404, "文件不存在")

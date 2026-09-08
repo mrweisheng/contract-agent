@@ -440,6 +440,7 @@ const app = createApp({
       return TEMPLATE_NAMES[selected.type] || "";
     });
     return {
+      toasts,  // 模板 v-for 渲染 Toast；漏返回会因模板取不到模块作用域而静默不显示
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
       extracting, parsing, generating, result, historyOpen, historyItems, resultBox, elapsed, nlProg,
       allDone, anyFail, activeSecs, loadingPhrase,
@@ -509,7 +510,7 @@ const app = createApp({
             <h3>合同信息</h3>
             <div class="basic-bar" style="margin-left:auto">
               <span class="lbl">编号</span>
-              <input class="h-inp num" v-model="form.agreement_no" placeholder="自动">
+              <input class="h-inp num" value="" placeholder="自动分配" disabled title="编号由服务端统一分配，生成后在「生成结果」中展示">
               <span class="lbl">签署</span>
               <input class="h-inp date" type="date" v-model="form.sign_date">
             </div>
