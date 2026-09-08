@@ -151,9 +151,6 @@ def derive_payment(type_key: str, payment: dict, total: int = None) -> dict:
 
     total：可选，传入总售价/总费用时，对「尾款 = 总额 − 订金」做一致性校验（P2-10 纵深防御）。
     """
-    """前端统一分期表 → 生成器所需的付款 dict。
-    判定：与模板预设逐期一致 → default（保持模板条款，仅填金额）；
-    单期 → one_time；其余 → custom（重写条款为一句总括）。"""
     cfg = get_type(type_key)
     preset = cfg.get("pay_preset") or []
     inst = []
@@ -289,7 +286,6 @@ def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn)
 
 
 def BLANK_LEFT(p) -> bool:
-    import re
     return bool(re.search(r"_{2,}", "".join(r.text for r in p.runs)))
 
 
