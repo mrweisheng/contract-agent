@@ -8,10 +8,12 @@
    ```
    pip install -r requirements.txt
    ```
-2. 双击 `start.bat`（或命令行运行它）；
+2. 双击 `start.bat`（或命令行运行它；没有该文件时先执行 `python scripts/make_startbat.py` 生成一次）；
 3. 团队成员浏览器访问 `http://服务器IP:8300`（本机即 http://127.0.0.1:8300）。
 
 Linux 服务器：`cd server && python3 -m uvicorn main:app --host 0.0.0.0 --port 8300`
+
+**Ubuntu + Nginx + HTTPS 正式部署（域名 contract.eazycar.top）见 [DEPLOY.md](DEPLOY.md)**。
 
 ## 二、使用流程
 
@@ -27,7 +29,7 @@ Linux 服务器：`cd server && python3 -m uvicorn main:app --host 0.0.0.0 --por
 5. **生成**：系统复制模板 → 程序级落盘（格式不变）→ 规则引擎 + AI 双重核对 → 通过后下载；
    - 规则校验（硬拦截）：必填完整、无残留空位、大写=数字、分期合计=总价、币种唯一、编号格式、**格式指纹与模板逐段比对**；
    - AI 复核（提示性）：语义比对客户约定与成品合同；
-6. **合约编号**：自动生成 11 位（日期8位+当日3位流水），也可手填覆盖；生成历史可查、可重复下载。
+6. **合约编号**：服务端自动分配 11 位（日期8位+当日3位流水），分配即占位、永不重复；生成历史可查、可重复下载。
 
 ## 三、目录结构
 
@@ -65,7 +67,7 @@ contract-agent/
 ```bash
 # 终端 1：后端（改 Python 即时生效）
 cd server
-E:spressif	ools\python\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8300 --reload
+E:/Espressif/tools/python/python.exe -m uvicorn main:app --host 0.0.0.0 --port 8300 --reload
 
 # 终端 2：前端（改 app.js / style.css 自动刷新，API 自动代理到 8300）
 cd web
