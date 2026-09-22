@@ -99,6 +99,15 @@ CASES = [
         "gift_plate": "4个月",
     }, {"mode": "default", "deposit_amount": 100000, "deposit_date": "2026-09-05",
         "balance_event": "车辆完成香港运输署过户登记手续当日"}),
+    # ---- 卖车：只赠车险（第二句改写、第一句保留 + 编号重排）----
+    ("car_gifts_ins", "car", {
+        "agreement_no": "", "sign_date": "2026-09-07", "currency": "HKD",
+        "client_name": "何险", "client_id": "H1515151", "client_phone": "91515151",
+        "plate": "IN 3333", "vin": "WBA333444555CCC66", "model": "Toyota Noah", "year": "2022",
+        "total_price": 250000,
+        "gift_insurance": "三保",
+    }, {"mode": "default", "deposit_amount": 80000, "deposit_date": "2026-09-07",
+        "balance_event": "车辆完成香港运输署过户登记手续当日"}),
     # ---- 卖车：质保只给公里数（公里在前、默认半年补后）----
     ("car_warranty_km", "car", {
         "agreement_no": "", "sign_date": "2026-09-06", "currency": "HKD",
@@ -223,25 +232,55 @@ EXPECT_BALANCE_CLAUSE = {
     "car_default_event": "购车尾款须于车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
 }
 
-# 用例 → 卖车可选内容（附赠/质保）必须出现的原文；不在表里的卖车用例必须一个字都不出现
+# 用例 → 卖车可选内容断言：must=必须出现的原文/标题；not=禁止出现的内容。
+# 条件节独立成节后，标题号随保留/删除自动重排，逐用例锁死。
 EXPECT_EXTRAS = {
-    "car_gifts_full": [
+    "car_gifts_full": {"must": [
+        "05  附赠服务  |  COMPLIMENTARY SERVICES",
+        "06  售后质保  |  AFTER-SALES WARRANTY",
         "附赠：本车辆过户登记手续的全部费用。",
         "附赠：本车辆香港车辆牌照费十二（12）个月。",
         "附赠：本车辆汽车保险（综合汽车保险（全保））。",
         "自车辆交付之日起一（1）年或行驶30,000公里（以先到者为准）",
         "全部费用由甲方承担。",
         "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担",
-    ],
-    "car_gifts_plate_only": [
+        "07  车辆交付与风险  |  DELIVERY AND RISK",
+        "08  文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
+        "11  签署确认  |  SIGNATURES",
+    ], "not": []},
+    "car_gifts_plate_only": {"must": [
+        "05  附赠服务  |  COMPLIMENTARY SERVICES",
         "附赠：本车辆香港车辆牌照费四（4）个月。",
-        "相关政府费用及代办费用由乙方承担。",          # P17 第一句原文保留
-        "车辆现有保险不随车转移，乙方须自行购买有效汽车保险。",  # 第二句原文保留
-    ],
-    "car_warranty_km": [
+        "相关政府费用及代办费用由乙方承担。",          # 过户费用句原文保留
+        "车辆现有保险不随车转移，乙方须自行购买有效汽车保险。",  # 保险句原文保留
+        "06  车辆交付与风险  |  DELIVERY AND RISK",
+        "08  违约责任  |  DEFAULT",
+        "10  签署确认  |  SIGNATURES",
+    ], "not": ["售后质保"]},
+    "car_gifts_ins": {"must": [
+        "05  附赠服务  |  COMPLIMENTARY SERVICES",
+        "附赠：本车辆汽车保险（三保）。",
+        "相关政府费用及代办费用由乙方承担。",          # 未赠过户费：第一句原文保留
+        "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担",  # 赠车险：第二句改写
+        "06  车辆交付与风险  |  DELIVERY AND RISK",
+        "10  签署确认  |  SIGNATURES",
+    ], "not": ["售后质保"]},
+    "car_warranty_km": {"must": [
+        "05  售后质保  |  AFTER-SALES WARRANTY",      # 附赠节删除 → 质保升为 05
         "自车辆交付之日起行驶10,000公里或六（6）个月（以先到者为准）",
-    ],
+        "06  车辆交付与风险  |  DELIVERY AND RISK",
+        "10  签署确认  |  SIGNATURES",
+    ], "not": ["附赠服务", "附赠："]},
 }
+
+# 卖车无附赠无售后：条款号必须回到历史形态 01–09（与已发合同逐字一致）
+EXPECT_PLAIN_HEADINGS = [
+    "05  车辆交付与风险  |  DELIVERY AND RISK",
+    "06  文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
+    "07  违约责任  |  DEFAULT",
+    "08  法律、争议及生效  |  GOVERNING LAW AND DISPUTE RESOLUTION",
+    "09  签署确认  |  SIGNATURES",
+]
 
 # 用例 → 条款区改写后必须原样保留的无关条款（新办 03 区混有非付款条款）
 EXPECT_KEEP = {
@@ -344,16 +383,22 @@ def main():
                     missing = [k for k in keep if k not in body]
                     if missing:
                         fails.append(f"条款区改写误删无关条款 {missing}")
-                # 卖车可选内容：开启的用例必须出现指定原文；未开启的一个字都不能有
+                # 卖车可选内容：开启的用例按 must/not 逐条断言；未开启的编号必须回到历史形态
                 if name in EXPECT_EXTRAS:
-                    miss = [s for s in EXPECT_EXTRAS[name] if s not in body]
+                    spec = EXPECT_EXTRAS[name]
+                    miss = [s for s in spec["must"] if s not in body]
+                    leak = [s for s in spec.get("not", []) if s in body]
                     if miss:
                         fails.append(f"可选内容缺失/不符：{miss}")
+                    if leak:
+                        fails.append(f"未启用内容出现在合同：{leak}")
                 elif tkey == "car":
-                    if "附赠：" in body:
-                        fails.append("未开启附赠但合同出现「附赠：」")
-                    if "售后质保" in body:
-                        fails.append("未开启质保但合同出现质保段")
+                    miss = [h for h in EXPECT_PLAIN_HEADINGS if h not in body]
+                    leak = [s for s in ("附赠服务", "售后质保", "附赠：") if s in body]
+                    if miss:
+                        fails.append(f"无附赠无售后时条款号未回到历史形态：{miss}")
+                    if leak:
+                        fails.append(f"未开启可选内容但合同出现：{leak}")
                 if fails:
                     all_ok = False
                     print(f"[FAIL] {name}")

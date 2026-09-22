@@ -209,33 +209,54 @@ def _tbl_texts(t):
 
 
 def _car_expected_tail(tp, te, form):
-    """卖车合同尾部期望段落序列：模板尾段 + 04 区末尾插质保段 + 06 区改写/附赠行。
-    返回 [(kind, ...)]，kind='same' 模板原段（下标）、'text' 期望文字（克隆源模板下标）。
-    未开启任何可选内容返回 None（走模板逐段一致比对）。"""
-    wp = car_extras.warranty_paragraph(form)
+    """卖车合同尾部期望段落序列：模板 05 附赠服务 / 06 售后质保为条件节——
+    有内容 → 标题（重排后号）+ car_extras 推导正文；无内容 → 整节不出现。
+    固定节标题因删节而重排，期望文字＝模板原文换前导两位号。
+    条目：("head", 期望文字, 模板下标) / ("same", 模板下标) / ("text", 期望文字, 克隆源模板下标)。"""
     gifts = car_extras.gift_lines(form)
+    wp = car_extras.warranty_paragraph(form)
     rewrite = car_extras.gift_transfer_on(form) or bool(car_extras.gift_insurance(form))
-    if not (wp or gifts or rewrite):
-        return None
-    i_cond = i_p17 = None
+    i_p17 = None
     for i in range(te, len(tp)):
-        t = tp[i].text.strip()
-        if i_cond is None and t.startswith("乙方确认已对车辆"):
-            i_cond = i
-        elif i_p17 is None and t.startswith("车辆过户手续由甲方负责办理"):
+        if tp[i].text.strip().startswith("车辆过户手续由甲方负责办理"):
             i_p17 = i
-    if (wp and i_cond is None) or ((rewrite or gifts) and i_p17 is None):
-        raise ValueError("找不到可选内容锚点段（04 现状段 / 06 过户费用段），请检查模板")
+            break
+    if rewrite and i_p17 is None:
+        raise ValueError("找不到过户费用段锚点，请检查模板")
+
     exp = []
+    n = 3          # te 处为 04 标题，进入循环后递增（仅保留节计数）
+    cur = None     # 当前节：None 固定 / "skip" 条件节未启用 / "done" 条件节期望已发完
     for i in range(te, len(tp)):
-        if rewrite and i == i_p17:
+        raw = tp[i].text
+        if re.match(r"^\d{2}  ", raw):
+            if "附赠服务" in raw:
+                if gifts:
+                    n += 1
+                    exp.append(("head", f"{n:02d}" + raw[2:], i))
+                    exp.extend(("text", g, i + 1) for g in gifts)
+                    cur = "done"
+                else:
+                    cur = "skip"
+            elif "售后质保" in raw:
+                if wp:
+                    n += 1
+                    exp.append(("head", f"{n:02d}" + raw[2:], i))
+                    exp.append(("text", wp, i + 1))
+                    cur = "done"
+                else:
+                    cur = "skip"
+            else:
+                n += 1
+                exp.append(("head", f"{n:02d}" + raw[2:], i))
+                cur = None
+            continue
+        if cur is not None:   # skip：该节整节删除；done：期望已按推导文字发完 → 模板正文段跳过
+            continue
+        if i == i_p17 and rewrite:
             exp.append(("text", car_extras.p17_text(form), i))
         else:
             exp.append(("same", i))
-        if wp and i == i_cond:
-            exp.append(("text", wp, i))
-        if gifts and i == i_p17:
-            exp.extend(("text", g, i) for g in gifts)
     return exp
 
 
@@ -296,7 +317,8 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
             issues.append(f"条款区之后段落数量与期望不一致（{len(out_tail)} ≠ {len(expected)}）")
         else:
             for b, exp in zip(out_tail, expected):
-                if exp[0] == "same":
+                kind = exp[0]
+                if kind == "same":
                     a = tp[exp[1]]
                     if a.text != b.text:
                         issues.append(f"条款区之后段落被改动：「{a.text[:20]}…」")
@@ -304,7 +326,15 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
                     if _run_sig(a) != _run_sig(b):
                         issues.append("条款区之后段落格式变化")
                         break
-                else:
+                elif kind == "head":
+                    _, txt, base = exp
+                    if b.text != txt:
+                        issues.append(f"条款标题与期望不符：「{b.text[:24]}…」")
+                        break
+                    if _run_sig(b) != _run_sig(tp[base]):
+                        issues.append(f"条款标题样式与模板不一致：「{b.text[:24]}…」")
+                        break
+                else:  # text：条件节正文 / 过户费用句改写
                     _, txt, base = exp
                     if b.text != txt:
                         issues.append(f"可选条款文字与表单不符：「{b.text[:24]}…」")

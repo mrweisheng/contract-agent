@@ -138,30 +138,36 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
 # ---------------- 统一付款表 → 生成器付款 dict ----------------
 
 def _apply_car_extras(doc, form: dict, report: dict):
-    """附赠项（06 条末尾逐行）+ 发动机质保（04 条末尾一段）。
-    赠过户费/车险时 06 条第二段与赠项矛盾，须最小改写；文字推导统一走 car_extras。"""
+    """附赠（模板 05 节）/ 售后质保（模板 06 节）独立成节：有内容整节保留并写入推导
+    文字，无内容整节删除，最后全量重排条款号——无附赠无售后时编号回到 01–09，
+    与历史合同形态一致。赠过户费/车险时原 08 条（文件、过户及保险）过户费用句
+    与赠项矛盾，须最小改写。文字推导统一走 car_extras。"""
     from engine import car_extras as X
 
-    wp = X.warranty_paragraph(form)
-    if wp:
-        W.append_section_paras(doc, "04", "05", [wp])
-        report["warranty_on"] = True
-
     gifts = X.gift_lines(form)
-    rewrite = X.gift_transfer_on(form) or bool(X.gift_insurance(form))
-    if rewrite:
-        start, end = W.section_range(doc, "06", "07")
-        p17 = next((p for p in doc.paragraphs[start:end]
-                    if "车辆过户手续由甲方负责办理" in p.text), None)
-        if p17 is None:
-            raise ValueError("找不到 06 条过户费用句，请检查模板")
-        if p17.text.strip() != X.P17_ORIG:
-            raise ValueError("模板 06 条原文与预设不符，禁止改写，请检查模板")
-        W.set_paragraph_text(p17, X.p17_text(form))
-        report["p17_rewritten"] = True
+    wp = X.warranty_paragraph(form)
+
+    # 模板号操作（重排在最后，此前标题仍是模板号）
     if gifts:
-        W.append_section_paras(doc, "06", "07", gifts)
-        report["gift_lines"] = gifts
+        W.rewrite_section(doc, "05", "06", gifts)
+    else:
+        W.delete_section(doc, "05", "06")
+    if wp:
+        W.rewrite_section(doc, "06", "07", [wp])
+    else:
+        W.delete_section(doc, "06", "07")
+    report["gift_lines"] = gifts
+    report["warranty_on"] = bool(wp)
+
+    if X.gift_transfer_on(form) or X.gift_insurance(form):
+        p17 = next((p for p in doc.paragraphs if "车辆过户手续由甲方负责办理" in p.text), None)
+        if p17 is None:
+            raise ValueError("找不到文件、过户及保险条款的过户费用句，请检查模板")
+        if p17.text.strip() != X.P17_ORIG:
+            raise ValueError("模板过户费用句原文与预设不符，禁止改写，请检查模板")
+        W.set_paragraph_text(p17, X.p17_text(form))
+
+    W.renumber_headings(doc)
 
 
 def _node_match(x: dict, p: dict) -> bool:

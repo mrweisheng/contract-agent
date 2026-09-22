@@ -78,6 +78,7 @@ python scripts/test_pipeline.py
 
 ### 模板（`server/templates/`）
 7 份只读 docx；`new_port` 类型按 `port` 字段挑模板（template_map）。**仓库内的主源是 `server/templates/`；开发者本地另有一份 `E:\华星客服\简体\` 下的同名 7 份作为非 git 备份（仅开发机可见），改模板后两边同步**，改后必跑 `scripts/test_pipeline.py`。
+卖车模板含**条件节**：05 附赠服务 / 06 售后质保（各带一段示例正文作格式源）。builder 按表单整节保留（正文替换为 `car_extras` 推导文字）或整节删除，最后 `renumber_headings` 全量重排条款号；**无附赠无售后时输出编号回到 01–09，与历史合同逐字一致**（测试锁死）。
 
 ### 数据（`server/data/`，git 忽略）
 - `contracts.db`（SQLite）+ `out/`（成品 docx）；

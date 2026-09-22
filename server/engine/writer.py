@@ -156,21 +156,42 @@ def rewrite_section(doc, sec_no: str, next_no: str, texts, labels=None):
     return total, start2 - sec2[0], end2 - sec2[0]
 
 
-def append_section_paras(doc, sec_no: str, next_no: str, texts) -> int:
-    """条款区末尾克隆最后一段格式，追加 texts 各一段（卖车附赠/质保用）。
-    追加段数。既有段落一律不动。"""
-    start, end = section_range(doc, sec_no, next_no)
-    if end <= start:
-        raise ValueError(f"条款 {sec_no} 区内无正文段，无法追加")
-    node = doc.paragraphs[end - 1]._p
-    for _ in texts:
-        new_p = copy.deepcopy(node)
-        node.addnext(new_p)
-        node = new_p
-    start2, end2 = section_range(doc, sec_no, next_no)
-    for p, t in zip(doc.paragraphs[end2 - len(texts):end2], texts):
-        set_paragraph_text(p, t)
-    return len(texts)
+def delete_section(doc, sec_no: str, next_no: str) -> int:
+    """整节删除（标题+正文，直到下一标题）。卖车条件节未启用时用。返回删除段数。"""
+    paras = doc.paragraphs
+    h_start = h_end = None
+    for i, p in enumerate(paras):
+        if h_start is None and _is_heading(p, sec_no):
+            h_start = i
+            continue
+        if h_start is not None and _is_heading(p, next_no):
+            h_end = i
+            break
+    if h_start is None:
+        raise ValueError(f"找不到条款 {sec_no} 标题")
+    if h_end is None:
+        h_end = len(paras)
+    for p in paras[h_start:h_end]:
+        p._p.getparent().remove(p._p)
+    return h_end - h_start
+
+
+HEADING_RE = re.compile(r"^\d{2}  ")
+
+
+def renumber_headings(doc) -> int:
+    """全量重排条款号：按文档顺序把「NN  标题  |  EN」标题段重编为 01..NN。
+    只改标题首个非空 run 的前两位数字，格式不动。返回标题数。"""
+    n = 0
+    for p in doc.paragraphs:
+        if not HEADING_RE.match(p.text):
+            continue
+        n += 1
+        new = f"{n:02d}"
+        r0 = next((r for r in p.runs if r.text), None)
+        if r0 is not None and re.match(r"^\d{2}", r0.text) and not r0.text.startswith(new):
+            r0.text = new + r0.text[2:]
+    return n
 
 
 def _shrink_to_payment_block(doc, sec, labels):
