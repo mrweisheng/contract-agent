@@ -387,7 +387,17 @@ const app = createApp({
         toast(String(e.message || e), "error");
       } finally { if (myGen === reqGen) generating.value = false; }
     }
-    function download() { if (result.value?.download_url) window.open(result.value.download_url); }
+    // 同页 <a download> 触发下载：Safari 默认拦截 window.open 弹窗会静默失败，
+    // 锚点点击无弹窗，全浏览器兼容（同名 download 属性 + 服务端 attachment 双保险）
+    function saveAs(url, name) {
+      const a = document.createElement("a");
+      a.href = url;
+      if (name) a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    function download() { if (result.value?.download_url) saveAs(result.value.download_url, result.value.filename); }
 
     async function openHistory() {
       historyOpen.value = true;
@@ -397,7 +407,7 @@ const app = createApp({
         historyItems.value = d.items || [];
       } catch (e) { toast("加载历史失败", "error"); }
     }
-    function historyDownload(no) { window.open(`/api/download/${no}`); }
+    function historyDownload(it) { saveAs(`/api/download/${it.no}`, it.filename); }
 
     onMounted(async () => {
       try {
@@ -734,7 +744,7 @@ const app = createApp({
                   </span>
                 </td>
                 <td>
-                  <button v-if="h.status==='ok'" class="btn sm" @click="historyDownload(h.no)">下载</button>
+                  <button v-if="h.status==='ok'" class="btn sm" @click="historyDownload(h)">下载</button>
                 </td>
               </tr>
             </tbody>

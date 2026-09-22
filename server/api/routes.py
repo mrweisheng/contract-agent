@@ -242,7 +242,14 @@ def download(no: str):
     path = os.path.join(store.OUT_DIR, rec["filename"])
     if not os.path.exists(path):
         raise HTTPException(404, "文件不存在")
-    return FileResponse(path, filename=rec["filename"],
+    # 中文文件名双格式：filename* (RFC 5987) 供现代浏览器，ASCII 回退 filename 供
+    # 部分 macOS/iOS Safari 与下载工具（Starlette 只发 filename*，回退缺失时名称乱码或下载失败）
+    from urllib.parse import quote
+    fallback = f"{no}{os.path.splitext(rec['filename'])[1]}"
+    disposition = (f'attachment; filename="{fallback}"; '
+                   f"filename*=utf-8''{quote(rec['filename'])}")
+    return FileResponse(path, filename=None,
+                        headers={"content-disposition": disposition},
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
