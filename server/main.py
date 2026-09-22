@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """服务入口：uvicorn server.main:app"""
+import mimetypes
 import os
 
 from fastapi import FastAPI
@@ -11,6 +12,9 @@ from api.routes import router
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(ROOT, "web")
+
+# 自托管字体的 MIME：部分系统 mimetypes 库无 .woff2 映射，显式注册
+mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(title="华星智能合同生成系统")
 app.include_router(router)
