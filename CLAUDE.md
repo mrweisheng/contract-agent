@@ -63,7 +63,8 @@ python scripts/test_pipeline.py
 - `engine/types_config.py` —— **单一事实来源**。`TYPES` 字典同时承载前端表单结构（`groups`/`fee_fields`/`pay_preset`/`client_side`）与落盘引擎锚点（`party_table_anchor`/`fee_table_anchor`/`payment_section`/`fee_cell_style`）。**改字段/锚点只改这里**。
 - `engine/builder.py` —— 合同组装器。所有条款文字由模板句式生成，LLM 不参与落盘。`derive_payment()` 把付款输入归一为 `default` / `one_time` / `custom` 三模式；其他三个 `_*_mode` 函数执行对应改写。`_archive_existing()` 防静默覆盖。
 - `engine/checker.py` —— **两层硬校验**：`check_rules`（必填/残留空位/大写=数字/分期合计/币种唯一/编号格式，错了就 422/500）+ `check_fingerprint`（格式指纹，逐段逐表比对模板，**非修改点必须零差异**）。LLM 复核在 `api/routes.py` 里，是第三层软校验（失败不拦截）。
-- `engine/writer.py` —— docx 低层操作（按段落填空 / 改写条款段 / 删行 / 插列）；签名一律 `W.set_cell_text`、`W.fill_blanks_in_paragraph`、`W.rewrite_section`、`W.is_valid_iso_date`。
+- `engine/writer.py` —— docx 低层操作（按段落填空 / 改写条款段 / 删行 / 插列）；签名一律 `W.set_cell_text`、`W.fill_blanks_in_paragraph`、`W.rewrite_section`、`W.append_section_paras`、`W.is_valid_iso_date`。
+- `engine/car_extras.py` —— 卖车可选内容（附赠项 / 发动机质保）的**文字单一事实来源**：builder 落盘与 checker 校验共用同一推导函数，保证表单所见即合同所得。原则：客户信息没提到就完全不落盘（默认全关）；附赠项只记一行「附赠：…」；质保期限用户给的条件在前、默认（半年/3万公里）补后。
 - `engine/money.py` —— 数字 ↔ 大写 / 千分位 / 币种标签短语 / 金额清理。
 - `llm/client.py` —— MiniMax 中国版 OpenAI 兼容接口；抛 `LLMError`；默认 5~40s，慢属正常。
 - `llm/prompts.py` —— 三套提示词工厂：`extract_messages` / `parse_payment_messages` / `review_messages` + `build_summary`。

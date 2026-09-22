@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
 """LLM 调用的提示词：字段提取 / 付款解析 / 语义复核。"""
 from engine.types_config import get_type, PORTS
+from engine import car_extras
 
 PORTS_TEXT = "、".join(PORTS)
+
+
+def _car_extra_rules() -> str:
+    return (
+        "\n附赠与售后抽取规则（客户没提到的一律保持默认值，禁止臆测）：\n"
+        "- 提到赠送/包过户费用（如「过户费我们出」「包过户」）→ gift_transfer=\"赠送\"；未提 → \"不赠送\"\n"
+        "- 提到赠送香港牌费/牌费且含期限：一年/12个月 → \"12个月\"，4个月/一季度 → \"4个月\"；"
+        "只说送牌费未说期限 → gift_plate 填 null 并在 notes 里提醒「客户送牌费但未说明期限（4个月或12个月），请确认」；未提 → \"不赠送\"\n"
+        "- 提到赠送车险/保险 → gift_insurance=险种原文（如「全保」「三保」「全保+三保」；"
+        "客户提到垫底费/金额等也一并原样保留）；未提 → null\n"
+        "- 提到质保/保修/发动机质保（如「质保1年」「质保10000公里」）→ warranty_enabled=\"含\"，"
+        "同时 warranty_period 填时长原文（如「1年」「6个月」）、warranty_km 填纯数字；"
+        "只给了其一就只填其一，另一个 null；未提质保 → \"不含\"\n"
+    )
 
 
 def _field_lines(cfg: dict) -> str:
@@ -37,8 +52,9 @@ def extract_messages(type_key: str, text: str) -> list:
         f"另外抽取：\n- currency（币种，值为 HKD 或 CNY，描述提到港币/HK$ 则 HKD，提到人民币/¥ 则 CNY，未提及填 null）\n"
         f"- total（即字段 {total_key}，同一值，纯数字）\n"
         "- payment_text（客户关于付款计划/付款方式的原话或概括，没有填 null）\n"
-        f"- port（仅当该类型需要口岸时，可选值：{PORTS_TEXT}，本类型{'需要' if cfg.get('port_required') or any(f['key']=='port' for g in cfg['groups'] for f in g['fields']) else '不需要'}）\n\n"
-        f"业务描述：\n{text}\n\n"
+        f"- port（仅当该类型需要口岸时，可选值：{PORTS_TEXT}，本类型{'需要' if cfg.get('port_required') or any(f['key']=='port' for g in cfg['groups'] for f in g['fields']) else '不需要'}）\n"
+        + (_car_extra_rules() if type_key == "car" else "")
+        + f"\n业务描述：\n{text}\n\n"
         '输出格式：{"fields": {字段key: 值或null}, "currency": "HKD|CNY|null", "total": 数字或null, "payment_text": "字符串或null", "notes": ["描述中模糊或冲突之处的提示"]}'
     )
     return [{"role": "system", "content": sys_p}, {"role": "user", "content": user_p}]
@@ -127,6 +143,15 @@ def build_summary(type_key: str, form: dict, payment: dict) -> str:
                 parts.append(f"{f['label']}：{v}")
     total = form.get("total_price") or form.get("total_fee")
     parts.append(f"总金额：{total} {form.get('currency')}")
+    # 卖车附赠/质保写进合同（客户提到才有），摘要必须带上，否则复核会把它们当约定外内容
+    if type_key == "car":
+        gifts = car_extras.gift_lines(form)
+        if gifts:
+            parts.append("附赠（客户约定，逐条写入合同）：" + "；".join(g.rstrip("。") for g in gifts))
+        wparts = car_extras.warranty_parts(form)
+        if wparts:
+            parts.append(f"售后（客户约定）：发动机质保 {wparts[0]}或{wparts[1]}（以先到者为准），"
+                         f"质保期内免费维修，不构成退车、退款的理由；碰撞涉水/保养不当/私自改装/第三方拆修及正常损耗件不在范围内")
     if form.get("exchange_fee") is not None:
         parts.append(f"换车费用：{form.get('exchange_fee')}（独立于服务总费用，另行列示，不计入总金额，分期合计也只针对服务总费用）")
     mode = payment.get("mode")

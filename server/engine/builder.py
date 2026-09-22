@@ -125,6 +125,10 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     else:
         raise ValueError(f"未知付款模式 {mode}")
 
+    # 6. 卖车可选内容：附赠项 / 发动机质保（客户信息提到才落盘，默认全无）
+    if type_key == "car":
+        _apply_car_extras(doc, form, report)
+
     doc.save(out_path)
     report["template"] = tpl
     report["output"] = out_path
@@ -132,6 +136,33 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
 
 
 # ---------------- 统一付款表 → 生成器付款 dict ----------------
+
+def _apply_car_extras(doc, form: dict, report: dict):
+    """附赠项（06 条末尾逐行）+ 发动机质保（04 条末尾一段）。
+    赠过户费/车险时 06 条第二段与赠项矛盾，须最小改写；文字推导统一走 car_extras。"""
+    from engine import car_extras as X
+
+    wp = X.warranty_paragraph(form)
+    if wp:
+        W.append_section_paras(doc, "04", "05", [wp])
+        report["warranty_on"] = True
+
+    gifts = X.gift_lines(form)
+    rewrite = X.gift_transfer_on(form) or bool(X.gift_insurance(form))
+    if rewrite:
+        start, end = W.section_range(doc, "06", "07")
+        p17 = next((p for p in doc.paragraphs[start:end]
+                    if "车辆过户手续由甲方负责办理" in p.text), None)
+        if p17 is None:
+            raise ValueError("找不到 06 条过户费用句，请检查模板")
+        if p17.text.strip() != X.P17_ORIG:
+            raise ValueError("模板 06 条原文与预设不符，禁止改写，请检查模板")
+        W.set_paragraph_text(p17, X.p17_text(form))
+        report["p17_rewritten"] = True
+    if gifts:
+        W.append_section_paras(doc, "06", "07", gifts)
+        report["gift_lines"] = gifts
+
 
 def _node_match(x: dict, p: dict) -> bool:
     """分期行与模板预设行是否同一节点：事件行须与预设原文一致；签约当日期行有日期即可。"""

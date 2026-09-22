@@ -8,6 +8,7 @@ import re
 from docx import Document
 
 from engine import writer as W
+from engine import car_extras
 from engine.money import to_cn_upper, currency_label, currency_symbol
 from engine.types_config import get_type
 
@@ -134,6 +135,13 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
     if not re.fullmatch(r"\d{8,14}", no):
         errors.append(f"合约编号格式异常：{no}")
 
+    # 6. 卖车可选内容：质保时长/公里数可解析（builder 已拦，此处纵深防御）
+    if type_key == "car" and car_extras.warranty_on(form):
+        try:
+            car_extras.warranty_parts(form)
+        except ValueError as ex:
+            errors.append(str(ex))
+
     return errors
 
 
@@ -200,8 +208,41 @@ def _tbl_texts(t):
     return out
 
 
-def check_fingerprint(template_path: str, out_path: str, type_key: str, report: dict) -> list:
-    """比对模板与生成件：非修改点必须零变化；修改点样式签名必须与源一致。"""
+def _car_expected_tail(tp, te, form):
+    """卖车合同尾部期望段落序列：模板尾段 + 04 区末尾插质保段 + 06 区改写/附赠行。
+    返回 [(kind, ...)]，kind='same' 模板原段（下标）、'text' 期望文字（克隆源模板下标）。
+    未开启任何可选内容返回 None（走模板逐段一致比对）。"""
+    wp = car_extras.warranty_paragraph(form)
+    gifts = car_extras.gift_lines(form)
+    rewrite = car_extras.gift_transfer_on(form) or bool(car_extras.gift_insurance(form))
+    if not (wp or gifts or rewrite):
+        return None
+    i_cond = i_p17 = None
+    for i in range(te, len(tp)):
+        t = tp[i].text.strip()
+        if i_cond is None and t.startswith("乙方确认已对车辆"):
+            i_cond = i
+        elif i_p17 is None and t.startswith("车辆过户手续由甲方负责办理"):
+            i_p17 = i
+    if (wp and i_cond is None) or ((rewrite or gifts) and i_p17 is None):
+        raise ValueError("找不到可选内容锚点段（04 现状段 / 06 过户费用段），请检查模板")
+    exp = []
+    for i in range(te, len(tp)):
+        if rewrite and i == i_p17:
+            exp.append(("text", car_extras.p17_text(form), i))
+        else:
+            exp.append(("same", i))
+        if wp and i == i_cond:
+            exp.append(("text", wp, i))
+        if gifts and i == i_p17:
+            exp.extend(("text", g, i) for g in gifts)
+    return exp
+
+
+def check_fingerprint(template_path: str, out_path: str, type_key: str, report: dict,
+                      form: dict = None) -> list:
+    """比对模板与生成件：非修改点必须零变化；修改点样式签名必须与源一致。
+    form（卖车）传入时按表单推导可选内容（附赠/质保）的期望落点与文字。"""
     cfg = get_type(type_key)
     issues = []
     tpl, out = Document(template_path), Document(out_path)
@@ -241,16 +282,45 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
             issues.append(f"条款区之前段落被改动：第{i + 1}段「{tp[i].text[:20]}…」")
         elif _run_sig(tp[i]) != _run_sig(op[i]):
             issues.append(f"条款区之前段落格式变化：第{i + 1}段")
-    # 条款区之后（尾部对齐）
+    # 条款区之后（尾部对齐；卖车开启附赠/质保时按表单推导的期望序列比对）
     tpl_tail = tp[te:]
     out_tail = op[oe:]
-    if len(tpl_tail) != len(out_tail):
+    expected = None
+    if type_key == "car" and form is not None:
+        try:
+            expected = _car_expected_tail(tp, te, form)
+        except ValueError as ex:
+            issues.append(str(ex))
+    if expected is not None:
+        if len(out_tail) != len(expected):
+            issues.append(f"条款区之后段落数量与期望不一致（{len(out_tail)} ≠ {len(expected)}）")
+        else:
+            for b, exp in zip(out_tail, expected):
+                if exp[0] == "same":
+                    a = tp[exp[1]]
+                    if a.text != b.text:
+                        issues.append(f"条款区之后段落被改动：「{a.text[:20]}…」")
+                        break
+                    if _run_sig(a) != _run_sig(b):
+                        issues.append("条款区之后段落格式变化")
+                        break
+                else:
+                    _, txt, base = exp
+                    if b.text != txt:
+                        issues.append(f"可选条款文字与表单不符：「{b.text[:24]}…」")
+                        break
+                    if _run_sig(b) != _run_sig(tp[base]):
+                        issues.append("可选条款段落样式与模板不一致")
+                        break
+    elif len(tpl_tail) != len(out_tail):
         issues.append("条款区之后段落数量与模板不一致")
-    else:
-        for i, (a, b) in enumerate(zip(tpl_tail, out_tail)):
+    elif any(a.text != b.text for a, b in zip(tpl_tail, out_tail)):
+        for a, b in zip(tpl_tail, out_tail):
             if a.text != b.text:
                 issues.append(f"条款区之后段落被改动：「{a.text[:20]}…」")
                 break
+    else:
+        for a, b in zip(tpl_tail, out_tail):
             if _run_sig(a) != _run_sig(b):
                 issues.append("条款区之后段落格式变化")
                 break

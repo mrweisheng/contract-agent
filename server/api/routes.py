@@ -189,7 +189,7 @@ def generate(req: GenerateReq):
         from docx import Document
         doc = Document(out_path)
         errors = check_rules(req.type, form, payment, report, doc)
-        fp_issues = check_fingerprint(report["template"], out_path, req.type, report)
+        fp_issues = check_fingerprint(report["template"], out_path, req.type, report, form)
         errors.extend(fp_issues)
 
         # LLM 语义复核（软校验：失败不拦截，标注警告）

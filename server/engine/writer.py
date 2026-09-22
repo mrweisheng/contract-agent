@@ -156,6 +156,23 @@ def rewrite_section(doc, sec_no: str, next_no: str, texts, labels=None):
     return total, start2 - sec2[0], end2 - sec2[0]
 
 
+def append_section_paras(doc, sec_no: str, next_no: str, texts) -> int:
+    """条款区末尾克隆最后一段格式，追加 texts 各一段（卖车附赠/质保用）。
+    追加段数。既有段落一律不动。"""
+    start, end = section_range(doc, sec_no, next_no)
+    if end <= start:
+        raise ValueError(f"条款 {sec_no} 区内无正文段，无法追加")
+    node = doc.paragraphs[end - 1]._p
+    for _ in texts:
+        new_p = copy.deepcopy(node)
+        node.addnext(new_p)
+        node = new_p
+    start2, end2 = section_range(doc, sec_no, next_no)
+    for p, t in zip(doc.paragraphs[end2 - len(texts):end2], texts):
+        set_paragraph_text(p, t)
+    return len(texts)
+
+
 def _shrink_to_payment_block(doc, sec, labels):
     """把条款区 (start, end) 收缩到分期付款段块；无 labels 或无命中时原样返回。"""
     start, end = sec

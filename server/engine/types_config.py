@@ -54,6 +54,17 @@ TYPES = {
                 {"key": "client_phone", "label": "联络电话", "type": "text", "required": True},
                 {"key": "client_address", "label": "联络地址", "type": "text", "required": False},
             ]},
+            {"title": "附赠与售后（选填，客户提到才填）", "fields": [
+                {"key": "gift_transfer", "label": "附赠过户费用", "type": "select",
+                 "options": ["不赠送", "赠送"], "required": False, "default": "不赠送"},
+                {"key": "gift_plate", "label": "附赠香港牌费", "type": "select",
+                 "options": ["不赠送", "4个月", "12个月"], "required": False, "default": "不赠送"},
+                {"key": "gift_insurance", "label": "附赠车险·险种（填即赠送）", "type": "text", "required": False},
+                {"key": "warranty_enabled", "label": "发动机质保", "type": "select",
+                 "options": ["不含", "含"], "required": False, "default": "不含"},
+                {"key": "warranty_period", "label": "质保时长（如1年/6个月，空=半年）", "type": "text", "required": False},
+                {"key": "warranty_km", "label": "质保公里数（如30000，空=3万）", "type": "text", "required": False},
+            ]},
             {"title": "车辆数据", "fields": [
                 {"key": "plate", "label": "车牌号码（新车未上牌可空）", "type": "text", "required": False},
                 {"key": "vin", "label": "底盘／识别号码（VIN/Chassis）", "type": "text", "required": True},

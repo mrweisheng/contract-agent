@@ -79,6 +79,34 @@ CASES = [
         "total_price": 500000,
     }, {"mode": "default", "deposit_amount": 150000, "deposit_date": "2026-09-02",
         "balance_event": "车辆完成香港运输署过户登记手续当日"}),
+    # ---- 卖车：附赠全开 + 质保只给时长（公里用默认，用户值在前）----
+    ("car_gifts_full", "car", {
+        "agreement_no": "", "sign_date": "2026-09-05", "currency": "HKD",
+        "client_name": "周赠", "client_id": "H1212121", "client_phone": "91212121",
+        "plate": "GN 9999", "vin": "WBA999888777AAA33", "model": "Toyota Alphard", "year": "2023",
+        "total_price": 600000,
+        "gift_transfer": "赠送", "gift_plate": "12个月",
+        "gift_insurance": "综合汽车保险（全保）",
+        "warranty_enabled": "含", "warranty_period": "1年",
+    }, {"mode": "default", "deposit_amount": 200000, "deposit_date": "2026-09-05",
+        "balance_date": "2026-10-05", "choice": "较早者"}),
+    # ---- 卖车：只赠 4 个月牌费（不碰 06 条原文，P17 逐字保留）----
+    ("car_gifts_plate_only", "car", {
+        "agreement_no": "", "sign_date": "2026-09-05", "currency": "HKD",
+        "client_name": "吴牌", "client_id": "H1313131", "client_phone": "91313131",
+        "plate": "PN 4444", "vin": "WBA444555666AAA44", "model": "Honda Stepwgn", "year": "2022",
+        "total_price": 300000,
+        "gift_plate": "4个月",
+    }, {"mode": "default", "deposit_amount": 100000, "deposit_date": "2026-09-05",
+        "balance_event": "车辆完成香港运输署过户登记手续当日"}),
+    # ---- 卖车：质保只给公里数（公里在前、默认半年补后）----
+    ("car_warranty_km", "car", {
+        "agreement_no": "", "sign_date": "2026-09-06", "currency": "HKD",
+        "client_name": "郑保", "client_id": "H1414141", "client_phone": "91414141",
+        "plate": "WB 1111", "vin": "WBA111222333BBB55", "model": "BMW 520i", "year": "2021",
+        "total_price": 400000,
+        "warranty_enabled": "含", "warranty_km": "10000",
+    }, {"mode": "one_time", "pay_date": "2026-09-20", "pay_event": "", "choice": "较早者"}),
 
     # ---- 高新过户：默认三期 + 换车费 ----
     ("gx_default", "transfer_gx", {
@@ -131,7 +159,7 @@ CAR_FORM = {
     "plate": "ED 0001", "vin": "EDGE000000000001", "model": "Edge Car", "year": "2024",
     "total_price": 500000,
 }
-NEG_CASES = [
+NEG_PAYMENTS = [
     ("订金≥总价", {"mode": "default", "deposit_amount": 600000, "deposit_date": "2026-09-01",
                     "balance_date": "2026-10-01", "choice": "较早者"}),
     ("订金为0", {"mode": "default", "deposit_amount": 0, "deposit_date": "2026-09-01",
@@ -145,15 +173,28 @@ NEG_CASES = [
         {"seq": 2, "amount": 400000, "trigger": ""},   # 既无日期也无条件
     ]}),
 ]
+VALID_PAYMENT = {"mode": "default", "deposit_amount": 100000, "deposit_date": "2026-09-01",
+                 "balance_date": "2026-10-01", "choice": "较早者"}
+NEG_FORMS = [
+    ("质保时长无法识别", dict(CAR_FORM, warranty_enabled="含", warranty_period="长期")),
+    ("质保公里数无法识别", dict(CAR_FORM, warranty_enabled="含", warranty_km="很多")),
+]
 
 
 def run_negative():
     """负向用例：必须被 ValueError 拦截且报错信息可读。"""
     ok = True
     out = os.path.join(OUT, "_neg.docx")
-    for name, payment in NEG_CASES:
+    for name, payment in NEG_PAYMENTS:
         try:
             build_contract("car", dict(CAR_FORM), payment, "2026090199", out)
+            print(f"[FAIL] {name}: 未拦截")
+            ok = False
+        except ValueError as ex:
+            print(f"[PASS] {name}（拦截：{ex}）")
+    for name, form in NEG_FORMS:
+        try:
+            build_contract("car", dict(form), VALID_PAYMENT, "2026090199", out)
             print(f"[FAIL] {name}: 未拦截")
             ok = False
         except ValueError as ex:
@@ -180,6 +221,26 @@ EXPECT_DEPOSIT_DATE = {
 EXPECT_BALANCE_CLAUSE = {
     "car_default": "购车尾款须于2026年9月30日或车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
     "car_default_event": "购车尾款须于车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
+}
+
+# 用例 → 卖车可选内容（附赠/质保）必须出现的原文；不在表里的卖车用例必须一个字都不出现
+EXPECT_EXTRAS = {
+    "car_gifts_full": [
+        "附赠：本车辆过户登记手续的全部费用。",
+        "附赠：本车辆香港车辆牌照费十二（12）个月。",
+        "附赠：本车辆汽车保险（综合汽车保险（全保））。",
+        "自车辆交付之日起一（1）年或行驶30,000公里（以先到者为准）",
+        "全部费用由甲方承担。",
+        "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担",
+    ],
+    "car_gifts_plate_only": [
+        "附赠：本车辆香港车辆牌照费四（4）个月。",
+        "相关政府费用及代办费用由乙方承担。",          # P17 第一句原文保留
+        "车辆现有保险不随车转移，乙方须自行购买有效汽车保险。",  # 第二句原文保留
+    ],
+    "car_warranty_km": [
+        "自车辆交付之日起行驶10,000公里或六（6）个月（以先到者为准）",
+    ],
 }
 
 # 用例 → 条款区改写后必须原样保留的无关条款（新办 03 区混有非付款条款）
@@ -260,7 +321,7 @@ def main():
             report["agreement_no"] = no
             doc = Document(out)
             errs = check_rules(tkey, form, payment, report, doc)
-            errs += check_fingerprint(report["template"], out, tkey, report)
+            errs += check_fingerprint(report["template"], out, tkey, report, form)
             if errs:
                 all_ok = False
                 print(f"[FAIL] {name}")
@@ -283,6 +344,16 @@ def main():
                     missing = [k for k in keep if k not in body]
                     if missing:
                         fails.append(f"条款区改写误删无关条款 {missing}")
+                # 卖车可选内容：开启的用例必须出现指定原文；未开启的一个字都不能有
+                if name in EXPECT_EXTRAS:
+                    miss = [s for s in EXPECT_EXTRAS[name] if s not in body]
+                    if miss:
+                        fails.append(f"可选内容缺失/不符：{miss}")
+                elif tkey == "car":
+                    if "附赠：" in body:
+                        fails.append("未开启附赠但合同出现「附赠：」")
+                    if "售后质保" in body:
+                        fails.append("未开启质保但合同出现质保段")
                 if fails:
                     all_ok = False
                     print(f"[FAIL] {name}")
