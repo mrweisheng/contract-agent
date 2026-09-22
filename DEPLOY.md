@@ -9,7 +9,7 @@
 ## 一、系统概况（先了解再动手）
 
 ```
-浏览器 ──HTTPS 443──▶ Nginx ──HTTP──▶ uvicorn / FastAPI（127.0.0.1:8300）──出站 HTTPS──▶ 硅基流动 LLM API
+浏览器 ──HTTPS 443──▶ Nginx ──HTTP──▶ uvicorn / FastAPI（127.0.0.1:8300）──出站 HTTPS──▶ MiniMax LLM API
                      （反向代理+证书）        │
                                               ├─ web/            前端页面（由 FastAPI 直接托管，无需 Node.js）
                                               ├─ server/templates 7 份合同模板（只读）
@@ -22,7 +22,7 @@
 | 技术栈 | Python 3.10+ · FastAPI · SQLite（零外部数据库） |
 | 进程模型 | 单进程 uvicorn（业务路由跑线程池，够内部团队用），由 systemd 常驻 |
 | 前端 | 纯静态（Vue 本地文件），生产环境**不需要安装 Node/npm** |
-| 外部依赖 | 仅需出站访问 `api.siliconflow.cn:443`（大模型接口） |
+| 外部依赖 | 仅需出站访问 `api.minimaxi.com:443`（大模型接口） |
 | 端口 | 对外只开 80/443；应用端口 8300 只绑 127.0.0.1，外网不可达 |
 
 **两个必须提前知道的业务特性：**
@@ -116,10 +116,13 @@ python3 -m venv /opt/contract-agent/venv
 
 ```bash
 cat > /opt/contract-agent/.env <<'EOF'
-# LLM 配置（硅基流动 SiliconFlow，OpenAI 兼容接口）
+# LLM 配置（MiniMax 中国版 M3，OpenAI 兼容接口）
+# 国内站 Token Plan Key（Coding Plan）：https://platform.minimaxi.com
+# 注意国内/海外端点不能混用：国内 .com / 国际 .io；Key 前缀 sk-cp-（订阅）/ sk-api-（按量）不可互换
+# 变量名沿用 SILICONFLOW_* 是历史兼容，含义已切换为 MiniMax
 SILICONFLOW_API_KEY=<向开发负责人索取真实的_API_KEY>
-SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
-LLM_MODEL=deepseek-ai/DeepSeek-V4-Flash
+SILICONFLOW_BASE_URL=https://api.minimaxi.com/v1
+LLM_MODEL=MiniMax-M3
 
 # 服务配置（systemd 启动参数已显式指定，这里的 HOST/PORT 仅直跑时生效）
 HOST=127.0.0.1
@@ -145,7 +148,7 @@ sudo -u contract /opt/contract-agent/venv/bin/python -m uvicorn main:app --host 
 
 ```bash
 curl -s http://127.0.0.1:8300/api/health
-# 期望输出：{"status":"ok","model":"deepseek-ai/DeepSeek-V4-Flash","key_set":true}
+# 期望输出：{"status":"ok","model":"MiniMax-M3","key_set":true}
 # key_set 为 false 说明 .env 没建好或路径不对（必须在 /opt/contract-agent/.env）
 
 # 可选：跑一遍离线回归测试（不调用 LLM、不花钱，22 个用例应全部 PASS）
@@ -336,7 +339,7 @@ systemctl restart contract-agent
 |---|---|
 | 页面点「生成」约 60 秒后报 **504 Gateway Timeout** | Nginx 超时没调大或被改掉了。确认第六章配置中 `proxy_read_timeout 300s;` 存在后 `nginx -t && systemctl reload nginx` |
 | 生成等 1~2 分钟 | **正常**。AI 复核依赖大模型，界面上有「已等待 N 秒」提示；`journalctl -u contract-agent -f` 可看到 `[LLM] 调用开始/成功` 实时日志 |
-| 点「AI 提取」报 **502 LLM 抽取失败** | ① `.env` 的 API Key 无效或账户欠费（health 里 `key_set` 只能证明填了，不能证明有效）；② 服务器出站访问 `api.siliconflow.cn` 被防火墙拦了：`curl -s https://api.siliconflow.cn` 测试连通性 |
+| 点「AI 提取」报 **502 LLM 抽取失败** | ① `.env` 的 API Key 无效或账户欠费（health 里 `key_set` 只能证明填了，不能证明有效）；② 服务器出站访问 `api.minimaxi.com` 被防火墙拦了：`curl -s https://api.minimaxi.com` 测试连通性 |
 | 服务起不来，日志报 `ModuleNotFoundError: No module named 'api'` | systemd 的 `WorkingDirectory` 不是 `/opt/contract-agent/server`，对照第五章修正 |
 | 日志报 Permission denied，涉及 `server/data` | 目录属主不对：`chown -R contract:contract /opt/contract-agent` |
 | 下载的合同文件名乱码 | 系统缺 UTF-8 locale（Ubuntu 默认有）。`locale` 检查，异常时 `apt install locales && dpkg-reconfigure locales` 选 `C.UTF-8` |

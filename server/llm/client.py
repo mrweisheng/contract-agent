@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""硅基流动（OpenAI 兼容）LLM 客户端：JSON 输出约束 + 自动重试。"""
+"""MiniMax 中国版（OpenAI 兼容）LLM 客户端：JSON 输出约束 + 自动重试。
+
+环境变量名沿用 SILICONFLOW_* 是历史兼容，含义已切换为 MiniMax（M3 模型）。
+"""
 import json
 import os
 import re
@@ -26,8 +29,8 @@ def _load_env() -> dict:
 
 _ENV = _load_env()
 API_KEY = _ENV.get("SILICONFLOW_API_KEY", "")
-BASE_URL = _ENV.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
-MODEL = _ENV.get("LLM_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
+BASE_URL = _ENV.get("SILICONFLOW_BASE_URL", "https://api.minimaxi.com/v1")
+MODEL = _ENV.get("LLM_MODEL", "MiniMax-M3")
 
 
 class LLMError(Exception):
