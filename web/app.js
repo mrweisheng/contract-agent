@@ -420,8 +420,15 @@ const app = createApp({
         });
         if (myGen !== reqGen) return;
         result.value = data;
-        if (data.ok) toast(`合同 ${data.no} 生成并核对通过`, "ok", 3500);
-        else { toast("生成完成，但核对未通过，请查看问题清单", "error", 4000); resultModal.value = true; }
+        // ok 仅代表规则校验通过；LLM 软复核提示存于 warnings，有提示就强制过眼一次弹窗
+        if (data.ok && !(data.warnings || []).length) {
+          toast(`合同 ${data.no} 生成并核对通过`, "ok", 3500);
+        } else {
+          toast(data.ok ? `合同 ${data.no} 已生成，但有 ${data.warnings.length} 条复核提示`
+                        : "生成完成，但核对未通过，请查看问题清单",
+                data.ok ? "warn" : "error", 4000);
+          resultModal.value = true;
+        }
       } catch (e) {
         if (e.name === "AbortError") return;
         toast(String(e.message || e), "error");
@@ -730,7 +737,8 @@ const app = createApp({
       <div class="modal-card wide">
         <div class="modal-head">
           <h3>合同 {{ result.no }}</h3>
-          <span class="tag" :class="result.ok ? 'ok' : 'bad'">{{ result.ok ? '核对通过' : '核对未通过' }}</span>
+          <span class="tag" :class="!result.ok ? 'bad' : (result.warnings || []).length ? 'warn' : 'ok'">
+            {{ !result.ok ? '核对未通过' : (result.warnings || []).length ? '核对通过 · ' + result.warnings.length + ' 条提示' : '核对通过' }}</span>
         </div>
         <div class="modal-body">
           <div v-for="(e, i) in result.errors || []" :key="'e'+i" class="note error">⚠ {{ e }}</div>
