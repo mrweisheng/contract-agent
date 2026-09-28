@@ -77,6 +77,28 @@ def _archive_existing(out_path: str) -> str:
     return archived
 
 
+SIG_DATE_BLANK_RE = re.compile(r"日期：_{2,}年_{2,}月_{2,}日")
+
+
+def _fill_signature_dates(doc, y, m, d) -> int:
+    """签署确认块双方「日期：____年____月____日」精确替换（只动日期空位，
+    签名/姓名/印章留给手签）。返回替换处数。"""
+    text = f"日期：{y}年{m}月{d}日"
+    filled = 0
+    seen = set()
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    m = SIG_DATE_BLANK_RE.search(p.text)
+                    if m and (id(p._p), m.group(0)) not in seen:
+                        # merged cell 会被多行重复迭代，去重后计数
+                        seen.add((id(p._p), m.group(0)))
+                        if W.replace_in_paragraph(p, m.group(0), text):
+                            filled += 1
+    return filled
+
+
 def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, out_path: str,
                    draft: bool = False, issues: list = None):
     """生成合同，返回变更报告（供核对器比对）。
@@ -183,6 +205,20 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     # 6. 卖车可选内容：附赠项 / 发动机质保（客户信息提到才落盘，默认全无）
     if type_key == "car":
         _apply_car_extras(doc, form, report, draft, issues)
+
+    # 7. 签署确认块：双方签署日期（与顶部签署日期同源：录入日默认今日，可手动改期）
+    if W.is_valid_iso_date(sign_date):
+        y, m, d = W.iso_date_parts(sign_date)
+    else:
+        t = datetime.date.today()
+        y, m, d = str(t.year), str(t.month), str(t.day)
+    filled = _fill_signature_dates(doc, y, m, d)
+    if not filled:
+        msg = "签署确认块未找到日期空位，请检查模板"
+        if not draft:
+            raise ValueError(msg)
+        issues.append(msg)
+    report["signature_dates"] = filled
 
     doc.save(out_path)
     report["template"] = tpl

@@ -487,6 +487,15 @@ def main():
                     fails.append(f"定金条款未展开绝对日期 {EXPECT_DEPOSIT_DATE[name]}")
                 if name in EXPECT_BALANCE_CLAUSE and EXPECT_BALANCE_CLAUSE[name] not in body:
                     fails.append(f"尾款条款 ≠ 预期「{EXPECT_BALANCE_CLAUSE[name]}」")
+                # 签署确认块：双方日期必须与合同顶部签署日期一致（同日、各 1 处）
+                sd = form.get("sign_date")
+                if sd:
+                    y0, m0, d0 = sd.split("-")
+                    sig = f"日期：{int(y0)}年{int(m0)}月{int(d0)}日"
+                    n_sig = sum(1 for t in doc.tables for r in t.rows
+                                for c in r.cells if sig in c.text)
+                    if n_sig < 2:
+                        fails.append(f"签署块日期「{sig}」仅出现 {n_sig} 处（应至少甲乙双方各 1 处）")
                 keep = EXPECT_KEEP.get(name)
                 if keep:
                     missing = [k for k in keep if k not in body]
