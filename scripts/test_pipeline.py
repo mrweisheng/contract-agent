@@ -349,6 +349,115 @@ def run_derive():
     return ok
 
 
+# draft 预览：7 个模板文件全覆盖
+ALL_PORTS = ("莲塘口岸", "深圳湾口岸", "港珠澳大桥口岸", "沙头角口岸")
+
+
+def run_draft():
+    """预览回归：录入残缺/垃圾输入不得中断渲染（draft_issues 记录并占位落盘）；
+    真生成（非 draft）对同类问题仍必须拦截。"""
+    ok = True
+    garbage_form = {"currency": "RMB", "total_price": "很多", "total_fee": "很多",
+                    "sign_date": "2026-13-45", "exchange_fee": "50万",
+                    "warranty_enabled": "含", "warranty_period": "长期",
+                    "gift_transfer": "赠送"}
+    garbage_pay = {"installments": [
+        {"label": "订金", "amount": "", "date": "bad-date", "event": ""},
+        {"label": "尾款", "amount": "50万", "date": None, "event": "过户当日"},
+    ]}
+
+    def build(tkey, form, raw_pay, expect_in_body):
+        issues = []
+        try:
+            payment = derive_payment(tkey, raw_pay, draft=True, issues=issues)
+            out = os.path.join(OUT, f"_draft_{tkey}.docx")
+            report = build_contract(tkey, form, payment, "（预览稿）", out, draft=True, issues=issues)
+            doc = Document(out)
+            body = "\n".join(p.text for p in doc.paragraphs) + "".join(
+                c.text for t in doc.tables for r in t.rows for c in r.cells)
+            di = report.get("draft_issues") or []
+            fails = []
+            if not di:
+                fails.append("垃圾输入但 draft_issues 为空")
+            for needle in expect_in_body:
+                if needle not in body:
+                    fails.append(f"合同缺少预期内容「{needle}」")
+            if fails:
+                return f"{'; '.join(fails)}（issues={di}）"
+            print(f"[PASS] draft {tkey}（issues {len(di)} 条）")
+            return None
+        except Exception as ex:
+            return f"预览中断：{ex}"
+
+    for tkey in ("car", "transfer_gx", "transfer_ns", "new_port"):
+        err = build(tkey, dict(garbage_form), garbage_pay,
+                    ["（日期待填）", "（预览稿）", "零元整"])
+        if err:
+            print(f"[FAIL] draft {tkey}: {err}")
+            ok = False
+        # 空表单 + 空付款计划：最早期的录入状态也必须能渲染
+        err = build(tkey, {"port": "莲塘口岸"} if tkey == "new_port" else {}, {},
+                    ["零元整"])
+        if err:
+            print(f"[FAIL] draft {tkey} 空表单: {err}")
+            ok = False
+
+    # 新办 4 口岸模板逐一覆盖（正常数据渲染）
+    for port in ALL_PORTS:
+        issues = []
+        try:
+            payment = derive_payment("new_port", {}, draft=True, issues=issues)
+            out = os.path.join(OUT, "_draft_new_port.docx")
+            build_contract("new_port", {"port": port}, payment, "（预览稿）", out,
+                           draft=True, issues=issues)
+            print(f"[PASS] draft new_port {port}")
+        except Exception as ex:
+            print(f"[FAIL] draft new_port {port}: {ex}")
+            ok = False
+
+    # 一次性模式：非法日期占位、缺时点记录
+    issues = []
+    try:
+        p = derive_payment("car", {"installments": [
+            {"label": "", "amount": 300000, "date": "2026-02-30", "event": ""}]},
+            draft=True, issues=issues)
+        if p["mode"] != "one_time":
+            print(f"[FAIL] draft one_time 判定：{p['mode']}")
+            ok = False
+        else:
+            out = os.path.join(OUT, "_draft_ot.docx")
+            report = build_contract("car", dict(CAR_FORM, currency="HKD", total_price=300000),
+                                    p, "（预览稿）", out, draft=True, issues=issues)
+            doc = Document(out)
+            body = "\n".join(x.text for x in doc.paragraphs) + "".join(
+                c.text for t in doc.tables for r in t.rows for c in r.cells)
+            if "（日期待填）" in body and report.get("draft_issues"):
+                print("[PASS] draft one_time 非法日期占位")
+            else:
+                print(f"[FAIL] draft one_time: 占位或 issues 缺失（{report.get('draft_issues')}）")
+                ok = False
+    except Exception as ex:
+        print(f"[FAIL] draft one_time: {ex}")
+        ok = False
+
+    # 非 draft 回归：口岸缺失/币种非法仍必须拦截
+    out = os.path.join(OUT, "_neg_draft.docx")
+    for name, fn in (
+        ("真生成缺口岸", lambda: build_contract("new_port", dict(CAR_FORM), VALID_PAYMENT, "2026090199", out)),
+        ("真生成币种RMB", lambda: build_contract("car", dict(CAR_FORM, currency="RMB"), VALID_PAYMENT, "2026090199", out)),
+        ("真生成空付款", lambda: build_contract("car", dict(CAR_FORM), {"mode": "custom", "installments": []}, "2026090199", out)),
+    ):
+        try:
+            fn()
+            print(f"[FAIL] {name}: 未拦截")
+            ok = False
+        except ValueError as ex:
+            print(f"[PASS] {name}（拦截：{ex}）")
+    if os.path.exists(out):
+        os.remove(out)
+    return ok
+
+
 def main():
     all_ok = True
     for name, tkey, form, payment in CASES:
@@ -411,7 +520,7 @@ def main():
             print(f"[ERROR] {name}: {ex}")
             import traceback
             traceback.print_exc()
-    all_ok = all_ok and run_negative() and run_derive()
+    all_ok = all_ok and run_negative() and run_derive() and run_draft()
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 

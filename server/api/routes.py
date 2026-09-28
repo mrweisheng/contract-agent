@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """API 路由。"""
+import base64
+import json
 import os
 import re
+import tempfile
 import traceback
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -229,6 +232,46 @@ def generate(req: GenerateReq):
         "warnings": warnings,
         "text": text,
         "download_url": f"/api/download/{no}" if not errors else None,
+    }
+
+
+class PreviewReq(BaseModel):
+    type: str
+    form: dict = {}
+    payment: dict = {}  # {installments: [{label, amount, date, event}], source_text}，录入中的宽松数据
+
+
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@router.post("/preview")
+def preview(req: PreviewReq):
+    """实时 1:1 预览：与正式生成走同一个 builder（draft=True），返回真实 docx 字节。
+    所见即所得是架构性保证——预览与下载产物是同一渲染管线的输出。
+    隔离：不分配合同编号、不写 OUT_DIR、不落后端历史库、不跑 checker 与 LLM 复核。
+    录入不完整不报错：占位渲染并在 draft_issues 里列出；仅模板结构损坏才 422。"""
+    if req.type not in TYPES:
+        raise HTTPException(422, f"未知合同类型 {req.type}")
+    issues = []
+    try:
+        payment = derive_payment(req.type, req.payment or {}, None, draft=True, issues=issues)
+        with tempfile.TemporaryDirectory(prefix="contract-preview-") as tmp:
+            path = os.path.join(tmp, "preview.docx")
+            report = build_contract(req.type, req.form or {}, payment, "（预览稿）", path,
+                                    draft=True, issues=issues)
+            with open(path, "rb") as f:
+                data = f.read()
+    except ValueError as ex:
+        raise HTTPException(422, f"模板结构异常，无法预览：{ex}")
+    except HTTPException:
+        raise
+    except Exception as ex:
+        traceback.print_exc()
+        raise HTTPException(500, f"预览渲染失败：{ex}")
+    return {
+        "docx_b64": base64.b64encode(data).decode(),
+        "mode": report.get("mode"),
+        "draft_issues": report.get("draft_issues") or [],
     }
 
 
