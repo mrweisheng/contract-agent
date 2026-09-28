@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 E · 双栏工作台 — 华星智能合同原型</title>
+<style>
+  :root {
+    --ink: #1d3a2f;
+    --ink-2: #31503f;
+    --paper: #fdfcf8;
+    --bg: #f1efe8;
+    --line: #ddd6c8;
+    --muted: #8a8276;
+    --ai: #b97f1f;
+    --ai-bg: #fff5e0;
+    --ok: #2e7d54;
+    --ok-bg: #e9f5ee;
+    --bad: #c0392b;
+    --bad-bg: #fdeeec;
+    --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+    --sans: 'Noto Sans SC', -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    --mono: 'SF Mono', Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font-family: var(--sans); background: var(--bg); color: #2b2b28; font-size: 14px; }
+
+  .app { display: grid; grid-template-columns: 216px minmax(480px, 1fr) minmax(440px, 46%); height: 100vh; }
+
+  /* ============ 侧栏 ============ */
+  .side { background: var(--ink); color: #dfe8e2; display: flex; flex-direction: column; padding: 18px 0; overflow-y: auto; }
+  .brand { padding: 0 20px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .brand .logo { font-family: var(--serif); font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #f3ede0; }
+  .brand .sub { font-size: 10px; letter-spacing: 3px; color: rgba(255,255,255,.4); margin-top: 4px; }
+  .side-label { font-size: 10px; letter-spacing: 2px; color: rgba(255,255,255,.35); padding: 16px 20px 6px; }
+  .side-item { display: flex; gap: 10px; padding: 9px 20px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,.72); border-left: 3px solid transparent; }
+  .side-item .num { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,.3); padding-top: 1px; }
+  .side-item:hover { background: rgba(255,255,255,.05); }
+  .side-item.active { background: rgba(255,255,255,.08); color: #fff; border-left-color: #d8b25c; }
+  .side-item.demo { opacity: .55; }
+  .side-foot { margin-top: auto; padding: 14px 20px 0; border-top: 1px solid rgba(255,255,255,.08); }
+  .today-dot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,.55); cursor: pointer; }
+  .today-dot b { width: 18px; height: 18px; border-radius: 9px; background: #d8b25c; color: var(--ink); font-size: 11px; display: flex; align-items: center; justify-content: center; }
+
+  /* ============ 左：核对区 ============ */
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane-top { padding: 14px 22px 10px; display: flex; align-items: baseline; gap: 10px; }
+  .pane-top h1 { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .pane-top .crumb { font-size: 12px; color: var(--muted); }
+  .pane-body { flex: 1; overflow-y: auto; padding: 0 22px 22px; }
+
+  .sec { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; }
+  .sec-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #ece7db; }
+  .sec-head h2 { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .sec-head .hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+  .sec-body { padding: 14px 16px; }
+
+  /* 智能录入 */
+  textarea.src { width: 100%; min-height: 74px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-family: var(--sans); font-size: 13px; line-height: 1.7; color: #3a3730; background: #fbfaf6; }
+  textarea.src:focus { outline: none; border-color: var(--ink-2); }
+  .extract-row { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+  .pipeline { display: none; gap: 6px; margin-top: 12px; font-size: 11px; }
+  .pipeline.on { display: flex; }
+  .stage { flex: 1; background: #f2efe7; border-radius: 6px; padding: 6px 8px; color: var(--muted); text-align: center; transition: all .3s; }
+  .stage.run { background: var(--ai-bg); color: var(--ai); }
+  .stage.done { background: var(--ok-bg); color: var(--ok); }
+
+  /* 字段行 */
+  .group-label { font-size: 11px; letter-spacing: 2px; color: var(--muted); margin: 14px 0 8px; display: flex; align-items: center; gap: 8px; }
+  .group-label::after { content: ''; flex: 1; height: 1px; background: #ece7db; }
+  .group-label:first-child { margin-top: 0; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .field { position: relative; }
+  .field.wide { grid-column: 1 / -1; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .field label .req { color: var(--bad); }
+  .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 8px 64px 8px 10px; font-size: 13px; background: #fff; font-family: var(--sans); }
+  .field input:focus { outline: none; border-color: var(--ink-2); }
+  .field input:disabled { color: var(--muted); background: #f7f5ef; }
+  .badge { position: absolute; right: 8px; top: 26px; font-size: 10px; padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+  .badge.ai { background: var(--ai-bg); color: var(--ai); border: 1px solid #f0dcae; }
+  .badge.fixed { background: var(--ok-bg); color: var(--ok); border: 1px solid #c8e4d4; }
+  .field.st-ai input { background: var(--ai-bg); border-color: #ecd9ae; }
+  .field.st-miss input, .field.st-miss select { border-color: #e2b1ab; background: var(--bad-bg); }
+  .src-quote { display: none; font-size: 11px; color: var(--ai); margin-top: 4px; }
+  .field.st-ai .src-quote { display: block; }
+  .field.st-fixed .src-quote { display: block; color: var(--muted); }
+
+  /* 签署日期条 */
+  .sign-bar { display: flex; align-items: center; gap: 10px; background: #fbfaf6; border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 14px; }
+  .sign-bar .lbl { font-size: 12px; color: var(--ink); font-weight: 600; }
+  .sign-bar input[type=date] { border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  .sign-bar .tag { font-size: 10px; padding: 2px 7px; border-radius: 4px; }
+  .tag.today { background: #eef0ea; color: var(--muted); }
+  .tag.changed { background: var(--bad-bg); color: var(--bad); }
+  .sign-bar button { margin-left: auto; }
+
+  /* 付款卡片 */
+  .pay-cards { display: flex; flex-direction: column; gap: 10px; }
+  .pay-card { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; display: grid; grid-template-columns: 96px 1fr; gap: 12px; background: #fff; }
+  .pay-card .amt-side { text-align: left; }
+  .pay-card .amt-side .seq { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .pay-card .amt-side .name { font-size: 13px; color: var(--ink); font-weight: 600; margin-top: 2px; }
+  .pay-card .amt-side .amt { font-family: var(--serif); font-size: 24px; font-weight: 700; color: var(--ink); margin-top: 6px; }
+  .pay-card .amt-side .amt small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .pay-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; align-content: start; }
+  .pay-card .grid label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 3px; }
+  .pay-card .grid input, .pay-card .grid select { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+  .pay-card .grid .locked { background: #f7f5ef; color: var(--muted); }
+  .pay-card.st-ai { border-color: #ecd9ae; }
+  .total-line { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; }
+  .total-line .rule { flex: 1; border-top: 2px solid var(--ink); opacity: .15; }
+  .chip { font-size: 11px; padding: 3px 10px; border-radius: 10px; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.bad { background: var(--bad-bg); color: var(--bad); }
+
+  /* 按钮 */
+  .btn { border: none; border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer; font-family: var(--sans); }
+  .btn.primary { background: var(--ink); color: #f3ede0; }
+  .btn.primary:hover { background: var(--ink-2); }
+  .btn.gold { background: #d8b25c; color: var(--ink); font-weight: 600; }
+  .btn.gold:hover { background: #c8a34c; }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+  .btn.sm { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(0,0,0,.2); border-top-color: currentColor; border-radius: 50%; margin-right: 6px; vertical-align: -1px; animation: sp 0.8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* ============ 右：合同预览区 ============ */
+  .preview-pane { background: #e8e5db; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .pv-head { padding: 12px 18px; background: #f3f0e7; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .pv-head .t { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .pv-head .no { font-family: var(--serif); font-size: 12px; color: var(--muted); }
+  .pv-head .spacer { flex: 1; }
+  .pv-scroll { flex: 1; overflow-y: auto; padding: 22px 24px 60px; }
+
+  .sheet { background: var(--paper); box-shadow: 0 3px 18px rgba(60,50,30,.14); border-radius: 3px; max-width: 620px; margin: 0 auto; padding: 40px 44px; font-family: var(--serif); color: #23201a; position: relative; }
+  .sheet::before { content: ''; position: absolute; inset: 8px; border: 1px solid rgba(29,58,47,.08); pointer-events: none; }
+  .doc-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 22px; }
+  .doc-title { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 8px; margin-bottom: 6px; }
+  .doc-sub { text-align: center; font-size: 10px; letter-spacing: 3px; color: var(--muted); margin-bottom: 26px; }
+  .doc-h { font-size: 14px; font-weight: 700; margin: 20px 0 8px; }
+  .doc-p { font-size: 13px; line-height: 2.0; text-align: justify; }
+  .doc-p .fill { padding: 0 3px; border-bottom: 1px solid #b9b0a0; cursor: pointer; transition: background .2s; }
+  .doc-p .fill:hover { background: #eef2e9; }
+  .doc-p .fill.ai { background: var(--ai-bg); border-bottom-color: var(--ai); }
+  .doc-p .fill.empty { background: var(--bad-bg); border-bottom-color: var(--bad); color: var(--bad); }
+  .doc-p .fill.flash { animation: fl 1.2s; }
+  @keyframes fl { 0%, 60% { background: #dcedd9; } 100% { background: transparent; } }
+
+  .party-tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0 4px; }
+  .party-tbl td { border: 1px solid #cfc8b8; padding: 7px 10px; }
+  .party-tbl td:first-child { width: 92px; color: var(--muted); background: #f6f3ea; }
+
+  .sig-block { margin-top: 28px; border-top: 2px solid rgba(29,58,47,.25); padding-top: 16px; }
+  .sig-title { font-size: 12px; letter-spacing: 2px; color: var(--muted); margin-bottom: 14px; }
+  .sig-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; font-size: 12px; }
+  .sig-cols .row { margin: 14px 0; color: #6b6357; }
+  .sig-cols .line { border-bottom: 1px solid #b9b0a0; display: inline-block; min-width: 140px; }
+  .sig-date .fill { cursor: default; }
+
+  /* 生成状态浮条 */
+  .gen-bar { position: sticky; bottom: 0; margin: 16px auto 0; max-width: 620px; background: rgba(29,58,47,.96); color: #f3ede0; border-radius: 10px; padding: 11px 16px; display: flex; align-items: center; gap: 12px; font-family: var(--sans); box-shadow: 0 6px 22px rgba(0,0,0,.25); }
+  .gen-bar .status { font-size: 12px; color: rgba(255,255,255,.75); flex: 1; }
+  .gen-bar .status b { color: #f0d9a0; }
+
+  /* 历史抽屉 */
+  .drawer-mask { position: fixed; inset: 0; background: rgba(30,28,20,.35); display: none; z-index: 50; }
+  .drawer-mask.on { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 460px; background: #fff; box-shadow: -8px 0 30px rgba(0,0,0,.2); transform: translateX(100%); transition: transform .25s; z-index: 51; display: flex; flex-direction: column; }
+  .drawer.on { transform: none; }
+  .drawer-head { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; font-weight: 600; color: var(--ink); }
+  .drawer-head .btn { margin-left: auto; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .h-item { display: grid; grid-template-columns: 1fr auto; gap: 4px; padding: 12px 20px; border-bottom: 1px solid #f0ece1; cursor: pointer; }
+  .h-item:hover { background: #fbfaf6; }
+  .h-item .no { font-family: var(--serif); font-size: 13px; color: var(--ink); }
+  .h-item .meta { grid-column: 1; font-size: 11px; color: var(--muted); }
+  .h-item .tag { font-size: 10px; padding: 2px 8px; border-radius: 8px; align-self: center; }
+  .h-item .tag.ok { background: var(--ok-bg); color: var(--ok); }
+  .h-item .reopen { grid-column: 2; font-size: 11px; color: var(--ink-2); text-decoration: underline; }
+
+  /* 原型指引 */
+  .guide-toggle { position: fixed; left: 232px; bottom: 16px; z-index: 40; background: var(--ink); color: #f0d9a0; border: none; border-radius: 20px; padding: 8px 16px; font-size: 12px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+  .guide { position: fixed; left: 232px; bottom: 52px; width: 360px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 34px rgba(0,0,0,.18); padding: 16px 18px; z-index: 40; display: none; font-size: 12px; line-height: 1.8; color: #44403a; }
+  .guide.on { display: block; }
+  .guide h3 { font-size: 13px; color: var(--ink); margin-bottom: 8px; }
+  .guide li { margin-left: 16px; }
+  .guide .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+  @media (max-width: 1180px) { .app { grid-template-columns: 64px minmax(420px,1fr) minmax(400px,48%); } .brand, .side-label, .side-item span:not(.num), .side-foot { display: none; } .side-item { justify-content: center; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= 侧栏 ================= -->
+  <aside class="side">
+    <div class="brand"><div class="logo">華星</div><div class="sub">CONTRACT · AGENT</div></div>
+    <div class="side-label">卖车</div>
+    <div class="side-item active"><span class="num">01</span><span>卖车合同</span></div>
+    <div class="side-label">过户</div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">02</span><span>两地牌过户</span></div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">03</span><span>入伙过户</span></div>
+    <div class="side-label">粤Z 新办</div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">04</span><span>高新口岸</span></div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">05</span><span>深圳湾口岸</span></div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">06</span><span>文锦渡口岸</span></div>
+    <div class="side-item demo" onclick="demoTip()"><span class="num">07</span><span>沙头角口岸</span></div>
+    <div class="side-foot">
+      <div class="today-dot" onclick="openDrawer(true)"><b>3</b> 今日已生成 · 查看历史</div>
+    </div>
+  </aside>
+
+  <!-- ================= 左：核对区 ================= -->
+  <section class="pane">
+    <div class="pane-top">
+      <h1>卖车合同</h1>
+      <span class="crumb">核对 AI 提取结果 · 补全缺失项</span>
+    </div>
+    <div class="pane-body">
+
+      <!-- ① 智能录入 -->
+      <div class="sec">
+        <div class="sec-head"><h2>智能录入</h2><span class="hint">粘贴微信/口头描述，AI 自动填入下方字段</span></div>
+        <div class="sec-body">
+          <textarea class="src" id="srcText" placeholder="例：陈先生要买那台黑色 ES8，粤A·88F66，报价18.8万，先付3万定金，过户完成后3天内付清尾款，附赠一年电池检测，签署日期按今天。"></textarea>
+          <div class="extract-row">
+            <button class="btn primary" id="btnExtract" onclick="runExtract()">AI 提取</button>
+            <span style="font-size:11px;color:var(--muted)" id="extractHint">提取后每个字段会标注原文依据，可对照修改</span>
+          </div>
+          <div class="pipeline" id="pipe">
+            <div class="stage" id="st1">理解客户描述</div>
+            <div class="stage" id="st2">提取业务字段</div>
+            <div class="stage" id="st3">解析付款约定</div>
+            <div class="stage" id="st4">按模板校对</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ② 字段核对 -->
+      <div class="sec">
+        <div class="sec-head"><h2>字段核对</h2><span class="hint" id="reviewHint"></span></div>
+        <div class="sec-body">
+          <div class="group-label">买方信息 / BUYER</div>
+          <div class="fields" id="grpBuyer"></div>
+          <div class="group-label">车辆信息 / VEHICLE</div>
+          <div class="fields" id="grpCar"></div>
+          <div class="group-label">价款 / PRICE</div>
+          <div class="fields" id="grpPrice"></div>
+
+          <div class="sign-bar">
+            <span class="lbl">签署日期</span>
+            <input type="date" id="signDate" onchange="onSignDateChange()">
+            <span class="tag today" id="signTag">今日默认</span>
+            <button class="btn ghost sm" onclick="resetSignDate()">回到今日</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 付款计划 -->
+      <div class="sec">
+        <div class="sec-head"><h2>付款计划</h2><span class="hint">每期一张卡 · 金额优先</span>
+          <button class="btn ghost sm" style="margin-left:8px" onclick="addRow()">＋ 加一期</button>
+        </div>
+        <div class="sec-body">
+          <div class="pay-cards" id="payCards"></div>
+          <div class="total-line">
+            <span style="color:var(--muted)">分期合计</span>
+            <span id="sumAmt" style="font-family:var(--serif);font-weight:700;color:var(--ink)"></span>
+            <div class="rule"></div>
+            <span class="chip" id="sumChip"></span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= 右：合同预览 ================= -->
+  <section class="preview-pane">
+    <div class="pv-head">
+      <span class="t">合同预览</span>
+      <span class="no" id="pvNo">HX-2026-XXXX-001</span>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" onclick="openDrawer(true)">历史</button>
+    </div>
+    <div class="pv-scroll">
+      <div class="sheet" id="sheet">
+        <div class="doc-meta"><span id="docNo">编号：待生成</span><span id="docDate">签署日期：—</span></div>
+        <div class="doc-title">汽 车 出 售 合 同</div>
+        <div class="doc-sub">MOTOR VEHICLE SALE AND PURCHASE AGREEMENT</div>
+
+        <div class="doc-h">甲方（卖方）：华星资源开发有限公司</div>
+        <div class="doc-h">乙方（买方）</div>
+        <table class="party-tbl">
+          <tr><td>姓名</td><td id="pvName">—</td><td>联系电话</td><td id="pvPhone">—</td></tr>
+          <tr><td>证件号码</td><td id="pvIdno">—</td><td>住址</td><td id="pvAddr">—</td></tr>
+        </table>
+
+        <div class="doc-h">第一条 标的车辆</div>
+        <div class="doc-p">甲方自愿将登记在其名下的 <span class="fill" id="pvModel">　</span> 牌机动车（车牌号 <span class="fill" id="pvPlate">　</span>，车架号 <span class="fill" id="pvVin">　</span>，车身颜色 <span class="fill" id="pvColor">　</span>）出售给乙方。</div>
+
+        <div class="doc-h">第二条 价款</div>
+        <div class="doc-p">经双方协商一致，上述车辆成交总价为 <span class="fill" id="pvPrice">　</span>（大写：<span class="fill" id="pvPriceCn" style="cursor:default">　</span>）。</div>
+
+        <div class="doc-h">第三条 付款方式</div>
+        <div class="doc-p" id="pvPay">　</div>
+
+        <div class="doc-h">第四条 附赠服务</div>
+        <div class="doc-p" id="pvGift">甲方无附赠服务承诺。</div>
+
+        <div class="sig-block">
+          <div class="sig-title">签署确认 · SIGNATURES</div>
+          <div class="sig-cols">
+            <div>
+              <div style="font-weight:700">甲方（卖方）/ SELLER</div>
+              <div class="row">授权代表签署：<span class="line"></span></div>
+              <div class="row">公司印章：⬜ 待盖章</div>
+              <div class="row sig-date">日期：<span class="fill" id="pvSigDateA">　</span></div>
+            </div>
+            <div>
+              <div style="font-weight:700">乙方（买方）/ BUYER</div>
+              <div class="row">签署：<span class="line"></span></div>
+              <div class="row">公司印章（如适用）：—</div>
+              <div class="row sig-date">日期：<span class="fill" id="pvSigDateB">　</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gen-bar">
+        <span class="status" id="genStatus">等待提取或手动填写 · 点击右栏空白处可定位左栏对应字段</span>
+        <button class="btn gold" id="btnGen" disabled onclick="generate()"><span id="genBtnText">生成合同 →</span></button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- 历史抽屉 -->
+<div class="drawer-mask" id="mask" onclick="openDrawer(false)"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">生成历史（最近 50 条）<button class="btn ghost sm" onclick="openDrawer(false)">关闭</button></div>
+  <div class="drawer-body">
+    <div class="h-item"><span class="no">HX-2026-0928-003</span><span class="tag ok">通过</span><span class="meta">卖车 · 林太 · 今日 14:20</span><span class="reopen">载入为底稿</span></div>
+    <div class="h-item"><span class="no">HX-2026-0928-002</span><span class="tag ok">通过</span><span class="meta">两地牌过户 · 陈生 · 今日 11:02</span><span class="reopen">载入为底稿</span></div>
+    <div class="h-item"><span class="no">HX-2026-0928-001</span><span class="tag ok">通过</span><span class="meta">卖车 · 王先生 · 今日 09:45</span><span class="reopen">载入为底稿</span></div>
+    <div class="h-item"><span class="no">HX-2026-0927-008</span><span class="tag ok">通过</span><span class="meta">粤Z新办·深圳湾 · 顺达货运 · 昨日 17:30</span><span class="reopen">载入为底稿</span></div>
+  </div>
+</div>
+
+<button class="guide-toggle" onclick="document.getElementById('guide').classList.toggle('on')">原型指引</button>
+<div class="guide" id="guide">
+  <h3>怎么体验这版布局</h3>
+  <ol>
+    <li>粘贴或输入一段客户描述 → 点 <b>AI 提取</b>：观察 4 阶段进度条、字段金色高亮 + <span class="sw" style="background:var(--ai-bg);border:1px solid #ecd9ae"></span>原文依据、右栏草稿实时填充。</li>
+    <li>改动任意金色字段 → 角标从 <b>AI</b> 变为 <b>✓已改</b>（三态：待填红 / AI金 / 已核灰）。</li>
+    <li>点 <b>右栏草稿</b> 上的高亮值 → 左栏对应字段滚动定位并闪烁（预览↔表单双向）。</li>
+    <li>签署日期默认今日；改期后出现红色「手动改期」标签，甲乙签署块同步更新。</li>
+    <li>清空「车架号」→ 底部浮条变为「还差 1 项」，生成按钮禁用；补齐后变金色可点 → 模拟生成 → 变下载。</li>
+    <li>侧栏右下圆点「3」→ 历史抽屉，可「载入为底稿」（示意）。</li>
+  </ol>
+</div>
+
+<script>
+  // ---------- 数据模型 ----------
+  const FIELDS = {
+    buyer: [
+      { key:'buyer_name',  label:'买方姓名', req:true,  quote:'「陈先生要买那台黑色ES8…」→ 陈先生', wide:false },
+      { key:'buyer_idno',  label:'证件号码', req:true,  quote:null, wide:false },
+      { key:'buyer_phone', label:'联系电话', req:true,  quote:'（微信名片）138 8866 2077', wide:false },
+      { key:'buyer_addr',  label:'住址',     req:false, quote:null, wide:false },
+    ],
+    car: [
+      { key:'car_model', label:'品牌型号', req:true,  quote:'「那台黑色ES8」→ ES8', wide:false },
+      { key:'car_plate', label:'车牌号',   req:true,  quote:'「粤A·88F66」', wide:false },
+      { key:'car_vin',   label:'车架号',   req:true,  quote:null, wide:false },
+      { key:'car_color', label:'车身颜色', req:false, quote:'「那台黑色ES8」→ 黑色', wide:false },
+    ],
+    price: [
+      { key:'currency', label:'币种', req:true, type:'select', options:['RMB 人民币','HKD 港币'], wide:false },
+      { key:'total_price', label:'总售价', req:true, quote:'「报价18.8万」→ 188000', wide:false },
+    ],
+  };
+  const state = { values:{}, ai:{}, extracted:false, gift:'', rows:[] };
+
+  // ---------- 字段渲染 ----------
+  function fieldHTML(f) {
+    return `<div class="field" id="fd-${f.key}">
+      <label>${f.label}${f.req?' <span class="req">*</span>':''}</label>
+      ${f.type==='select'
+        ? `<select onchange="onEdit('${f.key}', this.value)">
+             <option value="">请选择</option>
+             ${f.options.map(o=>`<option>${o}</option>`).join('')}
+           </select>`
+        : `<input id="in-${f.key}" ${f.key==='total_price'?'inputmode="decimal"':''} oninput="onEditInput('${f.key}', this.value)" placeholder="待填">`}
+      <span class="badge" id="bd-${f.key}" style="display:none"></span>
+      <div class="src-quote" id="qt-${f.key}"></div>
+    </div>`;
+  }
+  ['buyer','car','price'].forEach(g => {
+    document.getElementById('grp'+g[0].toUpperCase()+g.slice(1)).innerHTML = FIELDS[g].map(fieldHTML).join('');
+  });
+
+  function setField(key, val, quote) {
+    state.values[key] = val; state.ai[key] = true;
+    const el = document.getElementById('in-'+key) || document.querySelector(`#fd-${key} select`);
+    if (el) el.value = val;
+    applyState(key, 'ai', quote);
+  }
+  function applyState(key, st, quote) {
+    const fd = document.getElementById('fd-'+key), bd = document.getElementById('bd-'+key);
+    fd.classList.remove('st-ai','st-fixed','st-miss');
+    if (st==='ai') { fd.classList.add('st-ai'); bd.style.display=''; bd.className='badge ai'; bd.textContent='AI'; }
+    else if (st==='fixed') { fd.classList.add('st-fixed'); bd.style.display=''; bd.className='badge fixed'; bd.textContent='✓已改'; }
+    else { bd.style.display='none'; }
+    const qt = document.getElementById('qt-'+key);
+    if (qt) qt.textContent = quote ? '来源 '+quote : '';
+    renderPreview();
+  }
+  function onEditInput(key, val) {
+    state.values[key] = val;
+    applyState(key, val.trim() ? (state.ai[key] ? 'fixed' : 'fixed') : 'miss');
+    if (!val.trim()) delete state.ai[key];
+  }
+  function onEdit(key, val) { state.values[key] = val; applyState(key, 'fixed'); }
+
+  // ---------- 付款卡片 ----------
+  function renderPay() {
+    document.getElementById('payCards').innerHTML = state.rows.map((r,i)=>`
+      <div class="pay-card ${r.ai&&!r.edited?'st-ai':''}">
+        <div class="amt-side">
+          <div class="seq">第 ${'一二三四'[i]||i+1} 期</div>
+          <input class="name" style="border:none;padding:2px 0;font-weight:600;color:var(--ink);width:92px" value="${r.label}" ${r.preset?'':''} oninput="editRow(${i},'label',this.value)" placeholder="款项名称">
+          <div class="amt">¥<input inputmode="decimal" style="width:86px;border:none;font-family:var(--serif);font-size:24px;font-weight:700;color:var(--ink);padding:0" value="${r.amount??''}" placeholder="0" oninput="editRow(${i},'amount',this.value)"><small></small></div>
+          ${r.ai&&!r.edited?'<div style="font-size:10px;color:var(--ai);margin-top:4px">AI · '+r.quote+'</div>':''}
+        </div>
+        <div class="grid">
+          <div><label>付款日期</label><input type="date" class="${r.lockDate?'locked':''}" value="${r.lockDate?signDateVal():r.date}" ${r.lockDate?'disabled':''} oninput="editRow(${i},'date',this.value)"></div>
+          <div><label>触发事件条件</label><input value="${r.event}" placeholder="如：过户完成后3日内" oninput="editRow(${i},'event',this.value)"></div>
+          <div style="grid-column:1/-1;font-size:10px;color:var(--muted)">${r.lockDate?'「签约当日」行自动跟随签署日期，无需填写':'有绝对日期或事件条件其一即可；同时填写以日期为准'}</div>
+        </div>
+      </div>`).join('');
+    const sum = state.rows.reduce((a,r)=>a+(parseFloat(r.amount)||0),0);
+    const total = parseFloat(state.values.total_price)||0;
+    document.getElementById('sumAmt').textContent = '¥ ' + (sum?sum.toLocaleString():'0');
+    const chip = document.getElementById('sumChip');
+    if (!total) { chip.className='chip bad'; chip.textContent='总售价未填'; }
+    else if (sum===total) { chip.className='chip ok'; chip.textContent='✓ 等于总售价'; }
+    else { chip.className='chip bad'; chip.textContent='差额 ¥'+(total-sum).toLocaleString(); }
+    renderPreview();
+  }
+  function editRow(i,k,v){ state.rows[i][k] = (k==='amount')?parseFloat(v)||null:v; state.rows[i].edited=true; renderPay(); }
+  function addRow(){ state.rows.push({label:'',amount:null,date:'',event:'',preset:false,edited:true}); renderPay(); }
+
+  // ---------- 签署日期 ----------
+  function signDateVal(){ return document.getElementById('signDate').value; }
+  function today(){ const d=new Date(); return d.toISOString().slice(0,10); }
+  function cnDate(iso){ if(!iso) return ''; const [y,m,d]=iso.split('-'); return `${y}年${parseInt(m)}月${parseInt(d)}日`; }
+  function onSignDateChange(){
+    const tag=document.getElementById('signTag');
+    if (signDateVal()===today()) { tag.className='tag today'; tag.textContent='今日默认'; }
+    else { tag.className='tag changed'; tag.textContent='手动改期'; }
+    renderPreview();
+  }
+  function resetSignDate(){ document.getElementById('signDate').value=today(); onSignDateChange(); }
+
+  // ---------- 右栏预览 ----------
+  const pvMap = {
+    buyer_name:['pvName','—'], buyer_phone:['pvPhone','—'], buyer_idno:['pvIdno','—'], buyer_addr:['pvAddr','—'],
+    car_model:['pvModel'], car_plate:['pvPlate'], car_vin:['pvVin'], car_color:['pvColor'], total_price:['pvPrice'],
+  };
+  function fillCls(key){
+    const v=(state.values[key]||'').toString().trim();
+    if(!v) return 'fill empty';
+    return state.ai[key] && document.getElementById('fd-'+key)?.classList.contains('st-ai') ? 'fill ai' : 'fill';
+  }
+  function renderPreview(){
+    for(const [k,[id]] of Object.entries(pvMap)){
+      const el=document.getElementById(id);
+      let v=state.values[k]||'';
+      if(k==='total_price'&&v) v='¥ '+Number(v).toLocaleString()+' 元';
+      el.className=fillCls(k);
+      el.textContent=v||'待填';
+      el.dataset.field=k;
+      el.onclick=()=>focusField(k);
+    }
+    const cn=state.values.total_price?toCN(Number(state.values.total_price))+'':'';
+    const e=document.getElementById('pvPriceCn'); e.textContent=cn||'　';
+    document.getElementById('docDate').textContent='签署日期：'+(cnDate(signDateVal())||'—');
+    document.getElementById('pvSigDateA').textContent=cnDate(signDateVal())||'　';
+    document.getElementById('pvSigDateB').textContent=cnDate(signDateVal())||'　';
+    // 付款条款
+    const pp=document.getElementById('pvPay');
+    if(state.rows.length){
+      pp.innerHTML=state.rows.map((r,i)=>{
+        const amt=r.amount?('人民币'+Number(r.amount).toLocaleString()+'元'):u('金额');
+        const when=r.lockDate?`本协议签订当日（${cnDate(signDateVal())}）`:(r.date?cnDate(r.date):(r.event||u('付款时间')));
+        return `第${'一二三四'[i]||i+1}期（${r.label||u('款项名称')}）：乙方应于${when}支付${amt}。`;
+      }).join(' ');
+    } else pp.innerHTML=u('付款约定');
+    document.getElementById('pvGift').textContent=state.gift?('甲方附赠乙方：'+state.gift+'。'):'甲方无附赠服务承诺。';
+    updateGenBar();
+  }
+  const u=t=>`<span class="fill empty">${t}</span>`;
+  function focusField(k){
+    const fd=document.getElementById('fd-'+k); if(!fd) return;
+    fd.scrollIntoView({behavior:'smooth',block:'center'});
+    const el=document.getElementById('in-'+k)||document.querySelector(`#fd-${k} select`);
+    el&&el.focus({preventScroll:true});
+  }
+
+  // ---------- 大写金额（演示用简化） ----------
+  function toCN(n){ const d='零壹贰叁肆伍陆柒捌玖',u2=['','拾','佰','仟'],u3=['','万','亿'];
+    if(!isFinite(n)||n<=0)return''; let s='',p=Math.floor(n).toString();
+    for(let i=0;i<p.length;i++){const v=+p[i],len=p.length-i; s+=v===0?s.endsWith('零')?'':'零':d[v]+u2[(len-1)%4]; if((len-1)%4===0&&v!==0)s+=u3[Math.floor((len-1)/4)]||'';}
+    return s.replace(/零+$/,'')+'元整'; }
+
+  // ---------- 生成 ----------
+  function updateGenBar(){
+    const st=document.getElementById('genStatus'), btn=document.getElementById('btnGen');
+    if(btn.disabled&&btn.dataset.done) return;
+    const miss=requiredMissing();
+    const pend=Object.keys(state.ai).filter(k=>document.getElementById('fd-'+k)?.classList.contains('st-ai')).length;
+    if(miss.length){ btn.disabled=true; btn.classList.remove('gold'); btn.classList.add('ghost'); btn.innerText=`还差 ${miss.length} 项`;
+      st.innerHTML=`<b>待补全：</b>${miss.join('、')}`; return; }
+    btn.disabled=false; btn.classList.add('gold'); btn.classList.remove('ghost'); btn.innerText='生成合同 →';
+    st.innerHTML=pend?`<b>${pend} 项为 AI 原样填入（金底）</b>· 建议对照左栏原文依据核一遍再生成`:'全部字段已人工确认 · 可以生成';
+  }
+  function requiredMissing(){
+    const m=[];
+    [['buyer_name','买方姓名'],['buyer_idno','证件号码'],['buyer_phone','联系电话'],['car_model','品牌型号'],['car_plate','车牌号'],['car_vin','车架号'],['total_price','总售价'],['currency','币种']]
+      .forEach(([k,l])=>{ if(!(state.values[k]||'').toString().trim()) m.push(l); });
+    state.rows.forEach((r,i)=>{ if(!(parseFloat(r.amount)>0)) m.push(`第${i+1}期金额`); if(!r.lockDate&&!r.date&&!r.event&&(!r.amount)) m.push(`第${i+1}期时间`); });
+    const sum=state.rows.reduce((a,r)=>a+(parseFloat(r.amount)||0),0);
+    if(state.values.total_price&&sum!==parseFloat(state.values.total_price)) m.push('分期合计与总售价不符');
+    return m;
+  }
+  function generate(){
+    const btn=document.getElementById('btnGen'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>生成与 AI 复核中…';
+    document.getElementById('genStatus').textContent='写入模板 → 全文复核 → 核对金额一致性…';
+    setTimeout(()=>{
+      const d=new Date(), no=`HX-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-004`;
+      document.getElementById('docNo').textContent='编号：'+no;
+      document.getElementById('pvNo').textContent=no;
+      btn.innerHTML='✓ 下载 .docx'; btn.dataset.done=1; btn.disabled=false;
+      btn.onclick=()=>alert('演示：真实版本此处直接下载 docx（含签署块日期 '+cnDate(signDateVal())+'）');
+      document.getElementById('genStatus').innerHTML='<b>核对通过</b> · 签署块日期已写入：'+cnDate(signDateVal());
+    },1600);
+  }
+
+  // ---------- AI 提取（模拟） ----------
+  function runExtract(){
+    const btn=document.getElementById('btnExtract'); btn.disabled=true; btn.innerText='提取中…';
+    document.getElementById('pipe').classList.add('on');
+    document.getElementById('srcText').value ||= '王先生要买那台黑色ES8，粤A·88F66，报价18.8万，先付3万定金，过户完成后3天内付清尾款，附赠一年电池检测，签署日期按今天。';
+    const src=document.getElementById('srcText').value;
+    const stages=['st1','st2','st3','st4']; let i=0;
+    const step=()=>{
+      if(i>0) document.getElementById(stages[i-1]).className='stage done';
+      if(i===stages.length){ finish(); return; }
+      document.getElementById(stages[i]).className='stage run'; i++; setTimeout(step,520);
+    };
+    const finish=()=>{
+      setField('buyer_name', src.match(/([\u4e00-\u9fa5]{1,3}(?:先生|太太|太|生|小姐))/)?.[0]||'陈先生', '「陈先生要买…」');
+      setField('buyer_phone','138 8866 2077','（微信名片）');
+      setField('car_model','蔚来 ES8','「黑色ES8」');
+      setField('car_plate','粤A·88F66','「粤A·88F66」');
+      setField('car_color','黑色','「那台黑色ES8」');
+      setField('currency','RMB 人民币',null);
+      setField('total_price','188000','「报价18.8万」→ 188000');
+      document.getElementById('in-buyer_idno').placeholder='AI 未在原文中找到 · 必补';
+      document.getElementById('in-car_vin').placeholder='AI 未在原文中找到 · 必补';
+      applyState('buyer_idno','miss'); applyState('car_vin','miss');
+      state.gift='一年电池检测';
+      state.rows=[
+        {label:'定金',amount:30000,date:'',event:'',lockDate:true,preset:true,ai:true,edited:false,quote:'「先付3万定金」'},
+        {label:'尾款',amount:158000,date:'',event:'过户完成后3日内',lockDate:false,preset:true,ai:true,edited:false,quote:'「过户完成后3天内付清尾款」'},
+      ];
+      renderPay();
+      btn.disabled=false; btn.innerText='重新提取';
+      document.getElementById('extractHint').textContent='已填充 7 个字段 · 2 项 AI 未找到（红边）';
+      document.getElementById('reviewHint').textContent='金色=AI填入 · 改过变「✓已改」';
+    };
+    step();
+  }
+
+  // ---------- 历史抽屉 ----------
+  function openDrawer(on){ document.getElementById('mask').classList.toggle('on',on); document.getElementById('drawer').classList.toggle('on',on); }
+  function demoTip(){ alert('原型演示：仅「卖车合同」接入示例数据；真实系统 7 类模板同此布局。'); }
+
+  // ---------- 初始化 ----------
+  document.getElementById('signDate').value=today();
+  renderPay(); renderPreview();
+</script>
+</body>
+</html>

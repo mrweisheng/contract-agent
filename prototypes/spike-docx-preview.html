@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Spike · docx-preview 1:1 渲染验证</title>
+<link id="fontCss" rel="stylesheet" href="../web/fonts/noto-sans-sc/alias.css">
+<style>
+  body { margin: 0; background: #e8e5db; font-family: 'Noto Sans SC', -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+  .bar { position: sticky; top: 0; z-index: 10; background: #1d3a2f; color: #f3ede0; padding: 10px 18px;
+         display: flex; align-items: center; gap: 14px; font-size: 13px; flex-wrap: wrap; }
+  .bar b { font-weight: 600; }
+  .bar .metric { color: #d8b25c; font-variant-numeric: tabular-nums; }
+  .bar button { background: rgba(255,255,255,.12); color: #f3ede0; border: 1px solid rgba(255,255,255,.25);
+                border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+  .bar button:hover { background: rgba(255,255,255,.2); }
+  .bar button.off { opacity: .45; }
+  #stage { padding: 24px 0 80px; transform-origin: top center; }
+  /* docx-preview 自带 .docx-wrapper 样式（灰底+白页+阴影） */
+  #err { color: #c0392b; padding: 30px; font-size: 14px; white-space: pre-wrap; }
+</style>
+<script src="../web/vendor/jszip.min.js"></script>
+<script src="../web/vendor/docx-preview.min.js"></script>
+<script src="spike-docx.b64.js"></script>
+</head>
+<body>
+<div class="bar">
+  <b>華星 · docx-preview 保真 Spike</b>
+  <span class="metric" id="m1">–</span>
+  <span class="metric" id="m2"></span>
+  <span class="metric" id="m3"></span>
+  <button id="btnFont" onclick="toggleFont()">思源黑体别名映射：开</button>
+  <button onclick="zoom(0.1)">＋</button>
+  <button onclick="zoom(-0.1)">－</button>
+  <span style="color:rgba(255,255,255,.5);font-size:11px">同一文件：即 build_contract 真实输出的 36KB docx 字节</span>
+</div>
+<div id="err"></div>
+<div id="stage"><div id="out"></div></div>
+<script>
+  let scale = 1, aliasOn = true;
+  function b64ToBuf(b64) {
+    const bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8.buffer;
+  }
+  async function render() {
+    const t0 = performance.now();
+    const buf = b64ToBuf(window.__DOCX_B64__);
+    document.getElementById('m1').textContent = 'docx 字节: ' + (buf.byteLength / 1024).toFixed(1) + ' KB';
+    try {
+      await docx.renderAsync(buf, document.getElementById('out'), null,
+        { inWrapper: true, ignoreLastRenderedPageBreak: false, breakPages: true });
+      const t = performance.now() - t0;
+      const pages = document.querySelectorAll('.docx-wrapper > section').length;
+      document.getElementById('m2').textContent = '渲染耗时: ' + t.toFixed(0) + ' ms';
+      document.getElementById('m3').textContent = '页数: ' + pages;
+    } catch (e) {
+      document.getElementById('err').textContent = '渲染失败：' + e.message + '\n' + e.stack;
+    }
+  }
+  function toggleFont() {
+    aliasOn = !aliasOn;
+    document.getElementById('fontCss').disabled = !aliasOn;
+    document.getElementById('btnFont').textContent = '思源黑体别名映射：' + (aliasOn ? '开' : '关(系统字体)');
+    document.getElementById('btnFont').classList.toggle('off', !aliasOn);
+  }
+  function zoom(d) {
+    scale = Math.min(1.6, Math.max(0.5, scale + d));
+    document.getElementById('stage').style.transform = 'scale(' + scale + ')';
+  }
+  render();
+</script>
+</body>
+</html>
