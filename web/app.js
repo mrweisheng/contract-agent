@@ -182,7 +182,7 @@ const app = createApp({
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       initForm(); initPayment();
-      clearTimeout(pvHitTimer); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
+      clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
     }
 
@@ -410,25 +410,28 @@ const app = createApp({
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         if (mySeq !== pvSeq || !sheetEl.value) return;
-        // innerHTML 清空会瞬间拉低容器高度、浏览器把 scrollTop 钳到 0：
-        // 非 fresh 重渲先记住位置，渲完恢复，编辑字段时预览不跳
+        // 双缓冲：渲进离屏容器，完成后同帧整体换入——旧纸面（含联动高亮）保持可见
+        // 到换入那一刻，编辑打字不再出现「清空白屏→重渲→淡入」的闪烁
         const savedTop = pvScroll.value ? pvScroll.value.scrollTop : 0;
-        sheetEl.value.innerHTML = "";  // docx-preview 是追加渲染，重渲前必须清空
-        await window.docx.renderAsync(buf, sheetEl.value, null,
+        const stage = document.createElement("div");
+        await window.docx.renderAsync(buf, stage, null,
           { inWrapper: true, breakPages: true });
-        if (mySeq !== pvSeq) return;
-        // 新合同淡入（无过渡→置 0→回流→过渡到 1），替代整页瞬切
-        const el = sheetEl.value;
-        el.style.transition = "none";
-        el.style.opacity = "0";
-        void el.offsetHeight;
-        el.style.transition = "opacity .28s ease";
-        el.style.opacity = "1";
+        if (mySeq !== pvSeq || !sheetEl.value) return;  // 渲染期间又有新请求：整张丢弃
+        sheetEl.value.replaceChildren(...Array.from(stage.childNodes));
+        if (fresh) {
+          // 整页换新（切业务类型）才淡入；增量重渲不播动画
+          const el = sheetEl.value;
+          el.style.transition = "none";
+          el.style.opacity = "0";
+          void el.offsetHeight;
+          el.style.transition = "opacity .28s ease";
+          el.style.opacity = "1";
+        }
         if (pvScroll.value) pvScroll.value.scrollTop = savedTop;
         pvState.value = "ready";
         pvHasContent.value = true;
         pvIssues.value = d.draft_issues || [];
-        if (pvHit) applyPvHit(false);   // 重渲后 DOM 重建：重贴高亮，不重新滚动
+        if (pvHit) applyPvHit(false);   // 重渲后 DOM 重建：重贴水洗并重新校准光环位置，巡游不中断
       } catch (e) {
         if (e.name === "AbortError") return;
         if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = String(e.message || e); pvIssues.value = []; }
@@ -440,11 +443,14 @@ const app = createApp({
     /* ---------- 字段聚焦 → 预览联动定位 ----------
      * 结构定位（表格锚文本+行标签子串+列号，或段落子串），不用值匹配——
      * 金额在合同里是「港币（大写）零元整（HK$0）」，拿表单原值搜文本必失败。
-     * 锚点配置在 server/engine/types_config.py field_anchors，经 /api/types 下发。 */
+     * 锚点配置在 server/engine/types_config.py field_anchors，经 /api/types 下发。
+     * 生命周期为「激活信号」驱动（focusin / pointerdown / 日期 change 均可激活）：
+     * 焦点仍在字段内就一直保持，移到非字段区域后缓冲 PV_HIT_HIDE_MS 再隐藏，无硬超时。 */
     const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
     let pvHit = null;            // { key, cardIdx?, pfield? } 当前联动字段
     let pvHitTimer = null;
-    const PV_HIT_HOLD_MS = 5000; // 高亮停留时长：失焦后再留 2.5s，总停留不超过 5s
+    let pvBeacon = null;         // 巡游光环覆盖层（单例，重渲不销毁，动效无缝连续）
+    const PV_HIT_HIDE_MS = 1800; // 焦点移出联动字段后的隐藏缓冲
     const isoOk = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(Date.parse(s));
 
     // 当前分期表对应的服务端付款模式（与 builder.derive_payment 同口径，仅用于算行号）
@@ -486,6 +492,7 @@ const app = createApp({
           const rows = t.rows;
           if (instIdx !== undefined)
             return (instIdx === -1 ? rows[rows.length - 1] : rows[instIdx]) || null;
+          if (a.row === undefined) return t;   // 无行锚：整表高亮（如签署确认块）
           for (const tr of rows)
             if ((tr.textContent || "").includes(a.row))
               return tr.cells?.[a.col ?? 1] || tr;
@@ -497,8 +504,27 @@ const app = createApp({
 
     function clearPvHit() {
       sheetEl.value?.querySelectorAll(".pv-hit").forEach(el => el.classList.remove("pv-hit"));
+      pvBeacon?.classList.add("off");   // 渐隐；元素保留，同字段复用时动效不中断
     }
 
+    // 光环覆盖层定位到锚点元素（内容坐标，随滚动移动）；±3px 外扩让环不贴字
+    function pinBeacon(el) {
+      const c = pvScroll.value, s = sheetEl.value;
+      if (!c || !s) return;
+      if (!pvBeacon) {
+        pvBeacon = document.createElement("div");
+        pvBeacon.className = "pv-beacon";
+        c.appendChild(pvBeacon);
+      }
+      const r = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      pvBeacon.style.left = (r.left - cr.left + c.scrollLeft - 3) + "px";
+      pvBeacon.style.top = (r.top - cr.top + c.scrollTop - 3) + "px";
+      pvBeacon.style.width = (r.width + 6) + "px";
+      pvBeacon.style.height = (r.height + 6) + "px";
+      pvBeacon.classList.remove("off");
+    }
+
+    // scroll=定位后滚动到目标；重渲重贴走同一入口，光环位置随新内容重新校准
     function applyPvHit(scroll) {
       clearPvHit();
       if (!pvHit || !cfg.value) return;
@@ -512,45 +538,85 @@ const app = createApp({
       const el = a && resolveAnchor(a, instIdx);
       if (!el) return;
       el.classList.add("pv-hit");
+      pinBeacon(el);
       if (scroll) pvScrollTo(el);
-      clearTimeout(pvHitTimer);
-      pvHitTimer = setTimeout(() => { clearPvHit(); pvHit = null; }, PV_HIT_HOLD_MS);
     }
 
-    // 克制滚动：已在上半区不打扰；可见且容器触底不再滚；其余滚到垂直居中
+    // 定位滚动：目标未完整可见就滚到垂直居中（签署块等在合同底部，必须保证滚到位）；
+    // 已完整可见则不动，靠脉冲引导视线
     function pvScrollTo(el) {
       const c = pvScroll.value;
       if (!c) return;
       const cr = c.getBoundingClientRect(), tr = el.getBoundingClientRect();
-      const visible = tr.bottom > cr.top && tr.top < cr.bottom;
-      if (visible && c.scrollTop + c.clientHeight >= c.scrollHeight - 2) return;
-      if (tr.top >= cr.top && tr.bottom <= cr.top + cr.height / 2) return;
+      if (tr.top >= cr.top && tr.bottom <= cr.bottom) return;
       const top = c.scrollTop + (tr.top + tr.height / 2 - cr.top) - c.clientHeight / 2;
       c.scrollTo({ top: Math.max(0, top), behavior: REDUCED_MOTION.matches ? "auto" : "smooth" });
     }
 
-    function onPaneFocusin(e) {
-      const t = e.target;
-      let hit = null;
-      if (typeof t.id === "string" && t.id.startsWith("f-"))
-        hit = { key: t.id.slice(2) };
-      else {
-        const card = t.closest?.(".pay-card");
-        if (card) {
-          const idx = Array.prototype.indexOf.call(card.parentElement.children, card);
-          hit = { key: "__inst", cardIdx: idx, pfield: t.dataset?.pfield || "" };
-        }
+    // 目标元素 → 联动字段：f-* 输入 / 签署日期条（含「今日」快捷钮）/ 付款卡片内子字段
+    function hitFromTarget(t) {
+      if (typeof t?.id === "string" && t.id.startsWith("f-"))
+        return { key: t.id.slice(2) };
+      if (t?.closest?.(".pc-del")) return null;         // 删除按钮不是在编辑字段
+      if (t?.closest?.(".sign-bar")) return { key: "sign_date" };
+      const card = t?.closest?.(".pay-card");
+      if (card) {
+        const idx = Array.prototype.indexOf.call(card.parentElement.children, card);
+        return { key: "__inst", cardIdx: idx, pfield: t.dataset?.pfield || "" };
       }
-      if (!hit) return;
-      pvHit = hit;
-      applyPvHit(true);
+      return null;
     }
 
-    function onPaneFocusout() {
+    const sameHit = (a, b) => !!a && !!b && a.key === b.key && a.cardIdx === b.cardIdx && a.pfield === b.pfield;
+
+    function activateHit(hit, scroll = true) {
+      clearTimeout(pvHitTimer);
+      // 同一字段且高亮仍在贴：不重播动画、不再滚动
+      if (sameHit(pvHit, hit) && sheetEl.value?.querySelector(".pv-hit")) return;
+      pvHit = hit;
+      applyPvHit(scroll);
+    }
+
+    function hideHit() {
+      clearTimeout(pvHitTimer);
+      pvHitTimer = setTimeout(() => { clearPvHit(); pvHit = null; }, PV_HIT_HIDE_MS);
+    }
+
+    function onPaneFocusin(e) {
+      const hit = hitFromTarget(e.target);
+      if (hit) activateHit(hit);
+    }
+
+    function onPaneFocusout(e) {
+      if (!pvHit) return;
+      if (e.relatedTarget && hitFromTarget(e.relatedTarget)) return;  // 字段间直切：交给 focusin 重定位
+      hideHit();
+    }
+
+    // 日期框点日历图标、禁用输入等场景焦点未必落上：pointerdown 兜底激活
+    function onPanePointerdown(e) {
+      const hit = hitFromTarget(e.target);
+      if (hit) activateHit(hit);
+    }
+
+    // 日历面板选定日期后，签署块与「签约当日」各期行可能移位：重新定位并滚动
+    function onHitDateChange(e) {
+      if (sameHit(pvHit, hitFromTarget(e.target))) {
+        clearTimeout(pvHitTimer);
+        applyPvHit(true);
+      }
+    }
+
+    // 注意力移到预览区：立即撤联动
+    function onPreviewPanePointerdown() {
       if (!pvHit) return;
       clearTimeout(pvHitTimer);
-      pvHitTimer = setTimeout(() => { clearPvHit(); pvHit = null; }, 2500);
+      clearPvHit();
+      pvHit = null;
     }
+
+    // 预览是流式排版（最宽 780px）：窗口缩放会让合同重排、锚点移位，重校准光环
+    window.addEventListener("resize", () => { if (pvHit) applyPvHit(false); });
 
     /* ---------- 签署日期 ---------- */
     const isToday = computed(() => form.sign_date === todayISO());
@@ -653,7 +719,7 @@ const app = createApp({
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
-      onPaneFocusin, onPaneFocusout,
+      onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName,
@@ -685,7 +751,7 @@ const app = createApp({
     </aside>
 
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane" @focusin="onPaneFocusin" @focusout="onPaneFocusout">
+    <section class="pane" @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
         <h2>{{ cfg?.label || '华星智能合同' }}</h2>
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
@@ -762,7 +828,7 @@ const app = createApp({
             <!-- 签署日期条 -->
             <div class="sign-bar">
               <span class="sb-label">签署日期</span>
-              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date"/>
+              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date" @change="onHitDateChange"/>
               <button class="chip" :class="{on: isToday}" @click="setSignToday">今日</button>
               <span class="sb-hint">合同顶部、签署块双方日期、"签约当日"各期均以此为准</span>
             </div>
@@ -794,7 +860,7 @@ const app = createApp({
                   <div class="pc-cell">
                     <label>付款日期{{ it.lockDate ? '（锁定签约当日）' : '' }}</label>
                     <input v-if="it.lockDate" type="date" :value="form.sign_date" disabled/>
-                    <input v-else type="date" v-model="it.date" data-pfield="date"/>
+                    <input v-else type="date" v-model="it.date" data-pfield="date" @change="onHitDateChange"/>
                   </div>
                   <div class="pc-cell wide">
                     <label>付款事件条件</label>
@@ -819,7 +885,7 @@ const app = createApp({
     </section>
 
     <!-- ================= 合同预览栏 ================= -->
-    <section class="pane preview-pane">
+    <section class="pane preview-pane" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
         <b>合同实时预览</b>
         <span class="pv-sub">与下载文件 1:1 同源</span>

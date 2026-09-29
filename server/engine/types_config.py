@@ -66,7 +66,7 @@ TYPES = {
             "year": {"table": "@kv", "row": "登记年份", "col": 1},
             "total_price": {"table": "@fee", "row": "车辆总售价", "col": 1},
             "currency": {"table": "@fee", "row": "车辆总售价", "col": 1},
-            "sign_date": {"para": "签署日期 / DATE"},
+            "sign_date": {"table": "授权代表签署"},
             # 分期卡片无固定行：前端按付款模式算行号（订金→1，订金日期→2，尾款→末行）
             "installment": {"table": "@fee"},
             # 条件节：仅当该节落盘时才存在，找不到即静默跳过
@@ -155,7 +155,7 @@ TYPES = {
             "total_fee": {"table": "@fee", "row": "服务总费用", "col": 2},
             "currency": {"table": "@fee", "row": "服务总费用", "col": 2},
             "exchange_fee": {"table": "@exchange", "row": "换车费用", "col": 1},
-            "sign_date": {"para": "签署日期 / DATE"},
+            "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
         "groups": [
@@ -222,7 +222,7 @@ TYPES = {
             "total_fee": {"table": "@fee", "row": "服务总费用", "col": 2},
             "currency": {"table": "@fee", "row": "服务总费用", "col": 2},
             "exchange_fee": {"table": "@exchange", "row": "换车费用", "col": 1},
-            "sign_date": {"para": "签署日期 / DATE"},
+            "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
         "groups": [
@@ -281,7 +281,7 @@ TYPES = {
             **_client_anchors("@party", "委托方", 1),
             "total_fee": {"table": "@fee", "row": "服务总费用", "col": 1},
             "currency": {"table": "@fee", "row": "服务总费用", "col": 1},
-            "sign_date": {"para": "签署日期 / DATE"},
+            "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
         "port_required": True,

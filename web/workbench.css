@@ -21,6 +21,7 @@
   --accent: #b04a3e;
   --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
   --sans: 'Noto Sans SC', -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --hit: 225 29 72;   /* 预览联动高亮色（玫红）：与页面绿金体系对冲，见 .pv-hit/.pv-beacon */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -168,13 +169,35 @@ select.f-inp { appearance: auto; }
 .pv-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
              padding: 22px 24px 20px; position: relative; }
 .pv-sheet { min-height: 60px; }
-/* 字段聚焦联动高亮：金底 + 描边，脉冲 3 次后静态停留（5s 自动撤，app.js 控制）；
-   tr 上 outline 渲染不可靠，行级高亮只用底色 */
-.pv-sheet .pv-hit { background-color: rgba(185, 127, 31, .16); animation: pv-hit-pulse .7s ease-in-out 3; }
-.pv-sheet td.pv-hit, .pv-sheet p.pv-hit { outline: 2px solid var(--ai); outline-offset: -2px; }
-@keyframes pv-hit-pulse {
-  0%, 100% { background-color: rgba(185, 127, 31, .10); }
-  50% { background-color: rgba(185, 127, 31, .38); }
+/* 字段聚焦联动高亮：玫红/绯红（--hit: 225 29 72）。页面体系是绿金暖纸（墨绿标题/金色
+   副标/浅灰蓝表头/墨绿侧栏），玫红位于绿的互补色位，对冲最强；预览栏红色零存在，
+   无语义竞争（左栏「必填缺失」的暗砖红在另一栏且更闷）。高亮面积小，可以大胆用高饱和。
+   分两层：水洗底直接染在单元格上（!important 压过 docx-preview 的内联底色）；
+   动效走 .pv-beacon 覆盖层——一圈淡环标记边界，一段柔和光晕沿边框匀速巡游
+   （7s/圈，长尾渐变，无频闪）。焦点不离开字段就永不停，重渲期间同一覆盖层
+   持续存在，巡游无缝连续。 */
+.pv-sheet td.pv-hit, .pv-sheet p.pv-hit { background-color: rgb(var(--hit) / .09) !important; }
+.pv-sheet tr.pv-hit > td, .pv-sheet table.pv-hit td { background-color: rgb(var(--hit) / .09) !important; }
+
+.pv-beacon { position: absolute; z-index: 3; pointer-events: none; border-radius: 4px;
+             box-shadow: 0 0 0 1px rgb(var(--hit) / .38), 0 0 0 6px rgb(var(--hit) / .10);
+             opacity: 1; transition: opacity .35s ease; animation: pv-beacon-in .25s ease; }
+.pv-beacon.off { opacity: 0; }
+.pv-beacon::before { content: ""; position: absolute; inset: -2px; border-radius: 6px; padding: 2px;
+  background: conic-gradient(from var(--pv-angle),
+    rgb(var(--hit) / 0) 0deg, rgb(var(--hit) / 0) 205deg,
+    rgb(var(--hit) / .28) 265deg, rgb(var(--hit) / .70) 320deg,
+    rgba(255, 157, 184, .95) 348deg, rgb(var(--hit) / 0) 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: pv-orbit 7s linear infinite; }
+@property --pv-angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes pv-orbit { to { --pv-angle: 360deg; } }
+@keyframes pv-beacon-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pv-beacon::before { animation: none; background: none; }
 }
 /* docx-preview 输出重排：单页纸面、去外框灰底，与侧栏纸感统一 */
 .pv-sheet .docx-wrapper { background: transparent; padding: 0; display: block; }
