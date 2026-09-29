@@ -67,6 +67,7 @@ const app = createApp({
     const selected = reactive({ type: "", port: "" });
     const form = reactive({});
     const aiFilled = reactive({});
+    const extraOpen = ref(false);  // 「附赠与售后」条件组折叠态：AI 解析到才自动展开
     const nlText = ref("");
     const extractNotes = ref([]);
     const warnNotes = ref([]);
@@ -94,6 +95,7 @@ const app = createApp({
       pendingCtrls.clear();
       extracting.value = false;
       parsing.value = false;
+      generating.value = false;  // 切换类型作废在途生成：被 abort 的 generate 走 AbortError 提前 return，不会自复位，必须在这里复位
       pipe.extract = ""; pipe.pay = "";
     }
     async function postJSON(url, body) {
@@ -119,21 +121,22 @@ const app = createApp({
     const currencyLabel = c => ({ HKD: "港币 HK$", CNY: "人民币 ¥" }[c] || c);
     const totalKey = computed(() => selected.type === "car" ? "total_price" : "total_fee");
     const total = computed(() => parseInt(form[totalKey.value]) || 0);
+    const paneKey = computed(() => selected.type + "|" + selected.port);  // 切换业务时录入栏淡出淡入
 
     /* ---------- 侧栏导航 ---------- */
     const menu = computed(() => {
       const get = k => types.value.find(t => t.key === k);
       const items = [];
-      if (get("car")) items.push({ title: "车辆买卖", list: [{ key: "car", port: "", label: "香港车辆买卖" }] });
+      if (get("car")) items.push({ title: "车辆买卖", list: [{ key: "car", port: "", label: "车务" }] });
       if (get("transfer_gx") && get("transfer_ns")) items.push({
         title: "现牌过户", list: [
-          { key: "transfer_gx", port: "", label: "高新两地牌过户" },
-          { key: "transfer_ns", port: "", label: "纳税两地牌过户" },
+          { key: "transfer_gx", port: "", label: "高新现牌" },
+          { key: "transfer_ns", port: "", label: "纳税现牌" },
         ]
       });
       const np = get("new_port");
       if (np && np.ports) items.push({
-        title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "") }))
+        title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
       });
       return items;
     });
@@ -142,6 +145,7 @@ const app = createApp({
     function initForm() {
       Object.keys(form).forEach(k => delete form[k]);
       Object.keys(aiFilled).forEach(k => delete aiFilled[k]);
+      extraOpen.value = false;
       const c = cfg.value;
       if (!c) return;
       form.currency = c.currency_default;
@@ -176,8 +180,10 @@ const app = createApp({
       cancelPending();
       selected.type = it.key; selected.port = it.port;
       result.value = null; extractNotes.value = []; warnNotes.value = [];
+      nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       initForm(); initPayment();
-      schedulePreview(30);
+      clearTimeout(pvHitTimer); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
+      schedulePreview(30, true);
     }
 
     /* ---------- 字段三态 ---------- */
@@ -191,6 +197,16 @@ const app = createApp({
     // 用户改动即视为已核对：清 AI 未核标记（修 badge 永不清除的老 bug）
     function onFieldInput(key) { delete aiFilled[key]; }
     function confirmAI(key) { delete aiFilled[key]; }
+
+    /* ---------- 条件组折叠（reveal:on_fill）----------
+       默认收起；AI 提取把组内任一字段填成非默认值时自动展开。 */
+    const extraFilled = computed(() => (cfg.value?.groups || [])
+      .filter(g => g.reveal === 'on_fill')
+      .some(g => g.fields.some(f => {
+        const v = String(form[f.key] ?? '').trim();
+        return v && v !== String(f.default ?? '').trim();
+      })));
+    watch(extraFilled, v => { if (v) extraOpen.value = true; });
 
     /* ---------- 智能抽取 ---------- */
     async function runExtract() {
@@ -291,7 +307,6 @@ const app = createApp({
         if (myGen === reqGen) { parsing.value = false; if (pipe.pay === "run") pipe.pay = "done"; }
       }
     }
-    function parseCustom() { return parseCustomText(payment.customText, false); }
     function addRow() {
       payment.rows.push({ seq: payment.rows.length + 1, label: "", amount: null, date: "", event: "", lockDate: false });
     }
@@ -343,8 +358,10 @@ const app = createApp({
     const pvError = ref("");
     const pvIssues = ref([]);
     const pvIssuesOpen = ref(false);
+    const pvHasContent = ref(false);   // 是否已有渲染内容：决定加载占位是否覆盖（有旧内容时保留旧合同）
     const sheetEl = ref(null);
-    let pvTimer = null, pvCtrl = null, pvSeq = 0;
+    const pvScroll = ref(null);
+    let pvTimer = null, pvCtrl = null, pvSeq = 0, pvFresh = false;
     function rowPayload(r) {
       return {
         label: (r.label || "").trim(),
@@ -354,16 +371,26 @@ const app = createApp({
         event: (r.event || "").trim(),
       };
     }
-    function schedulePreview(delay = 450) {
+    function schedulePreview(delay = 450, fresh = false) {
+      if (fresh) pvFresh = true;
+      else if (pvFresh) return;   // 已有待执行的「切换类型」预览：忽略同批增量重排，避免把它的短延时顶掉
       clearTimeout(pvTimer);
       pvTimer = setTimeout(renderPreview, delay);
     }
     async function renderPreview() {
+      const fresh = pvFresh; pvFresh = false;   // 先消费 fresh，避免早退（docx 未就绪）时护栏把后续预览全部吞掉
       if (!cfg.value || !window.docx) return;
       const mySeq = ++pvSeq;
       if (pvCtrl) pvCtrl.abort();
       pvCtrl = new AbortController();
       pvState.value = "loading";
+      if (fresh) {
+        // 切换业务类型：立即清空并回到顶部，避免残留上一类型合同造成"整页瞬切"
+        pvHasContent.value = false;
+        pvIssues.value = [];
+        if (sheetEl.value) sheetEl.value.innerHTML = "";
+        if (pvScroll.value) pvScroll.value.scrollTop = 0;
+      }
       try {
         const r = await fetch("/api/preview", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -376,26 +403,154 @@ const app = createApp({
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
-          if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = d.detail || `预览失败（HTTP ${r.status}）`; }
+          if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = d.detail || `预览失败（HTTP ${r.status}）`; pvIssues.value = []; }
           return;
         }
         const bin = atob(d.docx_b64);
         const buf = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
         if (mySeq !== pvSeq || !sheetEl.value) return;
+        // innerHTML 清空会瞬间拉低容器高度、浏览器把 scrollTop 钳到 0：
+        // 非 fresh 重渲先记住位置，渲完恢复，编辑字段时预览不跳
+        const savedTop = pvScroll.value ? pvScroll.value.scrollTop : 0;
         sheetEl.value.innerHTML = "";  // docx-preview 是追加渲染，重渲前必须清空
         await window.docx.renderAsync(buf, sheetEl.value, null,
           { inWrapper: true, breakPages: true });
         if (mySeq !== pvSeq) return;
+        // 新合同淡入（无过渡→置 0→回流→过渡到 1），替代整页瞬切
+        const el = sheetEl.value;
+        el.style.transition = "none";
+        el.style.opacity = "0";
+        void el.offsetHeight;
+        el.style.transition = "opacity .28s ease";
+        el.style.opacity = "1";
+        if (pvScroll.value) pvScroll.value.scrollTop = savedTop;
         pvState.value = "ready";
+        pvHasContent.value = true;
         pvIssues.value = d.draft_issues || [];
+        if (pvHit) applyPvHit(false);   // 重渲后 DOM 重建：重贴高亮，不重新滚动
       } catch (e) {
         if (e.name === "AbortError") return;
-        if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = String(e.message || e); }
+        if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = String(e.message || e); pvIssues.value = []; }
       }
     }
     watch(form, () => schedulePreview(), { deep: true });
     watch(() => payment.rows, () => schedulePreview(), { deep: true });
+
+    /* ---------- 字段聚焦 → 预览联动定位 ----------
+     * 结构定位（表格锚文本+行标签子串+列号，或段落子串），不用值匹配——
+     * 金额在合同里是「港币（大写）零元整（HK$0）」，拿表单原值搜文本必失败。
+     * 锚点配置在 server/engine/types_config.py field_anchors，经 /api/types 下发。 */
+    const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let pvHit = null;            // { key, cardIdx?, pfield? } 当前联动字段
+    let pvHitTimer = null;
+    const PV_HIT_HOLD_MS = 5000; // 高亮停留时长：失焦后再留 2.5s，总停留不超过 5s
+    const isoOk = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(Date.parse(s));
+
+    // 当前分期表对应的服务端付款模式（与 builder.derive_payment 同口径，仅用于算行号）
+    function payModeNow() {
+      const rows = payment.rows, preset = cfg.value?.pay_preset || [];
+      if (rows.length === 1) return "one_time";
+      const matched = preset.length > 0 && rows.length === preset.length && rows.every((r, i) => {
+        const pe = String(preset[i].event || "").trim(), ev = String(r.event || "").trim();
+        if (pe) return ev === pe;
+        if (ev && !ev.includes("签约")) return false;
+        return isoOk(r.date) || !!ev;
+      });
+      return matched ? "default" : "custom";
+    }
+
+    // 分期卡片 → 费用表行号（0=总费用行；-1=末行）。卖车默认模式错位：
+    // 订金金额→行1、订金支付日期→行2、尾款→末行（购车尾款）；其余模式统一 行1+期号
+    function installmentRowIdx(idx, pfield) {
+      if (payModeNow() === "default" && cfg.value?.car_default) {
+        if (idx === 0) return pfield === "date" ? 2 : 1;
+        return -1;
+      }
+      return 1 + idx;
+    }
+
+    function resolveAnchor(a, instIdx) {
+      const sheet = sheetEl.value;
+      if (!sheet || !a) return null;
+      const paras = a.para === undefined ? null : (Array.isArray(a.para) ? a.para : [a.para]);
+      try {
+        if (paras) {
+          for (const kw of paras)
+            for (const p of sheet.querySelectorAll("p"))
+              if ((p.textContent || "").includes(kw)) return p;
+          return null;
+        }
+        for (const t of sheet.querySelectorAll("table")) {
+          if (!(t.textContent || "").includes(a.table)) continue;
+          const rows = t.rows;
+          if (instIdx !== undefined)
+            return (instIdx === -1 ? rows[rows.length - 1] : rows[instIdx]) || null;
+          for (const tr of rows)
+            if ((tr.textContent || "").includes(a.row))
+              return tr.cells?.[a.col ?? 1] || tr;
+          return null;   // 表命中但行不在（条件节未启用等）→ 不再尝试其余表
+        }
+      } catch { /* docx-preview 结构变化等：静默降级，不影响预览 */ }
+      return null;
+    }
+
+    function clearPvHit() {
+      sheetEl.value?.querySelectorAll(".pv-hit").forEach(el => el.classList.remove("pv-hit"));
+    }
+
+    function applyPvHit(scroll) {
+      clearPvHit();
+      if (!pvHit || !cfg.value) return;
+      let a = null, instIdx;
+      if (pvHit.key === "__inst") {
+        a = cfg.value.field_anchors?.installment;
+        instIdx = installmentRowIdx(pvHit.cardIdx, pvHit.pfield);
+      } else {
+        a = cfg.value.field_anchors?.[pvHit.key];
+      }
+      const el = a && resolveAnchor(a, instIdx);
+      if (!el) return;
+      el.classList.add("pv-hit");
+      if (scroll) pvScrollTo(el);
+      clearTimeout(pvHitTimer);
+      pvHitTimer = setTimeout(() => { clearPvHit(); pvHit = null; }, PV_HIT_HOLD_MS);
+    }
+
+    // 克制滚动：已在上半区不打扰；可见且容器触底不再滚；其余滚到垂直居中
+    function pvScrollTo(el) {
+      const c = pvScroll.value;
+      if (!c) return;
+      const cr = c.getBoundingClientRect(), tr = el.getBoundingClientRect();
+      const visible = tr.bottom > cr.top && tr.top < cr.bottom;
+      if (visible && c.scrollTop + c.clientHeight >= c.scrollHeight - 2) return;
+      if (tr.top >= cr.top && tr.bottom <= cr.top + cr.height / 2) return;
+      const top = c.scrollTop + (tr.top + tr.height / 2 - cr.top) - c.clientHeight / 2;
+      c.scrollTo({ top: Math.max(0, top), behavior: REDUCED_MOTION.matches ? "auto" : "smooth" });
+    }
+
+    function onPaneFocusin(e) {
+      const t = e.target;
+      let hit = null;
+      if (typeof t.id === "string" && t.id.startsWith("f-"))
+        hit = { key: t.id.slice(2) };
+      else {
+        const card = t.closest?.(".pay-card");
+        if (card) {
+          const idx = Array.prototype.indexOf.call(card.parentElement.children, card);
+          hit = { key: "__inst", cardIdx: idx, pfield: t.dataset?.pfield || "" };
+        }
+      }
+      if (!hit) return;
+      pvHit = hit;
+      applyPvHit(true);
+    }
+
+    function onPaneFocusout() {
+      if (!pvHit) return;
+      clearTimeout(pvHitTimer);
+      pvHitTimer = setTimeout(() => { clearPvHit(); pvHit = null; }, 2500);
+    }
 
     /* ---------- 签署日期 ---------- */
     const isToday = computed(() => form.sign_date === todayISO());
@@ -449,6 +604,7 @@ const app = createApp({
       historyOpen.value = true;
       try {
         const r = await fetch("/api/history");
+        if (!r.ok) { toast(`加载历史失败（HTTP ${r.status}）`, "error"); return; }
         const d = await r.json();
         historyItems.value = d.items || [];
       } catch (e) { toast("加载历史失败", "error"); }
@@ -490,13 +646,14 @@ const app = createApp({
 
     return {
       toasts,
-      types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
+      types, currencies, selected, form, aiFilled, extraOpen, nlText, extractNotes, warnNotes, payNotes, notesModal,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe,
-      cfg, currencyLabel, totalKey, total, payment, menu, isActive,
-      selectMenu, runExtract, parseCustom, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
+      cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
+      selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
-      pvState, pvError, pvIssues, pvIssuesOpen, sheetEl, renderPreview,
+      pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
+      onPaneFocusin, onPaneFocusout,
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName,
@@ -515,25 +672,26 @@ const app = createApp({
         <template v-for="g in menu" :key="g.title">
           <div class="side-label">{{ g.title }}</div>
           <div v-for="(it, ii) in g.list" :key="it.key + it.port"
-               class="side-item" :class="{active: isActive(it)}" @click="selectMenu(it)">
+               class="side-item" :class="{active: isActive(it)}" :title="it.label" @click="selectMenu(it)">
             <span class="num">{{ String(ii + 1).padStart(2, '0') }}</span>
             <span>{{ it.label }}</span>
           </div>
         </template>
       </div>
       <div class="side-foot">
-        <div class="today-dot"><i></i>{{ todayISO() }} · 签署默认今日</div>
+        <div class="today-dot"><i></i>{{ todayISO() }}</div>
         <button class="side-btn" @click="openHistory">生成历史</button>
       </div>
     </aside>
 
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane review">
+    <section class="pane" @focusin="onPaneFocusin" @focusout="onPaneFocusout">
       <div class="pane-top">
         <h2>{{ cfg?.label || '华星智能合同' }}</h2>
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
       </div>
-      <div class="pane-body">
+      <transition name="pfade" mode="out-in">
+      <div class="pane-body" :key="paneKey">
 
         <!-- 智能录入 -->
         <div class="sec">
@@ -559,8 +717,11 @@ const app = createApp({
           </div>
           <div class="sec-body">
             <template v-for="g in cfg.groups" :key="g.title">
-              <div class="group-label">{{ g.title }}</div>
-              <div class="fields">
+              <div class="group-label" :class="{toggle: g.reveal === 'on_fill'}"
+                   @click="g.reveal === 'on_fill' && (extraOpen = !extraOpen)">
+                {{ g.title }}<span v-if="g.reveal === 'on_fill'" class="caret">{{ extraOpen ? '▾ 收起' : '＋ 展开' }}</span>
+              </div>
+              <div class="fields" v-show="g.reveal !== 'on_fill' || extraOpen">
                 <div class="field" v-for="f in g.fields" :key="f.key" :class="fieldState(f)">
                   <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
                   <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
@@ -570,7 +731,7 @@ const app = createApp({
                     <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
                   </select>
                   <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
-                         :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : '待填'"
+                         :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
                          @input="onFieldInput(f.key)"/>
                   <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
                           @click="confirmAI(f.key)">AI · 未核</button>
@@ -581,9 +742,9 @@ const app = createApp({
 
             <div class="group-label">价款与币种</div>
             <div class="fields">
-              <div class="field cur-field">
+              <div class="field">
                 <label>币种<em>*</em></label>
-                <select class="f-inp" v-model="form.currency" @change="onFieldInput('currency')">
+                <select id="f-currency" class="f-inp" v-model="form.currency" @change="onFieldInput('currency')">
                   <option v-for="c in currencies" :key="c.value" :value="c.value">{{ c.label }}</option>
                 </select>
                 <button v-if="aiFilled.currency" class="badge ai" @click="confirmAI('currency')">AI · 未核</button>
@@ -601,7 +762,7 @@ const app = createApp({
             <!-- 签署日期条 -->
             <div class="sign-bar">
               <span class="sb-label">签署日期</span>
-              <input class="f-inp date" type="date" v-model="form.sign_date"/>
+              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date"/>
               <button class="chip" :class="{on: isToday}" @click="setSignToday">今日</button>
               <span class="sb-hint">合同顶部、签署块双方日期、"签约当日"各期均以此为准</span>
             </div>
@@ -621,23 +782,23 @@ const app = createApp({
               <div class="pay-card" v-for="(it, idx) in payment.rows" :key="idx">
                 <div class="pc-seq">
                   <b>第{{ SEQ_CN(idx + 1) }}期</b>
-                  <input class="pc-name" v-model="it.label" maxlength="6" placeholder="款项名"/>
+                  <input class="pc-name" v-model="it.label" maxlength="6" placeholder="款项名" data-pfield="label"/>
                   <button class="pc-del" @click="delRow(idx)">删除</button>
                 </div>
                 <div class="pc-grid">
-                  <div class="pc-cell amt">
+                  <div class="pc-cell">
                     <label>金额 *</label>
-                    <input type="number" min="1" step="1000" v-model.number="it.amount" @input="onAmount(idx)"/>
+                    <input type="number" min="1" step="1000" v-model.number="it.amount" @input="onAmount(idx)" data-pfield="amount"/>
                     <span class="pc-cn" v-if="it.amount > 0">{{ toCN(it.amount) }}</span>
                   </div>
                   <div class="pc-cell">
                     <label>付款日期{{ it.lockDate ? '（锁定签约当日）' : '' }}</label>
                     <input v-if="it.lockDate" type="date" :value="form.sign_date" disabled/>
-                    <input v-else type="date" v-model="it.date"/>
+                    <input v-else type="date" v-model="it.date" data-pfield="date"/>
                   </div>
                   <div class="pc-cell wide">
                     <label>付款事件条件</label>
-                    <input v-model="it.event" placeholder="如：过户完成后 3 日内"/>
+                    <input v-model="it.event" placeholder="如：过户完成后 3 日内" data-pfield="event"/>
                   </div>
                 </div>
               </div>
@@ -654,6 +815,7 @@ const app = createApp({
         </div>
 
       </div>
+      </transition>
     </section>
 
     <!-- ================= 合同预览栏 ================= -->
@@ -672,25 +834,32 @@ const app = createApp({
       <div class="pv-issues" v-if="pvIssuesOpen">
         <div v-for="(n, i) in pvIssues" :key="i">· {{ n }}</div>
       </div>
-      <div class="pv-scroll">
+      <div class="pv-scroll" ref="pvScroll">
         <div class="pv-sheet" ref="sheetEl"></div>
-        <div class="pv-empty" v-if="pvState==='idle' || pvState==='loading'" :class="{ghost: pvState==='loading'}">
-          {{ pvState==='loading' ? '正在渲染合同…' : '填写左侧信息，合同将在这里实时成形' }}
+        <div class="pv-placeholder" v-if="pvState==='idle'">
+          <div class="pv-ph-mark">契</div>
+          <div>填写左侧信息，合同将在这里实时成形</div>
         </div>
-        <div class="pv-empty bad" v-if="pvState==='error'">⚠ {{ pvError }}</div>
-        <div class="gen-bar">
-          <button class="gb-pill" :class="missingTotal ? 'bad' : 'ok'" @click="jumpMissing">
-            {{ missingTotal ? '还差 ' + missingTotal + ' 项' : '全部就绪' }}
-          </button>
-          <span class="gb-list" v-if="missing.length">{{ missing.slice(0,4).map(m => m.label).join('、') }}{{ missing.length > 4 ? ' 等' : '' }}</span>
-          <span class="gb-list" v-else-if="!payOk">分期待对齐</span>
-          <span class="spacer"></span>
-          <span v-if="generating" class="gb-timer">AI 复核中 {{ elapsed.gen }}s（通常 10~60 秒）</span>
-          <button v-if="result && result.ok" class="btn gold" @click="resultModal=true; download()">✓ 下载合同</button>
-          <button v-else class="btn accent" :disabled="!canGenerate || generating" @click="generate">
-            <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
-          </button>
+        <div class="pv-placeholder loading" v-else-if="pvState==='loading' && !pvHasContent">
+          <span class="spin dark"></span>
+          <div>正在渲染合同…</div>
         </div>
+        <div class="pv-placeholder bad" v-else-if="pvState==='error'">
+          ⚠ {{ pvError }}
+        </div>
+      </div>
+      <div class="gen-bar">
+        <button class="gb-pill" :class="missingTotal ? 'bad' : 'ok'" @click="jumpMissing">
+          {{ missingTotal ? '还差 ' + missingTotal + ' 项' : '全部就绪' }}
+        </button>
+        <span class="gb-list" v-if="missing.length">{{ missing.slice(0,4).map(m => m.label).join('、') }}{{ missing.length > 4 ? ' 等' : '' }}</span>
+        <span class="gb-list" v-else-if="!payOk">分期待对齐</span>
+        <span class="spacer"></span>
+        <span v-if="generating" class="gb-timer">AI 复核中 {{ elapsed.gen }}s（通常 10~60 秒）</span>
+        <button v-if="result && result.ok" class="btn gold" @click="download()">✓ 下载合同</button>
+        <button v-else class="btn accent" :disabled="!canGenerate || generating" @click="generate">
+          <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
+        </button>
       </div>
     </section>
 

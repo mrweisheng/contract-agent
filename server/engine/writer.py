@@ -100,7 +100,7 @@ def find_paragraph(doc, contains: str):
 
 def _is_heading(p, no: str) -> bool:
     t = p.text.strip()
-    return bool(re.match(rf"^{no}[\s　]", t)) or t.startswith(no)
+    return t.startswith(f"{no}、")
 
 
 def section_range(doc, sec_no: str, next_no: str):
@@ -130,7 +130,7 @@ def _is_payment_para(p, labels) -> bool:
 def rewrite_section(doc, sec_no: str, next_no: str, texts, labels=None):
     """改写条款区付款段：段落数量调整为 len(texts) 并逐段写入（克隆/删除保持格式）。
     labels（款项名称列表）给定时只改写「段首含款项名称」的连续块——
-    新办模板 03 区还含费用范围/逾期付款/收款账户等无关条款，必须原样保留。
+    新办模板三区还含费用范围/逾期付款/收款账户等无关条款，必须原样保留。
     返回（条款区总段数, 改写块在条款区内的起止下标）。"""
     sec = section_range(doc, sec_no, next_no)
     start, end = _shrink_to_payment_block(doc, sec, labels)
@@ -176,22 +176,77 @@ def delete_section(doc, sec_no: str, next_no: str) -> int:
     return h_end - h_start
 
 
-HEADING_RE = re.compile(r"^\d{2}  ")
+# 中文条款号标题（新模板：一、合约双方  |  PARTIES）；group(1)=前导序号
+HEADING_RE = re.compile(r"^([一二三四五六七八九十]{1,3})、")
 
 
 def renumber_headings(doc) -> int:
-    """全量重排条款号：按文档顺序把「NN  标题  |  EN」标题段重编为 01..NN。
-    只改标题首个非空 run 的前两位数字，格式不动。返回标题数。"""
+    """全量重排条款号：按文档顺序把「X、标题」中文编号标题段重编为一、二、…。
+    只改标题首个非空 run 的前导序号，格式不动。返回标题数。
+    注意须整段序号精确比对（「十一」以「十」开头，startswith 会误判跳过）。"""
     n = 0
     for p in doc.paragraphs:
-        if not HEADING_RE.match(p.text):
+        m = HEADING_RE.match(p.text.strip())
+        if not m:
             continue
         n += 1
-        new = f"{n:02d}"
-        r0 = next((r for r in p.runs if r.text), None)
-        if r0 is not None and re.match(r"^\d{2}", r0.text) and not r0.text.startswith(new):
-            r0.text = new + r0.text[2:]
+        new = seq_cn(n)
+        cur = m.group(1)
+        if cur == new:
+            continue
+        # 跨 run 替换：旧序号可能被拆进多个 run（如「十」+「一、」），整段首 run 截断会产出「九一、」错号
+        if not replace_in_paragraph(p, cur + "、", new + "、"):
+            r0 = next((r for r in p.runs if r.text), None)
+            if r0 is not None:
+                r0.text = new + r0.text.lstrip()[len(cur):]
     return n
+
+
+def heading_index(doc, contains: str) -> int:
+    """正文段落中第一个含 contains 的段落下标（条款标题/条件块锚点定位）。"""
+    for i, p in enumerate(doc.paragraphs):
+        if contains in p.text:
+            return i
+    raise ValueError(f"找不到条款标题（{contains}），请检查模板")
+
+
+def next_heading_index(doc, start: int) -> int:
+    """从 start+1 起找下一个中文编号标题段下标；无则返回段落数（文末）。"""
+    for i in range(start + 1, len(doc.paragraphs)):
+        if HEADING_RE.match(doc.paragraphs[i].text.strip()):
+            return i
+    return len(doc.paragraphs)
+
+
+def delete_span(doc, start: int, end: int) -> int:
+    """删除段落区间 [start, end)（含标题时从标题下标开始）。返回删除段数。"""
+    paras = doc.paragraphs
+    for p in paras[start:end]:
+        p._p.getparent().remove(p._p)
+    return end - start
+
+
+def rewrite_span(doc, start: int, end: int, texts) -> None:
+    """把区间 [start, end) 的段落数量调整为 len(texts) 并逐段写入（克隆/删除保格式）。"""
+    paras = doc.paragraphs
+    cur = paras[start:end]
+    n_need, n_have = len(texts), len(cur)
+    if n_need > n_have:
+        last = cur[-1]._p
+        for _ in range(n_need - n_have):
+            new_p = copy.deepcopy(last)
+            for el in new_p.iter():
+                for attr in list(el.attrib):
+                    if attr.endswith("}paraId") or attr.endswith("}textId"):
+                        del el.attrib[attr]
+            last.addnext(new_p)
+            last = new_p
+    elif n_need < n_have:
+        for p in cur[n_need:]:
+            p._p.getparent().remove(p._p)
+    paras = doc.paragraphs
+    for p, t in zip(paras[start:start + len(texts)], texts):
+        set_paragraph_text(p, t)
 
 
 def _shrink_to_payment_block(doc, sec, labels):

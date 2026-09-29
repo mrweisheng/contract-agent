@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""卖车合同可选内容（附赠项 / 发动机质保）的文字推导。
+"""卖车合同可选内容（无事故承诺 / 附赠项 / 发动机质保）的文字推导。
 builder 落盘与 checker 校验共用此模块，保证表单所见即合同所得。
 原则：客户信息没提到就完全不出现（默认全关）；提到才落盘。
+合并版模板（server/templates/1-卖车）的条件块：
+  四节尾「甲方陈述并保证」块 ← accident_free 开关
+  五节附赠服务 ← gift_*
+  六节售后质保 ← warranty_*
 """
 import re
 
@@ -10,9 +14,13 @@ from engine.writer import seq_cn
 DEFAULT_MONTHS_PHRASE = "六（6）个月"
 DEFAULT_KM_PHRASE = "行驶30,000公里"
 
-# 模板 06 条第二段原文（改写前必须与模板逐字一致，否则拒绝落盘）
-P17_ORIG = ("车辆过户手续由甲方负责办理，相关政府费用及代办费用由乙方承担。"
-            "车辆现有保险不随车转移，乙方须自行购买有效汽车保险。")
+# 模板八节两句原文（改写前必须与模板逐字一致，否则拒绝落盘）
+PASSAGE_ORIG = ("2、车辆过户手续由甲方负责办理，相关政府费用及代办费用由乙方承担，"
+                "除非本合约已明确列明由甲方赠送或代办。")
+INS_ORIG = "3、该车辆之现有保险不随车转移。乙方须自行购买有效的汽车保险。"
+
+# 兼容旧引用名
+P17_ORIG = PASSAGE_ORIG
 
 WARRANTY_TMPL = ("甲方就本车辆发动机提供售后质保：质保期为自车辆交付之日起{a}或{b}（以先到者为准）。"
                  "质保期内发动机故障由甲方负责免费维修，不构成退车、退款的理由。"
@@ -21,7 +29,12 @@ WARRANTY_TMPL = ("甲方就本车辆发动机提供售后质保：质保期为�
 
 
 def _on(v) -> bool:
-    return str(v or "").strip() in ("赠送", "含", "是", "true", "True", "1", "1.0")
+    return str(v or "").strip() in ("赠送", "含", "是", "承诺", "true", "True", "1", "1.0")
+
+
+def accident_free_on(form: dict) -> bool:
+    """承诺无重大事故：四节尾「甲方陈述并保证」块（含无水泡/无重大事故）是否保留。"""
+    return _on(form.get("accident_free"))
 
 
 def gift_transfer_on(form: dict) -> bool:
@@ -95,11 +108,23 @@ def warranty_parts(form: dict):
 
 
 def warranty_paragraph(form: dict):
-    """04 条末尾追加的质保段全文；未开启返回 None。"""
+    """04 条末尾追加的质保段全文；未开启返回 None。（旧版整段式，现仅用于参数合法性校验）"""
     parts = warranty_parts(form)
     if not parts:
         return None
     return WARRANTY_TMPL.format(a=parts[0], b=parts[1])
+
+
+def warranty_custom_parts(form: dict):
+    """用户自定义的质保参数短语 (时长短语|None, 公里短语|None)。
+    未开启或未给的参数返回 None（保留模板默认「六个月」「三万公里」）。
+    时长形如「一（1）年」；公里形如「30,000公里」（模板句式：…计{时长}或车辆行驶{公里}内…）。"""
+    if not warranty_on(form):
+        return None, None
+    p = _period_cn(form.get("warranty_period")) or None
+    k = _km_phrase(form.get("warranty_km"))
+    k = k.replace("行驶", "", 1) if k else None
+    return p, k
 
 
 def gift_lines(form: dict) -> list:
@@ -117,12 +142,20 @@ def gift_lines(form: dict) -> list:
     return lines
 
 
-def p17_text(form: dict) -> str:
-    """06 条第二段按赠项改写后的全文（赠过户费/车险时与原文冲突，须最小改写）。"""
-    s = P17_ORIG
+def passage_text(form: dict) -> str:
+    """八节过户费用句按赠项改写后的全文（赠过户费时与「费用由乙方承担」矛盾，须改写）。"""
     if gift_transfer_on(form):
-        s = s.replace("相关政府费用及代办费用由乙方承担", "全部费用由甲方承担")
+        return "2、车辆过户手续由甲方负责办理，全部费用由甲方承担。"
+    return PASSAGE_ORIG
+
+
+# 兼容旧引用名
+def p17_text(form: dict) -> str:
+    return passage_text(form)
+
+
+def insurance_text(form: dict) -> str:
+    """八节保险句按赠项改写后的全文（赠车险时与「不随车转移」矛盾，须改写）。"""
     if gift_insurance(form):
-        s = s.replace("车辆现有保险不随车转移，乙方须自行购买有效汽车保险",
-                      "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担")
-    return s
+        return "3、甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担。"
+    return INS_ORIG

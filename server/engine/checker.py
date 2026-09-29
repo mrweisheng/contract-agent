@@ -209,54 +209,89 @@ def _tbl_texts(t):
 
 
 def _car_expected_tail(tp, te, form):
-    """卖车合同尾部期望段落序列：模板 05 附赠服务 / 06 售后质保为条件节——
-    有内容 → 标题（重排后号）+ car_extras 推导正文；无内容 → 整节不出现。
-    固定节标题因删节而重排，期望文字＝模板原文换前导两位号。
-    条目：("head", 期望文字, 模板下标) / ("same", 模板下标) / ("text", 期望文字, 克隆源模板下标)。"""
+    """合并版卖车模板尾部期望段落序列（中文条款号）。
+    条件块：四节尾「甲方陈述并保证」块（accident_free）/ 五节附赠服务（gift_*）/
+    六节售后质保（warranty_*）——有内容保留并按推导文字，无内容整块不出现。
+    固定节标题因删块重排，期望文字＝模板标题换前导中文序号。
+    条目：("head", 期望文字, 模板下标) / ("same", 模板下标) / ("text", 期望文字, 模板下标)。"""
     gifts = car_extras.gift_lines(form)
     wp = car_extras.warranty_paragraph(form)
-    rewrite = car_extras.gift_transfer_on(form) or bool(car_extras.gift_insurance(form))
-    i_p17 = None
+    accident = car_extras.accident_free_on(form)
+    try:
+        period, km = car_extras.warranty_custom_parts(form)
+    except ValueError:
+        period = km = None
+    rewrite_passage = car_extras.gift_transfer_on(form)
+    rewrite_ins = bool(car_extras.gift_insurance(form))
+
+    def renum(t, n):
+        return re.sub(r"^[一二三四五六七八九十]{1,3}", W.seq_cn(n), t, count=1)
+
+    # 模板尾部标题序列 + 条件区范围
+    heads = [(i, tp[i].text.strip()) for i in range(te, len(tp))
+             if W.HEADING_RE.match(tp[i].text.strip())]
+    def span(marker):
+        for k, (i, t) in enumerate(heads):
+            if marker in t:
+                return i, (heads[k + 1][0] if k + 1 < len(heads) else len(tp))
+        return None, None
+    gi, gj = span("附赠服务")
+    wi, wj = span("售后质保")
+    bi = bj = None
     for i in range(te, len(tp)):
-        if tp[i].text.strip().startswith("车辆过户手续由甲方负责办理"):
-            i_p17 = i
+        if tp[i].text.strip() == "甲方陈述并保证：":
+            bi = i
+            for j in range(i + 1, len(tp)):
+                if W.HEADING_RE.match(tp[j].text.strip()):
+                    bj = j
+                    break
             break
-    if rewrite and i_p17 is None:
-        raise ValueError("找不到过户费用段锚点，请检查模板")
 
     exp = []
-    n = 3          # te 处为 04 标题，进入循环后递增（仅保留节计数）
-    cur = None     # 当前节：None 固定 / "skip" 条件节未启用 / "done" 条件节期望已发完
+    n = 3          # te 处为四节标题，进入循环后递增
     for i in range(te, len(tp)):
-        raw = tp[i].text
-        if re.match(r"^\d{2}  ", raw):
-            if "附赠服务" in raw:
+        t = tp[i].text.strip()
+        if W.HEADING_RE.match(t):
+            if gi is not None and gi <= i < gj:
                 if gifts:
                     n += 1
-                    exp.append(("head", f"{n:02d}" + raw[2:], i))
+                    exp.append(("head", renum(t, n), i))
                     exp.extend(("text", g, i + 1) for g in gifts)
-                    cur = "done"
-                else:
-                    cur = "skip"
-            elif "售后质保" in raw:
+                continue
+            if wi is not None and wi <= i < wj:
                 if wp:
                     n += 1
-                    exp.append(("head", f"{n:02d}" + raw[2:], i))
-                    exp.append(("text", wp, i + 1))
-                    cur = "done"
-                else:
-                    cur = "skip"
+                    exp.append(("head", renum(t, n), i))
+                continue
+            n += 1
+            exp.append(("head", renum(t, n), i))
+            continue
+        if bi is not None and bi <= i < bj:
+            if accident:
+                exp.append(("same", i))
+            continue
+        if gi is not None and gi < i < gj:
+            continue   # 占位行已由 gift 行代替
+        if wi is not None and wi < i < wj:
+            if not wp:
+                continue   # 质保节整节删除（含节尾空段）
+            if "保修范围" in t:
+                txt = t
+                if period:
+                    txt = txt.replace("六个月", period)
+                if km:
+                    txt = txt.replace("三万公里", km)
+                exp.append(("text", txt, i))
             else:
-                n += 1
-                exp.append(("head", f"{n:02d}" + raw[2:], i))
-                cur = None
+                exp.append(("same", i))
             continue
-        if cur is not None:   # skip：该节整节删除；done：期望已按推导文字发完 → 模板正文段跳过
+        if rewrite_passage and "车辆过户手续由甲方负责办理" in t:
+            exp.append(("text", car_extras.passage_text(form), i))
             continue
-        if i == i_p17 and rewrite:
-            exp.append(("text", car_extras.p17_text(form), i))
-        else:
-            exp.append(("same", i))
+        if rewrite_ins and "现有保险不随车转移" in t:
+            exp.append(("text", car_extras.insurance_text(form), i))
+            continue
+        exp.append(("same", i))
     return exp
 
 
@@ -390,9 +425,25 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
     def _tbl_alltext(t):
         return " ".join(c.text for r in t.rows for c in r.cells)
 
+    def _norm_dates(s):
+        """签署表日期归一化：模板空位与填充后的日期视为同一设计内变更。"""
+        return re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", s)
+
     for t_t in tpl.tables:
         t_all = _tbl_alltext(t_t)
-        if any(a in t_all for a in skip_anchors):
+        if "授权代表签署" in t_all:
+            # 签署确认表：日期空位填充属设计内变更（归一化后比对），其余内容必须与模板一致。
+            # 必须在 skip_anchors 之前判定——签署表首格含「甲方（卖方）」会被当事表锚点误跳过。
+            t_o = next((c for c in out.tables if "授权代表签署" in _tbl_alltext(c)), None)
+            if t_o is None:
+                issues.append("表格丢失：签署确认块")
+                continue
+            a = tuple(tuple(_norm_dates(c.text) for c in r.cells) for r in t_t.rows)
+            b = tuple(tuple(_norm_dates(c.text) for c in r.cells) for r in t_o.rows)
+            if a != b:
+                issues.append("表格内容被意外改动：签署确认块")
+            continue
+        if any(x in t_all for x in skip_anchors):
             continue
         t_first = t_t.rows[0].cells[0].text.strip()
         t_o = None

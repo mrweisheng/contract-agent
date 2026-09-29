@@ -20,6 +20,8 @@ def _car_extra_rules() -> str:
         "只说送质保/有质保而未给时长和公里数 → 两字段均填 null"
         "（系统自动按默认「半年或3万公里」写入合同，无需用户确认，禁止就此输出任何 notes）；"
         "未提质保 → \"不含\"\n"
+        "- 提到保证无事故/无重大事故/无水泡（如「车保证无事故」「无水泡无重大事故」「保无大事故」）"
+        "→ accident_free=\"承诺\"；未提 → \"不承诺\"。注意：只写「质保/保修」不算承诺无事故，不要连带勾上\n"
     )
 
 
@@ -126,7 +128,9 @@ def review_messages(contract_text: str, summary: str) -> list:
         "5) 【主体信息】甲乙方信息是否正确填入。"
         "只输出事实性问题，不评价合同排版美观度；issues 只列需要人工处理的缺陷，"
         "「信息正确」「与约定一致」「未发现问题」等检查通过项严禁写入 issues，"
-        "全部无误时输出 pass=true 且 issues=[]。输出严格 JSON。"
+        "全部无误时输出 pass=true 且 issues=[]。输出严格 JSON：只输出一个 JSON 对象，"
+        "形如 {\"pass\": true, \"issues\": []}；禁止 markdown 代码块；"
+        "issues 内的引用文字一律用中文引号「」，禁止使用英文双引号（会破坏 JSON）。"
     )
     user_p = (
         f"【客户业务约定摘要】\n{summary}\n\n"
@@ -151,10 +155,14 @@ def build_summary(type_key: str, form: dict, payment: dict) -> str:
         gifts = car_extras.gift_lines(form)
         if gifts:
             parts.append("附赠（客户约定，逐条写入合同）：" + "；".join(g.rstrip("。") for g in gifts))
+        if car_extras.accident_free_on(form):
+            parts.append("车况承诺（客户约定，写入合同）：甲方陈述并保证车辆拥有合法完整所有权、"
+                         "无抵押/债权/留置权、无未处理罚款诉讼，且无水泡、无重大事故")
         wparts = car_extras.warranty_parts(form)
         if wparts:
             parts.append(f"售后（客户约定）：发动机质保 {wparts[0]}或{wparts[1]}（以先到者为准），"
-                         f"质保期内免费维修，不构成退车、退款的理由；碰撞涉水/保养不当/私自改装/第三方拆修及正常损耗件不在范围内")
+                         f"发动机非人为损坏的机械故障由甲方负责保修；以乙方按保养手册定期保养、"
+                         f"故障时停用并通知甲方为前提；不当操作/改装/事故/疏忽保养/不可抗力导致的损坏不在范围内")
     if form.get("exchange_fee") is not None:
         parts.append(f"换车费用：{form.get('exchange_fee')}（独立于服务总费用，另行列示，不计入总金额，分期合计也只针对服务总费用）")
     mode = payment.get("mode")

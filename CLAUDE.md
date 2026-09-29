@@ -35,7 +35,7 @@ cd server && python3 -m uvicorn main:app --host 0.0.0.0 --port 8300
 ```
 python scripts/test_pipeline.py
 ```
-覆盖：4 类业务 × 3 种付款模式（含 default/one_time/custom + 卖车事件句改写 + 自定义多期）。**改模板或改 builder 后必须跑此测试**，用例全部 PASS 才算通过。
+覆盖：4 类业务 × 3 种付款模式（含 default/one_time/custom + 卖车事件句改写 + 自定义多期）、draft 预览（垃圾/空输入占位不中断 + 非 draft 仍严格拦截）、签署块双方日期。**改模板或改 builder 后必须跑此测试**，用例全部 PASS 才算通过。
 
 ### 前端原型
 `prototypes/` 目录下归档早期 HTML 原型，仅参考，不参与构建。
@@ -46,6 +46,7 @@ python scripts/test_pipeline.py
 ```
 浏览器 ─▶ /api/extract (LLM 抽取自然语言 → 表单字段)
        ─▶ /api/parse-payment (LLM 解析付款描述 → 期次)
+       ─▶ /api/preview (draft=True：复用同一 builder 渲染真实 docx 字节；不占编号/不写 out/不落历史/不跑核对)
        ─▶ /api/generate:
             store.reserve_no()        # SQLite 占位，11位编号
             engine.builder.build_contract()  # 复制模板 → 程序级填表/改条款
@@ -57,11 +58,11 @@ python scripts/test_pipeline.py
 ```
 
 ### 服务端模块边界（`server/`）
-- `main.py` —— 入口；挂载 `web/` 为 StaticFiles；中间件关闭首页与 `app.js/style.css` 缓存（`no_cache_html`）。
+- `main.py` —— 入口；挂载 `web/` 为 StaticFiles；中间件关闭首页与 `app.js/style.css/workbench.css/alias.css` 缓存（`no_cache_html`）。
 - `api/routes.py` —— 所有 `/api/*` 路由；唯一对外层。注意 `_filter_notes` / `_is_confirmation` 是 LLM 噪音过滤。
 - `api/store.py` —— SQLite 编号流水 + 生成历史；并发模型是 **进程内 Lock + `BEGIN IMMEDIATE` + 分配即 pending 占位**，编号永不回补（最大号+1）。崩溃残留 pending 由 `reserve_no` 启动时清扫（默认 15 分钟）。
 - `engine/types_config.py` —— **单一事实来源**。`TYPES` 字典同时承载前端表单结构（`groups`/`fee_fields`/`pay_preset`/`client_side`）与落盘引擎锚点（`party_table_anchor`/`fee_table_anchor`/`payment_section`/`fee_cell_style`）。**改字段/锚点只改这里**。
-- `engine/builder.py` —— 合同组装器。所有条款文字由模板句式生成，LLM 不参与落盘。`derive_payment()` 把付款输入归一为 `default` / `one_time` / `custom` 三模式；其他三个 `_*_mode` 函数执行对应改写。`_archive_existing()` 防静默覆盖。
+- `engine/builder.py` —— 合同组装器。所有条款文字由模板句式生成，LLM 不参与落盘。`derive_payment()` 把付款输入归一为 `default` / `one_time` / `custom` 三模式；其他三个 `_*_mode` 函数执行对应改写。`_archive_existing()` 防静默覆盖。另含 **draft 预览模式**（`build_contract(draft=True)`：录入类问题不中断、占位渲染并汇总到 `draft_issues`，模板结构类问题仍抛 `ValueError`）与 `_fill_signature_dates()`（签署确认块双方日期，与顶部签署日期同源）。
 - `engine/checker.py` —— **两层硬校验**：`check_rules`（必填/残留空位/大写=数字/分期合计/币种唯一/编号格式，错了就 422/500）+ `check_fingerprint`（格式指纹，逐段逐表比对模板，**非修改点必须零差异**）。LLM 复核在 `api/routes.py` 里，是第三层软校验（失败不拦截）。
 - `engine/writer.py` —— docx 低层操作（按段落填空 / 改写条款段 / 删行 / 插列）；签名一律 `W.set_cell_text`、`W.fill_blanks_in_paragraph`、`W.rewrite_section`、`W.append_section_paras`、`W.is_valid_iso_date`。
 - `engine/car_extras.py` —— 卖车可选内容（附赠项 / 发动机质保）的**文字单一事实来源**：builder 落盘与 checker 校验共用同一推导函数，保证表单所见即合同所得。原则：客户信息没提到就完全不落盘（默认全关）；附赠项只记一行「附赠：…」；质保期限用户给的条件在前、默认（半年/3万公里）补后。
@@ -71,7 +72,8 @@ python scripts/test_pipeline.py
 
 ### 前端（`web/`）
 - 纯静态单页：Vue 3 本地文件（`vendor/vue.global.prod.js`），**生产环境不需要 Node**。
-- `app.js`（≈38K）+ `style.css`（≈40K）—— 整个应用在这里。
+- `app.js`（≈33K）—— 双栏工作台（墨绿侧栏 ｜ 录入核对栏 ｜ 合同实时预览栏）；`style.css` 现仅保留自托管字体 `@font-face`，布局样式在 `workbench.css`。
+- 实时预览：`POST /api/preview` → 真实 docx 字节 → `vendor/docx-preview.min.js`（配 `vendor/jszip.min.js`）渲染，**所见即下载所得**；`fonts/noto-sans-sc/alias.css` 把模板字体名（微软雅黑 / Aptos）注册为思源黑体子集，跨设备字形一致。
 - `index.html` 入口；版本号 `?v=YYYYMMDD` 用于绕过缓存（改一次加一次）。
 - `vite.config.js` 仅开发用：5173 端口，`/api` 代理到 8300。
 - 前端表单/分期表/AI 提取/下载 全部依赖后端 `/api/types` 一次拿配置，**不要在前端硬编码业务字段**。
@@ -104,7 +106,7 @@ python scripts/test_pipeline.py
 - **币种单一**：每份合同单一货币，金额标签随之替换（HKD / CNY）。
 - **分期合计 = 总费用**：在 `derive_payment()` 入口硬校验（default/one_time/custom 全模式）；写错就 422，不入历史。
 - **格式指纹**：核对器将生成文件 vs 模板逐段逐表比对，**非修改点必须零差异**；改模板后立刻重跑测试。
-- **签署栏（手写签名、盖章、日期）保持空白**，由人工线下签。
+- **签署栏手写签名与盖章保持空白**（由人工线下签）；**日期**由 builder 依顶部签署日期自动填「日期：X年X月X日」（签署块双方同源），不再留空。
 - **模板固定文字**（2026-08-31 核实）：模板 4~7 号新办合同的"第二期款于 1 个工作日内支付"为模板原文，不可改。
 - **生成失败不入历史下载列表**：核对未通过时 `status=failed`，下载路径返回 403。
 

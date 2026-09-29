@@ -116,6 +116,33 @@ CASES = [
         "total_price": 400000,
         "warranty_enabled": "含", "warranty_km": "10000",
     }, {"mode": "one_time", "pay_date": "2026-09-20", "pay_event": "", "choice": "较早者"}),
+    # ---- 卖车：人民币默认两段（尾款句币种字面量随币种改写）----
+    ("car_cny_default", "car", {
+        "agreement_no": "", "sign_date": "2026-09-10", "currency": "CNY",
+        "client_name": "钱人民币", "client_id": "H1818181", "client_phone": "91818181",
+        "plate": "CNY 111", "vin": "WBA181818181AAA99", "model": "Toyota Camry", "year": "2023",
+        "total_price": 480000,
+    }, {"mode": "default", "deposit_amount": 80000, "deposit_date": "2026-09-10",
+        "balance_date": "2026-10-10", "choice": "较早者"}),
+    # ---- 卖车：只承诺无重大事故（陈述保证块保留，无附赠无质保）----
+    ("car_accident_only", "car", {
+        "agreement_no": "", "sign_date": "2026-09-08", "currency": "HKD",
+        "client_name": "孙无事", "client_id": "H1616161", "client_phone": "91616161",
+        "plate": "AF 2222", "vin": "WBA222333444AAA77", "model": "Toyota Prius", "year": "2023",
+        "total_price": 450000,
+        "accident_free": "承诺",
+    }, {"mode": "default", "deposit_amount": 50000, "deposit_date": "2026-09-08",
+        "balance_event": "车辆完成香港运输署过户登记手续当日"}),
+    # ---- 卖车：全开（无事故+附赠过户费+质保自定义时长公里）----
+    ("car_all_on", "car", {
+        "agreement_no": "", "sign_date": "2026-09-09", "currency": "HKD",
+        "client_name": "周全开", "client_id": "H1717171", "client_phone": "91717171",
+        "plate": "ALL 111", "vin": "WBA777888999BBB88", "model": "Nissan Elgrand", "year": "2022",
+        "total_price": 550000,
+        "accident_free": "承诺", "gift_transfer": "赠送",
+        "warranty_enabled": "含", "warranty_period": "6个月", "warranty_km": "5万",
+    }, {"mode": "default", "deposit_amount": 55000, "deposit_date": "2026-09-09",
+        "balance_date": "2026-10-09", "choice": "较早者"}),
 
     # ---- 高新过户：默认三期 + 换车费 ----
     ("gx_default", "transfer_gx", {
@@ -226,60 +253,80 @@ EXPECT_DEPOSIT_DATE = {
     "new_default": "2026年8月31日",
 }
 
-# 用例 → 卖车 03 条尾款句原文（锁死：客户没给尾款日期，合同就不得出现日期）
+# 用例 → 卖车 03 条尾款句原文（锁死：金额必落、客户没给尾款日期，合同就不得出现日期）
 EXPECT_BALANCE_CLAUSE = {
-    "car_default": "购车尾款须于2026年9月30日或车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
-    "car_default_event": "购车尾款须于车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
+    "car_default": "剩余购车尾款港币肆拾万元整（HK$400,000），须于2026年9月30日或该车辆完成香港运输署过户登记手续之当日，由乙方一次性支付予甲方。",
+    "car_default_event": "剩余购车尾款港币叁拾伍万元整（HK$350,000），须于车辆完成香港运输署过户登记手续当日，由乙方一次性支付予甲方。",
+    "car_cny_default": "剩余购车尾款人民币肆拾万元整（¥400,000），须于2026年10月10日或该车辆完成香港运输署过户登记手续之当日，由乙方一次性支付予甲方。",
 }
 
 # 用例 → 卖车可选内容断言：must=必须出现的原文/标题；not=禁止出现的内容。
-# 条件节独立成节后，标题号随保留/删除自动重排，逐用例锁死。
+# 合并版模板条件块：四节尾陈述保证（无事故）/ 五节附赠 / 六节质保，标题号随保留/删除自动重排。
 EXPECT_EXTRAS = {
+    # 附赠全开 + 质保1年（无事故未承诺 → 陈述保证块不出现）
     "car_gifts_full": {"must": [
-        "05  附赠服务  |  COMPLIMENTARY SERVICES",
-        "06  售后质保  |  AFTER-SALES WARRANTY",
+        "五、附赠服务  |  COMPLIMENTARY SERVICES",
+        "六、售后质保  |  AFTER-SALES WARRANTY",
         "附赠：本车辆过户登记手续的全部费用。",
         "附赠：本车辆香港车辆牌照费十二（12）个月。",
         "附赠：本车辆汽车保险（综合汽车保险（全保））。",
-        "自车辆交付之日起一（1）年或行驶30,000公里（以先到者为准）",
-        "全部费用由甲方承担。",
-        "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担",
-        "07  车辆交付与风险  |  DELIVERY AND RISK",
-        "08  文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
-        "11  签署确认  |  SIGNATURES",
-    ], "not": []},
+        "自车辆交付之日起计一（1）年或车辆行驶三万公里内（以先到者为准）",
+        "2、车辆过户手续由甲方负责办理，全部费用由甲方承担。",
+        "3、甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担。",
+        "七、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+        "八、文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
+        "十一、签署确认  |  SIGNATURES",
+    ], "not": ["甲方陈述并保证"]},
+    # 只赠 4 个月牌费（八节两句原文逐字保留）
     "car_gifts_plate_only": {"must": [
-        "05  附赠服务  |  COMPLIMENTARY SERVICES",
+        "五、附赠服务  |  COMPLIMENTARY SERVICES",
         "附赠：本车辆香港车辆牌照费四（4）个月。",
-        "相关政府费用及代办费用由乙方承担。",          # 过户费用句原文保留
-        "车辆现有保险不随车转移，乙方须自行购买有效汽车保险。",  # 保险句原文保留
-        "06  车辆交付与风险  |  DELIVERY AND RISK",
-        "08  违约责任  |  DEFAULT",
-        "10  签署确认  |  SIGNATURES",
-    ], "not": ["售后质保"]},
+        "2、车辆过户手续由甲方负责办理，相关政府费用及代办费用由乙方承担，除非本合约已明确列明由甲方赠送或代办。",
+        "3、该车辆之现有保险不随车转移。乙方须自行购买有效的汽车保险。",
+        "六、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+        "八、违约责任  |  DEFAULT",
+        "十、签署确认  |  SIGNATURES",
+    ], "not": ["售后质保", "甲方陈述并保证"]},
+    # 只赠车险（过户句保留、保险句改写）
     "car_gifts_ins": {"must": [
-        "05  附赠服务  |  COMPLIMENTARY SERVICES",
+        "五、附赠服务  |  COMPLIMENTARY SERVICES",
         "附赠：本车辆汽车保险（三保）。",
-        "相关政府费用及代办费用由乙方承担。",          # 未赠过户费：第一句原文保留
-        "甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担",  # 赠车险：第二句改写
-        "06  车辆交付与风险  |  DELIVERY AND RISK",
-        "10  签署确认  |  SIGNATURES",
-    ], "not": ["售后质保"]},
+        "相关政府费用及代办费用由乙方承担",
+        "3、甲方为乙方代办投保本车辆汽车保险（险种见上列附赠），续保费用由乙方自行承担。",
+        "十、签署确认  |  SIGNATURES",
+    ], "not": ["售后质保", "甲方陈述并保证"]},
+    # 质保只给公里数（附赠删除 → 质保升为五节；公里在前、默认半年补后）
     "car_warranty_km": {"must": [
-        "05  售后质保  |  AFTER-SALES WARRANTY",      # 附赠节删除 → 质保升为 05
-        "自车辆交付之日起行驶10,000公里或六（6）个月（以先到者为准）",
-        "06  车辆交付与风险  |  DELIVERY AND RISK",
-        "10  签署确认  |  SIGNATURES",
-    ], "not": ["附赠服务", "附赠："]},
+        "五、售后质保  |  AFTER-SALES WARRANTY",
+        "自车辆交付之日起计六个月或车辆行驶10,000公里内（以先到者为准）",
+        "六、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+        "十、签署确认  |  SIGNATURES",
+    ], "not": ["附赠服务", "附赠：", "甲方陈述并保证"]},
+    # 只承诺无重大事故（四节尾陈述保证块保留，编号 五…九）
+    "car_accident_only": {"must": [
+        "甲方陈述并保证：",
+        "4、该车辆无水泡、无重大事故。",
+        "五、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+        "九、签署确认  |  SIGNATURES",
+    ], "not": ["附赠服务", "附赠：", "售后质保"]},
+    # 全开（无事故+附赠过户费+质保6个月/5万公里，编号到十一）
+    "car_all_on": {"must": [
+        "甲方陈述并保证：",
+        "4、该车辆无水泡、无重大事故。",
+        "五、附赠服务  |  COMPLIMENTARY SERVICES",
+        "附赠：本车辆过户登记手续的全部费用。",
+        "六、售后质保  |  AFTER-SALES WARRANTY",
+        "自车辆交付之日起计六（6）个月或车辆行驶50,000公里内（以先到者为准）",
+        "2、车辆过户手续由甲方负责办理，全部费用由甲方承担。",
+        "十一、签署确认  |  SIGNATURES",
+    ], "not": []},
 }
-
-# 卖车无附赠无售后：条款号必须回到历史形态 01–09（与已发合同逐字一致）
 EXPECT_PLAIN_HEADINGS = [
-    "05  车辆交付与风险  |  DELIVERY AND RISK",
-    "06  文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
-    "07  违约责任  |  DEFAULT",
-    "08  法律、争议及生效  |  GOVERNING LAW AND DISPUTE RESOLUTION",
-    "09  签署确认  |  SIGNATURES",
+    "五、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+    "六、文件、过户及保险  |  DOCUMENTS, TRANSFER AND INSURANCE",
+    "七、违约责任  |  DEFAULT",
+    "八、法律、争议及生效  |  GOVERNING LAW AND DISPUTE RESOLUTION",
+    "九、签署确认  |  SIGNATURES",
 ]
 
 # 用例 → 条款区改写后必须原样保留的无关条款（新办 03 区混有非付款条款）
@@ -360,7 +407,7 @@ def run_draft():
     garbage_form = {"currency": "RMB", "total_price": "很多", "total_fee": "很多",
                     "sign_date": "2026-13-45", "exchange_fee": "50万",
                     "warranty_enabled": "含", "warranty_period": "长期",
-                    "gift_transfer": "赠送"}
+                    "accident_free": "承诺", "gift_transfer": "赠送"}
     garbage_pay = {"installments": [
         {"label": "订金", "amount": "", "date": "bad-date", "event": ""},
         {"label": "尾款", "amount": "50万", "date": None, "event": "过户当日"},
@@ -512,7 +559,7 @@ def main():
                         fails.append(f"未启用内容出现在合同：{leak}")
                 elif tkey == "car":
                     miss = [h for h in EXPECT_PLAIN_HEADINGS if h not in body]
-                    leak = [s for s in ("附赠服务", "售后质保", "附赠：") if s in body]
+                    leak = [s for s in ("附赠服务", "售后质保", "附赠：", "甲方陈述并保证") if s in body]
                     if miss:
                         fails.append(f"无附赠无售后时条款号未回到历史形态：{miss}")
                     if leak:

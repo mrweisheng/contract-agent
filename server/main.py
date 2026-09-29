@@ -23,9 +23,11 @@ store.init()
 
 @app.middleware("http")
 async def no_cache_html(request, call_next):
-    """首页与前端入口资源不缓存：浏览器每次都拿最新 index.html/app.js，避免改版后被缓存坑。"""
+    """首页与前端入口资源不缓存：浏览器每次都拿最新 index.html/app.js，避免改版后被缓存坑。
+    workbench.css/alias.css 是主布局与字体别名，同样纳入，避免忘记升 ?v= 时拿到旧样式。"""
     resp = await call_next(request)
-    if request.url.path in ("/", "/index.html", "/app.js", "/style.css"):
+    if request.url.path in ("/", "/index.html", "/app.js", "/style.css",
+                            "/workbench.css", "/fonts/noto-sans-sc/alias.css"):
         resp.headers["Cache-Control"] = "no-cache"
     return resp
 

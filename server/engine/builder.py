@@ -213,8 +213,8 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         t = datetime.date.today()
         y, m, d = str(t.year), str(t.month), str(t.day)
     filled = _fill_signature_dates(doc, y, m, d)
-    if not filled:
-        msg = "签署确认块未找到日期空位，请检查模板"
+    if filled < 2:
+        msg = "签署确认块日期空位不足（应甲乙双方各一处），请检查模板"
         if not draft:
             raise ValueError(msg)
         issues.append(msg)
@@ -231,10 +231,11 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
 # ---------------- 统一付款表 → 生成器付款 dict ----------------
 
 def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
-    """附赠（模板 05 节）/ 售后质保（模板 06 节）独立成节：有内容整节保留并写入推导
-    文字，无内容整节删除，最后全量重排条款号——无附赠无售后时编号回到 01–09，
-    与历史合同形态一致。赠过户费/车险时原 08 条（文件、过户及保险）过户费用句
-    与赠项矛盾，须最小改写。文字推导统一走 car_extras。"""
+    """合并版卖车模板的条件块（server/templates/1-卖车，中文条款号）：
+    A. 四节尾「甲方陈述并保证」块——承诺无重大事故才保留；
+    B. 五节附赠服务——有附赠行才保留并写入推导文字；
+    C. 六节售后质保——开启质保才保留，自定义参数写入保修范围句；
+    最后全量重排中文条款号。赠过户费/车险时最小改写八节对应句。文字推导统一走 car_extras。"""
     from engine import car_extras as X
 
     gifts = X.gift_lines(form)
@@ -244,29 +245,61 @@ def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
         if not draft:
             raise
         issues.append(str(ex))
-        # 参数无法识别：预览按默认期限渲染，让用户至少看到质保节形态
+        # 参数无法识别：预览按模板默认期限渲染，让用户至少看到质保节形态
         wp = (X.WARRANTY_TMPL.format(a=X.DEFAULT_MONTHS_PHRASE, b=X.DEFAULT_KM_PHRASE)
               if X.warranty_on(form) else None)
 
-    # 模板号操作（重排在最后，此前标题仍是模板号）
+    # A. 陈述与保证块（「甲方陈述并保证：」起至下一标题）
+    if not X.accident_free_on(form):
+        i = W.heading_index(doc, "甲方陈述并保证：")
+        j = W.next_heading_index(doc, i)
+        W.delete_span(doc, i, j)
+
+    # B. 附赠服务节
+    i = W.heading_index(doc, "附赠服务")
+    j = W.next_heading_index(doc, i)
     if gifts:
-        W.rewrite_section(doc, "05", "06", gifts)
+        W.rewrite_span(doc, i + 1, j, gifts)
     else:
-        W.delete_section(doc, "05", "06")
-    if wp:
-        W.rewrite_section(doc, "06", "07", [wp])
+        W.delete_span(doc, i, j)
+
+    # C. 售后质保节
+    i = W.heading_index(doc, "售后质保")
+    j = W.next_heading_index(doc, i)
+    if X.warranty_on(form):
+        body = doc.paragraphs[i + 1:j]
+        target = next((p for p in body if "保修范围" in p.text), None)
+        if target is None:
+            raise ValueError("质保节缺少保修范围句，请检查模板")
+        try:
+            period, km = X.warranty_custom_parts(form)
+        except ValueError:
+            period = km = None  # 参数非法：draft 已记 issue，按模板默认渲染
+        if period:
+            W.replace_in_paragraph(target, "六个月", period)
+        if km:
+            W.replace_in_paragraph(target, "三万公里", km)
     else:
-        W.delete_section(doc, "06", "07")
+        W.delete_span(doc, i, j)
     report["gift_lines"] = gifts
     report["warranty_on"] = bool(wp)
+    report["accident_free"] = X.accident_free_on(form)
 
-    if X.gift_transfer_on(form) or X.gift_insurance(form):
-        p17 = next((p for p in doc.paragraphs if "车辆过户手续由甲方负责办理" in p.text), None)
-        if p17 is None:
-            raise ValueError("找不到文件、过户及保险条款的过户费用句，请检查模板")
-        if p17.text.strip() != X.P17_ORIG:
+    # 八节：赠过户费/车险时改写过户费用句/保险句（逐字锚点，禁止盲改）
+    if X.gift_transfer_on(form):
+        p_pass = next((p for p in doc.paragraphs if "车辆过户手续由甲方负责办理" in p.text), None)
+        if p_pass is None:
+            raise ValueError("找不到过户费用句，请检查模板")
+        if p_pass.text.strip() != X.PASSAGE_ORIG:
             raise ValueError("模板过户费用句原文与预设不符，禁止改写，请检查模板")
-        W.set_paragraph_text(p17, X.p17_text(form))
+        W.set_paragraph_text(p_pass, X.passage_text(form))
+    if X.gift_insurance(form):
+        p_ins = next((p for p in doc.paragraphs if "现有保险不随车转移" in p.text), None)
+        if p_ins is None:
+            raise ValueError("找不到保险句，请检查模板")
+        if p_ins.text.strip() != X.INS_ORIG:
+            raise ValueError("模板保险句原文与预设不符，禁止改写，请检查模板")
+        W.set_paragraph_text(p_ins, X.insurance_text(form))
 
     W.renumber_headings(doc)
 
@@ -421,19 +454,31 @@ def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn,
         _fill_amount_cell(rows[3], cfg, cur, balance)
         report["fee_rows"] = [W.row_label(r) for r in rows]
         report["amounts"] = [total, deposit, balance]
-        # 03 条：客户给了尾款日期 → 填空保留「日期或过户当日」；
-        # 只有事件 → 整句改写为单事件句（绝不编造日期）
+        # 三节尾款句：金额 + 日期空位顺序填空（客户给了尾款日期 → 填空保留「日期或过户当日」；
+        # 只有事件 → 整句改写为单事件句含金额，绝不编造日期）
         start, end = W.section_range(doc, *cfg["payment_section"])
         p = doc.paragraphs[start]
+        if "剩余购车尾款" not in p.text:
+            raise ValueError("卖车三节尾款句与模板不符，请检查模板")
         bd = payment.get("balance_date")
         if W.is_valid_iso_date(str(bd or "").strip()):
             y, m, d = W.iso_date_parts(bd)
-            W.fill_blanks_in_paragraph(p, [y, m, d])
-            if BLANK_LEFT(p):
-                raise ValueError("卖车 03 条填空后仍有残留空位")
+            cn = to_cn_upper(balance)
+            if cn.endswith("元整"):   # 模板空位后自带「元整」，大写值只填金额主体
+                cn = cn[:-2]
+            filled = W.fill_blanks_in_paragraph(
+                p, [cn, with_commas(balance), y, m, d])
+            if filled < 5 or BLANK_LEFT(p):
+                raise ValueError("卖车三节尾款句空位数量异常或填空后仍有残留")
+            if cur != "HKD":   # 尾款句模板内置「港币/HK$」字面量，非港币合同须随币种改写
+                W.replace_in_paragraph(p, "港币", currency_label(cur))
+                W.replace_in_paragraph(p, "HK$", currency_symbol(cur))
         else:
-            ev = (payment.get("balance_event") or "").strip() or "车辆完成香港运输署过户登记手续当日"
-            W.set_paragraph_text(p, f"购车尾款须于{ev}，由乙方一次性支付予甲方。")
+            ev = (payment.get("balance_event") or "").strip() \
+                or (cfg["pay_preset"][1].get("event") or "车辆完成香港运输署过户登记手续当日")
+            W.set_paragraph_text(
+                p, f"剩余购车尾款{currency_label(cur)}{to_cn_upper(balance)}"
+                   f"（{currency_symbol(cur)}{with_commas(balance)}），须于{ev}，由乙方一次性支付予甲方。")
         report["section_paras"] = end - start
     else:
         # 过户/新办默认三期（触发时点为模板固定文字，仅填金额）

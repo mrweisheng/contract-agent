@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """API 路由。"""
 import base64
-import json
 import os
 import re
 import tempfile
 import traceback
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -64,6 +63,7 @@ def get_types():
             "groups": cfg["groups"],
             "fee_fields": cfg["fee_fields"],
             "pay_preset": cfg.get("pay_preset", []),
+            "field_anchors": cfg.get("field_anchors"),  # 前端「聚焦字段→预览联动定位」锚点
             "client_side": cfg["client_side"],
             "car_default": bool(cfg.get("car_default")),
         })
@@ -239,9 +239,6 @@ class PreviewReq(BaseModel):
     type: str
     form: dict = {}
     payment: dict = {}  # {installments: [{label, amount, date, event}], source_text}，录入中的宽松数据
-
-
-DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 @router.post("/preview")

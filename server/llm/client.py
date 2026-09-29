@@ -37,6 +37,21 @@ class LLMError(Exception):
     pass
 
 
+# 思考调用给答案留出的 token 余量：MiniMax-M3 的 <think> 过程与答案共享 max_tokens，
+# 思考耗尽配额时 content 为空（parse 报 "Expecting value: line 1 column 1"）
+THINKING_HEADROOM = 8000
+
+
+def _strip_think(content: str) -> str:
+    """剥掉 MiniMax-M3 内嵌在 content 里的 <think>...</think> 思考段
+    （即便 enable_thinking=False 也可能出现）。思考里常含半截 JSON，必须先剥再解析。"""
+    if "<think>" not in content:
+        return content
+    if "</think>" not in content:
+        return ""   # 思考未结束就被截断（max_tokens 耗尽），没有任何答案内容
+    return re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
+
+
 _SESSION = requests.Session()  # 复用连接，省去每次调用的 TLS 握手
 
 
@@ -58,15 +73,18 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
     use_json_mode = True   # 强制 JSON 输出，避免围栏/解释文字导致的解析重试
     use_fast_mode = not thinking
     for attempt in range(retries):
+        # 末次重试强制关思考：保证一定产出答案、时间有界（思考模式下思考与答案共享 max_tokens，
+        # 思考过长会截断输出，宁可要一个无思考的完整复核也不要一个超时的空结果）
+        fast_attempt = use_fast_mode or (thinking and attempt == retries - 1)
         payload = {
             "model": MODEL,
             "messages": msgs,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens + (THINKING_HEADROOM if not fast_attempt else 0),
         }
         if use_json_mode:
             payload["response_format"] = {"type": "json_object"}
-        if use_fast_mode:
+        if fast_attempt:
             payload["enable_thinking"] = False
         t0 = time.time()
         print(f"[LLM] 第{attempt + 1}次调用开始（{MODEL}，输出上限{max_tokens}）...", flush=True)
@@ -75,6 +93,9 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
             if resp.status_code != 200:
                 raise LLMError(f"API {resp.status_code}: {resp.text[:200]}")
             content = resp.json()["choices"][0]["message"]["content"]
+            content = _strip_think(content or "")
+            if not content:
+                raise LLMError("模型输出为空（思考耗尽 max_tokens）")
             data = _parse_json(content)
             if isinstance(data, dict):
                 print(f"[LLM] 调用成功，耗时 {time.time() - t0:.1f} 秒", flush=True)
