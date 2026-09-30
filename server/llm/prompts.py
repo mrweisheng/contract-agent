@@ -22,6 +22,17 @@ def _car_extra_rules() -> str:
         "未提质保 → \"不含\"\n"
         "- 提到保证无事故/无重大事故/无水泡（如「车保证无事故」「无水泡无重大事故」「保无大事故」）"
         "→ accident_free=\"承诺\"；未提 → \"不承诺\"。注意：只写「质保/保修」不算承诺无事故，不要连带勾上\n"
+        "- 预设之外的赠品（如送轮胎、换机油、贴膜、行车记录仪、送保养等）→ gift_other："
+        "把口语整理成简短动宾短语（如「赠送四条轮胎、更换全车机油」），多项用顿号分隔，"
+        "禁止照抄语气词和口水话，也不要与过户费/牌费/车险重复；未提 → null\n"
+    )
+
+
+def _transfer_extra_rules() -> str:
+    return (
+        "\n现牌业务费用名目规则（换车费用＝上车费用，同一项费用：现牌流程中车辆相关的全部费用）：\n"
+        "- 客户说「上车费用」→ exchange_fee 填该金额，exchange_label=\"上车费用\"\n"
+        "- 客户说「换车费用」或未提 → exchange_label 填 null（保持默认「换车费用」）\n"
     )
 
 
@@ -37,7 +48,10 @@ def _field_lines(cfg: dict) -> str:
                 continue  # 自动带入字段不抽取
             lines.append(f"- {f['key']}（{f['label']}，{req}{extra}）")
     for f in cfg["fee_fields"]:
-        lines.append(f"- {f['key']}（{f['label']}，金额，{'必填' if f.get('required') else '选填'}，纯数字不带单位）")
+        if f.get("options"):   # 下拉型费用字段（如费用名目），按可选值抽取
+            lines.append(f"- {f['key']}（{f['label']}，选填，可选值：{'/'.join(f['options'])}）")
+        else:
+            lines.append(f"- {f['key']}（{f['label']}，金额，{'必填' if f.get('required') else '选填'}，纯数字不带单位）")
     return "\n".join(lines)
 
 
@@ -59,6 +73,7 @@ def extract_messages(type_key: str, text: str) -> list:
         "- payment_text（客户关于付款计划/付款方式的原话或概括，没有填 null）\n"
         f"- port（仅当该类型需要口岸时，可选值：{PORTS_TEXT}，本类型{'需要' if cfg.get('port_required') or any(f['key']=='port' for g in cfg['groups'] for f in g['fields']) else '不需要'}）\n"
         + (_car_extra_rules() if type_key == "car" else "")
+        + (_transfer_extra_rules() if type_key in ("transfer_gx", "transfer_ns") else "")
         + f"\n业务描述：\n{text}\n\n"
         '输出格式：{"fields": {字段key: 值或null}, "currency": "HKD|CNY|null", "total": 数字或null, "payment_text": "字符串或null", "notes": ["描述中模糊或冲突之处的提示"]}'
     )
@@ -164,7 +179,8 @@ def build_summary(type_key: str, form: dict, payment: dict) -> str:
                          f"发动机非人为损坏的机械故障由甲方负责保修；以乙方按保养手册定期保养、"
                          f"故障时停用并通知甲方为前提；不当操作/改装/事故/疏忽保养/不可抗力导致的损坏不在范围内")
     if form.get("exchange_fee") is not None:
-        parts.append(f"换车费用：{form.get('exchange_fee')}（独立于服务总费用，另行列示，不计入总金额，分期合计也只针对服务总费用）")
+        xlabel = form.get("exchange_label") or "换车费用"
+        parts.append(f"{xlabel}：{form.get('exchange_fee')}（独立于服务总费用，另行列示，不计入总金额，分期合计也只针对服务总费用）")
     mode = payment.get("mode")
     if mode == "default":
         if type_key == "car":

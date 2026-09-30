@@ -201,6 +201,8 @@ def generate(req: GenerateReq):
 
         # LLM 语义复核（软校验：失败不拦截，标注警告）
         warnings = []
+        if report.get("fx_source") == "fallback":
+            warnings.append(f"汇率源不可用，第二币种换算按兜底汇率 {report.get('fx_rate')} 计算")
         text = extract_contract_text(doc)
         try:
             rv = llm.chat_json(review_messages(text, build_summary(req.type, form, payment)),

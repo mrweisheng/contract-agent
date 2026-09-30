@@ -56,6 +56,34 @@ def init():
             status TEXT,
             created_at TEXT
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS fx_rate (
+            base TEXT,
+            quote TEXT,
+            rate REAL,
+            source TEXT,
+            fetched_at TEXT,
+            PRIMARY KEY(base, quote)
+        )""")
+
+
+def fx_get(base: str, quote: str):
+    """最近一次缓存汇率（dict 或 None）。"""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT rate, source, fetched_at FROM fx_rate WHERE base=? AND quote=?",
+            (base, quote),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def fx_put(base: str, quote: str, rate: float, source: str):
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT INTO fx_rate(base,quote,rate,source,fetched_at) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(base,quote) DO UPDATE SET rate=excluded.rate, "
+            "source=excluded.source, fetched_at=excluded.fetched_at",
+            (base, quote, rate, source, _now()),
+        )
 
 
 def reserve_no() -> str:

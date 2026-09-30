@@ -127,8 +127,24 @@ def warranty_custom_parts(form: dict):
     return p, k
 
 
+def gift_other_items(form: dict) -> list:
+    """非预设赠品（gift_other 自由文本）：按顿号/逗号/换行拆成多条，
+    去掉首尾标点与空白。口语整理在 AI 提取层完成，这里只做机械分条。"""
+    raw = str(form.get("gift_other") or "").strip()
+    if not raw:
+        return []
+    items = [x.strip(" 。；;，,、") for x in re.split(r"[、，,；;\n]+", raw)]
+    seen, out = set(), []
+    for x in items:
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
 def gift_lines(form: dict) -> list:
-    """06 条末尾追加的附赠行（只记录赠了什么，不加描述）。"""
+    """06 条末尾追加的附赠行（只记录赠了什么，不加描述）。
+    预设赠品在前，非预设赠品（轮胎/机油等）逐条跟后。"""
     lines = []
     if gift_transfer_on(form):
         lines.append("附赠：本车辆过户登记手续的全部费用。")
@@ -139,6 +155,7 @@ def gift_lines(form: dict) -> list:
     ins = gift_insurance(form)
     if ins:
         lines.append(f"附赠：本车辆汽车保险（{ins}）。")
+    lines.extend(f"附赠：{x}。" for x in gift_other_items(form))
     return lines
 
 

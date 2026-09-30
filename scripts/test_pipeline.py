@@ -144,6 +144,16 @@ CASES = [
     }, {"mode": "default", "deposit_amount": 55000, "deposit_date": "2026-09-09",
         "balance_date": "2026-10-09", "choice": "较早者"}),
 
+    # ---- 卖车：非预设赠品（轮胎/机油，AI 整理后的短语逐条入附赠节）----
+    ("car_gift_other", "car", {
+        "agreement_no": "", "sign_date": "2026-09-11", "currency": "HKD",
+        "client_name": "马胎", "client_id": "H1919191", "client_phone": "91919191",
+        "plate": "TY 5555", "vin": "WBA555666777AAA11", "model": "Toyota Vellfire", "year": "2021",
+        "total_price": 380000,
+        "gift_other": "四条轮胎、更换全车机油",
+    }, {"mode": "default", "deposit_amount": 80000, "deposit_date": "2026-09-11",
+        "balance_event": "车辆完成香港运输署过户登记手续当日"}),
+
     # ---- 高新过户：默认三期 + 换车费 ----
     ("gx_default", "transfer_gx", {
         "agreement_no": "", "sign_date": "2026-08-31", "currency": "HKD",
@@ -223,14 +233,14 @@ def run_negative():
     out = os.path.join(OUT, "_neg.docx")
     for name, payment in NEG_PAYMENTS:
         try:
-            build_contract("car", dict(CAR_FORM), payment, "2026090199", out)
+            build_contract("car", dict(CAR_FORM), payment, "2026090199", out, fx_rate=0.88)
             print(f"[FAIL] {name}: 未拦截")
             ok = False
         except ValueError as ex:
             print(f"[PASS] {name}（拦截：{ex}）")
     for name, form in NEG_FORMS:
         try:
-            build_contract("car", dict(form), VALID_PAYMENT, "2026090199", out)
+            build_contract("car", dict(form), VALID_PAYMENT, "2026090199", out, fx_rate=0.88)
             print(f"[FAIL] {name}: 未拦截")
             ok = False
         except ValueError as ex:
@@ -320,6 +330,14 @@ EXPECT_EXTRAS = {
         "2、车辆过户手续由甲方负责办理，全部费用由甲方承担。",
         "十一、签署确认  |  SIGNATURES",
     ], "not": []},
+    # 只送非预设赠品（预设全关 → 无「附赠：本车辆」行；附赠节保留、编号 六…十）
+    "car_gift_other": {"must": [
+        "五、附赠服务  |  COMPLIMENTARY SERVICES",
+        "附赠：四条轮胎。",
+        "附赠：更换全车机油。",
+        "六、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
+        "十、签署确认  |  SIGNATURES",
+    ], "not": ["附赠：本车辆", "售后质保", "甲方陈述并保证"]},
 }
 EXPECT_PLAIN_HEADINGS = [
     "五、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
@@ -418,7 +436,7 @@ def run_draft():
         try:
             payment = derive_payment(tkey, raw_pay, draft=True, issues=issues)
             out = os.path.join(OUT, f"_draft_{tkey}.docx")
-            report = build_contract(tkey, form, payment, "（预览稿）", out, draft=True, issues=issues)
+            report = build_contract(tkey, form, payment, "（预览稿）", out, draft=True, issues=issues, fx_rate=0.88)
             doc = Document(out)
             body = "\n".join(p.text for p in doc.paragraphs) + "".join(
                 c.text for t in doc.tables for r in t.rows for c in r.cells)
@@ -456,7 +474,7 @@ def run_draft():
             payment = derive_payment("new_port", {}, draft=True, issues=issues)
             out = os.path.join(OUT, "_draft_new_port.docx")
             build_contract("new_port", {"port": port}, payment, "（预览稿）", out,
-                           draft=True, issues=issues)
+                           draft=True, issues=issues, fx_rate=0.88)
             print(f"[PASS] draft new_port {port}")
         except Exception as ex:
             print(f"[FAIL] draft new_port {port}: {ex}")
@@ -474,7 +492,7 @@ def run_draft():
         else:
             out = os.path.join(OUT, "_draft_ot.docx")
             report = build_contract("car", dict(CAR_FORM, currency="HKD", total_price=300000),
-                                    p, "（预览稿）", out, draft=True, issues=issues)
+                                    p, "（预览稿）", out, draft=True, issues=issues, fx_rate=0.88)
             doc = Document(out)
             body = "\n".join(x.text for x in doc.paragraphs) + "".join(
                 c.text for t in doc.tables for r in t.rows for c in r.cells)
@@ -490,9 +508,9 @@ def run_draft():
     # 非 draft 回归：口岸缺失/币种非法仍必须拦截
     out = os.path.join(OUT, "_neg_draft.docx")
     for name, fn in (
-        ("真生成缺口岸", lambda: build_contract("new_port", dict(CAR_FORM), VALID_PAYMENT, "2026090199", out)),
-        ("真生成币种RMB", lambda: build_contract("car", dict(CAR_FORM, currency="RMB"), VALID_PAYMENT, "2026090199", out)),
-        ("真生成空付款", lambda: build_contract("car", dict(CAR_FORM), {"mode": "custom", "installments": []}, "2026090199", out)),
+        ("真生成缺口岸", lambda: build_contract("new_port", dict(CAR_FORM), VALID_PAYMENT, "2026090199", out, fx_rate=0.88)),
+        ("真生成币种RMB", lambda: build_contract("car", dict(CAR_FORM, currency="RMB"), VALID_PAYMENT, "2026090199", out, fx_rate=0.88)),
+        ("真生成空付款", lambda: build_contract("car", dict(CAR_FORM), {"mode": "custom", "installments": []}, "2026090199", out, fx_rate=0.88)),
     ):
         try:
             fn()
@@ -505,6 +523,131 @@ def run_draft():
     return ok
 
 
+def run_dual_currency():
+    """双币换算落字：费用表/换车费用行 = 主币种大写 + 数字写法在前、换算币种在后（0.88 固定汇率，
+    四舍五入到元）。同时证明 check_rules 币种唯一校验对设计内换算后缀放行。"""
+    from engine.writer import find_table
+    from engine.money import convert_amount
+    ok = True
+
+    def cells_of(doc, anchor):
+        return [c.text for r in find_table(doc, anchor).rows for c in r.cells]
+
+    def cell_miss(cells, expects):
+        return [e for e in expects if not any(e in c for c in cells)]
+
+    # 卖车 HKD：总价 50万 → / ¥44万；订金 10万 → / ¥8.8万；尾款 40万 → / ¥35.2万
+    out = os.path.join(OUT, "_dual_car.docx")
+    try:
+        form = dict(CAR_FORM)
+        report = build_contract("car", form, VALID_PAYMENT, "2026090199", out, fx_rate=0.88)
+        report["agreement_no"] = "2026090199"
+        doc = Document(out)
+        miss = cell_miss(cells_of(doc, "车辆总售价"), [
+            "港币（大写）伍拾万元整（HK$500,000 / ¥444,400）",
+            "（HK$100,000 / ¥88,880）",
+            "（HK$400,000 / ¥355,520）",
+        ])
+        errs = check_rules("car", form, VALID_PAYMENT, report, doc)
+        if miss or errs:
+            print(f"[FAIL] 双币·卖车HKD：缺 {miss} 错 {errs}")
+            ok = False
+        else:
+            print("[PASS] 双币·卖车HKD（含币种唯一放行）")
+    except Exception as ex:
+        print(f"[FAIL] 双币·卖车HKD: {ex}")
+        ok = False
+
+    # 高新过户 CNY：总价 30万 → / HK$340,909；各期与换车费用行同格式（除法方向）。
+    # 分立式样式：大写格与数字格是两个单元格，数字格无全角括号包裹
+    out2 = os.path.join(OUT, "_dual_gx.docx")
+    try:
+        form = {"agreement_no": "", "sign_date": "2026-08-31", "currency": "CNY",
+                "client_name": "双币测试", "client_id": "H2223334", "client_phone": "93001122",
+                "plate": "粤Z·D001港", "port": "深圳湾口岸", "quota_type": "高新",
+                "target_hk_company": "香港双币测试有限公司",
+                "total_fee": 300000, "exchange_fee": 20000}
+        pay = {"mode": "default", "pay1": 100000, "pay2": 150000, "pay3": 50000}
+        report = build_contract("transfer_gx", form, pay, "2026090199", out2, fx_rate=0.88)
+        report["agreement_no"] = "2026090199"
+        doc = Document(out2)
+        miss = cell_miss(cells_of(doc, "服务总费用"), [
+            "人民币（大写）叁拾万元整",
+            "¥300,000 / HK$344,318",
+            "¥100,000 / HK$114,773",
+            "¥150,000 / HK$172,159",
+            "¥50,000 / HK$57,386",
+        ]) + cell_miss(cells_of(doc, "换车费用"),
+                       ["人民币（大写）贰万元整（¥20,000 / HK$22,955）"])
+        errs = check_rules("transfer_gx", form, pay, report, doc)
+        if miss or errs:
+            print(f"[FAIL] 双币·过户CNY：缺 {miss} 错 {errs}")
+            ok = False
+        else:
+            print("[PASS] 双币·过户CNY（含换车费用行）")
+    except Exception as ex:
+        print(f"[FAIL] 双币·过户CNY: {ex}")
+        ok = False
+
+    # 换算取值：乘除两方向 + 四舍五入边界
+    for amt, code, want in [(500000, "HKD", 444400), (100000, "HKD", 88880),
+                            (400000, "CNY", 459091), (150000, "CNY", 172159),
+                            (20000, "CNY", 22955), (0, "HKD", 0)]:
+        got = convert_amount(amt, code, 0.88)
+        if got != want:
+            print(f"[FAIL] convert_amount({amt}, {code}) = {got} ≠ {want}")
+            ok = False
+    if ok:
+        print("[PASS] 双币·convert_amount 取值")
+    return ok
+
+
+def run_exchange_alias():
+    """换车费用行名跟随客户用词：默认「换车费用」，exchange_label=上车费用 时行名改写；
+    checker 按别名仍能找到该表；非法名目回退默认（防幻觉）。"""
+    from engine.writer import find_table
+    ok = True
+    out = os.path.join(OUT, "_alias_gx.docx")
+    base = {"agreement_no": "", "sign_date": "2026-08-31", "currency": "CNY",
+            "client_name": "名目测试", "client_id": "H2444555", "client_phone": "93001122",
+            "plate": "粤Z·E002港", "port": "深圳湾口岸", "quota_type": "高新",
+            "target_hk_company": "香港名目测试有限公司",
+            "total_fee": 300000, "exchange_fee": 20000}
+    pay = {"mode": "default", "pay1": 100000, "pay2": 150000, "pay3": 50000}
+    try:
+        form = dict(base, exchange_label="上车费用")
+        report = build_contract("transfer_gx", form, pay, "2026090199", out, fx_rate=0.88)
+        report["agreement_no"] = "2026090199"
+        doc = Document(out)
+        errs = check_rules("transfer_gx", form, pay, report, doc)
+        errs += check_fingerprint(report["template"], out, "transfer_gx", report, form)
+        cell0 = find_table(doc, "上车费用").rows[0].cells[0].text.strip()
+        if errs or cell0 != "上车费用":
+            print(f"[FAIL] 名目·上车费用：行名={cell0} 错 {errs}")
+            ok = False
+        else:
+            print("[PASS] 名目·上车费用（行名随客户用词 + 校验别名查找）")
+    except Exception as ex:
+        print(f"[FAIL] 名目·上车费用: {ex}")
+        ok = False
+    try:
+        form = dict(base, exchange_label="运费")   # 非法名目 → 回退默认
+        build_contract("transfer_gx", form, pay, "2026090199", out, fx_rate=0.88)
+        doc = Document(out)
+        cell0 = find_table(doc, "换车费用").rows[0].cells[0].text.strip()
+        if cell0 != "换车费用":
+            print(f"[FAIL] 名目·非法回退：行名={cell0}")
+            ok = False
+        else:
+            print("[PASS] 名目·非法输入回退默认")
+    except Exception as ex:
+        print(f"[FAIL] 名目·非法回退: {ex}")
+        ok = False
+    if os.path.exists(out):
+        os.remove(out)
+    return ok
+
+
 def main():
     all_ok = True
     for name, tkey, form, payment in CASES:
@@ -512,7 +655,7 @@ def main():
         out = os.path.join(OUT, f"{name}.docx")
         try:
             no = f"2026083199{len(name):02d}"
-            report = build_contract(tkey, form, payment, no, out)
+            report = build_contract(tkey, form, payment, no, out, fx_rate=0.88)
             report["agreement_no"] = no
             doc = Document(out)
             errs = check_rules(tkey, form, payment, report, doc)
@@ -576,7 +719,8 @@ def main():
             print(f"[ERROR] {name}: {ex}")
             import traceback
             traceback.print_exc()
-    all_ok = all_ok and run_negative() and run_derive() and run_draft()
+    all_ok = (all_ok and run_negative() and run_derive() and run_draft()
+              and run_dual_currency() and run_exchange_alias())
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 

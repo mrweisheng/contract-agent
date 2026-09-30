@@ -74,6 +74,7 @@ TYPES = {
             "gift_plate": {"para": "附赠服务"},
             "gift_transfer": {"para": "车辆过户手续"},
             "gift_insurance": {"para": ["代办投保", "现有保险不随车转移"]},
+            "gift_other": {"para": "附赠服务"},
             "warranty_enabled": {"para": "售后质保"},
             "warranty_period": {"para": "保修范围"},
             "warranty_km": {"para": "保修范围"},
@@ -93,6 +94,7 @@ TYPES = {
                 {"key": "gift_plate", "label": "附赠香港牌费", "type": "select",
                  "options": ["不赠送", "4个月", "12个月"], "required": False, "default": "不赠送"},
                 {"key": "gift_insurance", "label": "附赠车险·险种（填即赠送）", "type": "text", "required": False},
+                {"key": "gift_other", "label": "其他赠品（轮胎/机油等，客户提到才填）", "type": "text", "required": False},
                 {"key": "accident_free", "label": "承诺无重大事故（写明无水泡/无事故）", "type": "select",
                  "options": ["不承诺", "承诺"], "required": False, "default": "不承诺"},
                 {"key": "warranty_enabled", "label": "发动机质保", "type": "select",
@@ -119,7 +121,7 @@ TYPES = {
         "label": "现牌过户 · 高新",
         "short": "高新过户",
         "template": "2-过户-高新两地牌现牌过户.docx",
-        "currency_default": "HKD",
+        "currency_default": "CNY",  # 车牌业务默认人民币；AI 提取明确说了币种以解析为准
         "client_side": "乙方（委托方）",
         "payer": "乙方",
         "payee": "甲方",
@@ -145,7 +147,7 @@ TYPES = {
         ],
         "payment_section": ("四", "五"),
         "fee_rows_default": ["服务总费用", "第一期｜定金", "第二期款", "尾款"],
-        "exchange_fee": {"anchor": "换车费用"},
+        "exchange_fee": {"anchor": "换车费用", "aliases": ["上车费用"]},
         "field_anchors": {
             **_client_anchors("@party", "委托方", 3),
             "plate": {"table": "@kv", "row": "车牌号码", "col": 1},
@@ -154,7 +156,7 @@ TYPES = {
             "target_hk_company": {"table": "@kv", "row": "目标香港公司名称", "col": 1},
             "total_fee": {"table": "@fee", "row": "服务总费用", "col": 2},
             "currency": {"table": "@fee", "row": "服务总费用", "col": 2},
-            "exchange_fee": {"table": "@exchange", "row": "换车费用", "col": 1},
+            "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
@@ -176,6 +178,7 @@ TYPES = {
         "fee_fields": [
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
             {"key": "exchange_fee", "label": "换车费用（可为0，独立于服务总费用）", "type": "number", "required": False, "default": 0},
+            {"key": "exchange_label", "label": "费用名目（按客户说法）", "type": "select", "options": ["换车费用", "上车费用"], "required": False, "default": "换车费用"},
         ],
     },
 
@@ -184,7 +187,7 @@ TYPES = {
         "label": "现牌过户 · 纳税（过户两家公司）",
         "short": "纳税过户",
         "template": "3-过户-纳税两地牌现牌过户（需过户两家公司）.docx",
-        "currency_default": "HKD",
+        "currency_default": "CNY",  # 车牌业务默认人民币；AI 提取明确说了币种以解析为准
         "client_side": "乙方（委托方）",
         "payer": "乙方",
         "payee": "甲方",
@@ -211,7 +214,7 @@ TYPES = {
         ],
         "payment_section": ("四", "五"),
         "fee_rows_default": ["服务总费用", "第一期｜定金", "第二期款", "尾款"],
-        "exchange_fee": {"anchor": "换车费用"},
+        "exchange_fee": {"anchor": "换车费用", "aliases": ["上车费用"]},
         "field_anchors": {
             **_client_anchors("@party", "委托方", 3),
             "plate": {"table": "@kv", "row": "车牌号码", "col": 1},
@@ -221,7 +224,7 @@ TYPES = {
             "target_ml_company": {"table": "@kv", "row": "目标内地公司名称", "col": 1},
             "total_fee": {"table": "@fee", "row": "服务总费用", "col": 2},
             "currency": {"table": "@fee", "row": "服务总费用", "col": 2},
-            "exchange_fee": {"table": "@exchange", "row": "换车费用", "col": 1},
+            "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
@@ -244,6 +247,7 @@ TYPES = {
         "fee_fields": [
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
             {"key": "exchange_fee", "label": "换车费用（可为0，独立于服务总费用）", "type": "number", "required": False, "default": 0},
+            {"key": "exchange_label", "label": "费用名目（按客户说法）", "type": "select", "options": ["换车费用", "上车费用"], "required": False, "default": "换车费用"},
         ],
     },
 
@@ -310,7 +314,7 @@ _ANCHOR_TABLE_MACROS = {
     "@party": lambda c: c["party_table_anchor"],
     "@fee": lambda c: c["fee_table_anchor"],
     "@kv": lambda c: c["kv_tables"][0]["anchor"],
-    "@exchange": lambda c: c["exchange_fee"]["anchor"],
+    "@exchange": lambda c: [c["exchange_fee"]["anchor"]] + list(c["exchange_fee"].get("aliases", [])),
 }
 for _cfg in TYPES.values():
     _fa = _cfg.get("field_anchors")

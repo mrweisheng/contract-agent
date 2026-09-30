@@ -67,7 +67,8 @@ const app = createApp({
     const selected = reactive({ type: "", port: "" });
     const form = reactive({});
     const aiFilled = reactive({});
-    const extraOpen = ref(false);  // 「附赠与售后」条件组折叠态：AI 解析到才自动展开
+    const extraShown = reactive({});   // 「提到才显示」组：已显示字段 key 集合（客户在旁边看屏幕，没提到的不渲染）
+    const extraFoldOpen = ref(false);  // 未提及字段折叠条展开态（默认合上，不暴露字段名）
     const nlText = ref("");
     const extractNotes = ref([]);
     const warnNotes = ref([]);
@@ -145,7 +146,8 @@ const app = createApp({
     function initForm() {
       Object.keys(form).forEach(k => delete form[k]);
       Object.keys(aiFilled).forEach(k => delete aiFilled[k]);
-      extraOpen.value = false;
+      Object.keys(extraShown).forEach(k => delete extraShown[k]);  // 换类型清显隐集合
+      extraFoldOpen.value = false;
       const c = cfg.value;
       if (!c) return;
       form.currency = c.currency_default;
@@ -198,15 +200,25 @@ const app = createApp({
     function onFieldInput(key) { delete aiFilled[key]; }
     function confirmAI(key) { delete aiFilled[key]; }
 
-    /* ---------- 条件组折叠（reveal:on_fill）----------
-       默认收起；AI 提取把组内任一字段填成非默认值时自动展开。 */
-    const extraFilled = computed(() => (cfg.value?.groups || [])
-      .filter(g => g.reveal === 'on_fill')
-      .some(g => g.fields.some(f => {
-        const v = String(form[f.key] ?? '').trim();
-        return v && v !== String(f.default ?? '').trim();
-      })));
-    watch(extraFilled, v => { if (v) extraOpen.value = true; });
+    /* ---------- 提到才显示（reveal:on_fill 组的字段级显隐）----------
+     * 场景：录入时客户在旁边看屏幕。没提到的可选字段整行不渲染（含 AI 回填的显式默认值，
+     * 「不赠送/不承诺/不含」＝没提到），只留一行不含字段名的中性折叠条。
+     * 显隐集合只在「AI 提取完成」和「字段失焦」两个时刻重算——编辑中搬家会重挂载
+     * 输入框，打断焦点与中文输入法，所以值变化本身不触发搬家。 */
+    const extraGroup = computed(() => (cfg.value?.groups || []).find(g => g.reveal === "on_fill") || null);
+    const extraShownList = computed(() => (extraGroup.value?.fields || []).filter(f => extraShown[f.key]));
+    const extraFoldList = computed(() => (extraGroup.value?.fields || []).filter(f => !extraShown[f.key]));
+    function extraMentioned(f) {
+      const v = String(form[f.key] ?? "").trim();
+      return !!v && v !== String(f.default ?? "").trim();
+    }
+    function syncExtraShown() {
+      (extraGroup.value?.fields || []).forEach(f => {
+        if (extraMentioned(f)) extraShown[f.key] = true;
+        else delete extraShown[f.key];
+      });
+    }
+    function toggleExtraFold() { extraFoldOpen.value = !extraFoldOpen.value; }
 
     /* ---------- 智能抽取 ---------- */
     async function runExtract() {
@@ -225,6 +237,8 @@ const app = createApp({
           if (k === "quota_type") return;
           form[k] = v; aiFilled[k] = true;
         });
+        syncExtraShown();               // 提取完重算显隐：只亮提到的字段
+        extraFoldOpen.value = false;    // 折叠条保持合上，未提及项继续隐藏
         if (data.currency && ["HKD", "CNY"].includes(data.currency)) {
           form.currency = data.currency; aiFilled.currency = true;
         }
@@ -488,13 +502,16 @@ const app = createApp({
           return null;
         }
         for (const t of sheet.querySelectorAll("table")) {
-          if (!(t.textContent || "").includes(a.table)) continue;
+          // 表名/行名都支持数组（如换车费用行名随客户用词在「换车费用/上车费用」间切换）
+          const tKeys = Array.isArray(a.table) ? a.table : [a.table];
+          if (!tKeys.some(k => (t.textContent || "").includes(k))) continue;
           const rows = t.rows;
           if (instIdx !== undefined)
             return (instIdx === -1 ? rows[rows.length - 1] : rows[instIdx]) || null;
-          if (a.row === undefined) return t;   // 无行锚：整表高亮（如签署确认块）
+          if (a.row === undefined) return t;   // 无行锚：整表高亮（如签署确认块/换车费用小表）
+          const rKeys = Array.isArray(a.row) ? a.row : [a.row];
           for (const tr of rows)
-            if ((tr.textContent || "").includes(a.row))
+            if (rKeys.some(k => (tr.textContent || "").includes(k)))
               return tr.cells?.[a.col ?? 1] || tr;
           return null;   // 表命中但行不在（条件节未启用等）→ 不再尝试其余表
         }
@@ -588,6 +605,9 @@ const app = createApp({
     }
 
     function onPaneFocusout(e) {
+      // 「提到才显示」搬家时机＝失焦：值非默认→升到显示区，回到默认→折回折叠区
+      const key = typeof e.target?.id === "string" && e.target.id.startsWith("f-") ? e.target.id.slice(2) : null;
+      if (key && extraGroup.value?.fields.some(f => f.key === key)) syncExtraShown();
       if (!pvHit) return;
       if (e.relatedTarget && hitFromTarget(e.relatedTarget)) return;  // 字段间直切：交给 focusin 重定位
       hideHit();
@@ -691,8 +711,8 @@ const app = createApp({
 
     const NL_PLACEHOLDERS = {
       car: "示例：客户张三（证件 H1234567，电话 91234567）买车牌 LN1234 的 2022 款丰田 Alphard，VIN WBA…，港币 50 万；当天付订金 10 万，过户完成付尾款。附赠与质保（客户提到才写）：送 4 个月牌费、包过户费、送全保，质保 1 年。",
-      transfer_gx: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用港币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。",
-      transfer_ns: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托纳税过户车牌 LN1234，目标香港公司 XX 物流有限公司、目标内地公司 XX 国际货运代理有限公司，通行深圳湾口岸，服务总费用港币 30 万；分三期支付，每期 10 万。",
+      transfer_gx: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用人民币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。",
+      transfer_ns: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托纳税过户车牌 LN1234，目标香港公司 XX 物流有限公司、目标内地公司 XX 国际货运代理有限公司，通行深圳湾口岸，服务总费用人民币 30 万；分三期支付，每期 10 万。",
       new_port: "示例：客户王五（身份证 440000000000000000，电话 13800001234）通过莲塘口岸新办粤 Z 两地牌，服务总费用人民币 25 万；分三期支付，第一期签约当日付，第二期省厅获编号后 1 个工作日内付，第三期领取铁牌等通关资料时付。",
     };
     function nlPlaceholder() { return NL_PLACEHOLDERS[selected.type] || NL_PLACEHOLDERS.car; }
@@ -712,7 +732,8 @@ const app = createApp({
 
     return {
       toasts,
-      types, currencies, selected, form, aiFilled, extraOpen, nlText, extractNotes, warnNotes, payNotes, notesModal,
+      types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
+      extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
@@ -783,29 +804,86 @@ const app = createApp({
           </div>
           <div class="sec-body">
             <template v-for="g in cfg.groups" :key="g.title">
-              <div class="group-label" :class="{toggle: g.reveal === 'on_fill'}"
-                   @click="g.reveal === 'on_fill' && (extraOpen = !extraOpen)">
-                {{ g.title }}<span v-if="g.reveal === 'on_fill'" class="caret">{{ extraOpen ? '▾ 收起' : '＋ 展开' }}</span>
-              </div>
-              <div class="fields" v-show="g.reveal !== 'on_fill' || extraOpen">
-                <div class="field" v-for="f in g.fields" :key="f.key" :class="fieldState(f)">
-                  <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
-                  <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
-                  <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
-                          v-model="form[f.key]" @change="onFieldInput(f.key)">
-                    <option value="" disabled>请选择</option>
-                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                  </select>
-                  <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
-                         :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
-                         @input="onFieldInput(f.key)"/>
-                  <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
-                          @click="confirmAI(f.key)">AI · 未核</button>
-                  <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
+              <template v-if="g.reveal === 'on_fill'">
+                <!-- 提到才显示：只渲染提到的字段；未提及的收进中性折叠条，点开才见内容 -->
+                <div class="group-label" v-if="extraShownList.length">{{ g.title }}</div>
+                <div class="fields">
+                  <div class="field" v-for="f in extraShownList" :key="f.key" :class="fieldState(f)">
+                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
+                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
+                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
+                            v-model="form[f.key]" @change="onFieldInput(f.key)">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
+                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
+                           @input="onFieldInput(f.key)"/>
+                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
+                            @click="confirmAI(f.key)">AI · 未核</button>
+                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
+                  </div>
+                  <button type="button" class="extra-fold-bar" v-if="extraFoldList.length"
+                          @click="toggleExtraFold">{{ extraFoldOpen ? '▾ 收起' : '＋ 附赠与售后（客户提到才填）' }}</button>
+                  <div class="field" v-for="f in extraFoldList" :key="'xf-' + f.key"
+                       v-show="extraFoldOpen" :class="fieldState(f)">
+                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
+                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
+                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
+                            v-model="form[f.key]" @change="onFieldInput(f.key)">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
+                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
+                           @input="onFieldInput(f.key)"/>
+                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
+                            @click="confirmAI(f.key)">AI · 未核</button>
+                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
+                  </div>
                 </div>
-              </div>
+              </template>
+              <template v-else>
+                <div class="group-label">{{ g.title }}</div>
+                <div class="fields">
+                  <div class="field" v-for="f in g.fields" :key="f.key" :class="fieldState(f)">
+                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
+                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
+                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
+                            v-model="form[f.key]" @change="onFieldInput(f.key)">
+                      <option value="" disabled>请选择</option>
+                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
+                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
+                           @input="onFieldInput(f.key)"/>
+                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
+                            @click="confirmAI(f.key)">AI · 未核</button>
+                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
+                  </div>
+                </div>
+              </template>
             </template>
 
+            <!-- 签署日期条 -->
+            <div class="sign-bar">
+              <span class="sb-label">签署日期</span>
+              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date" @change="onHitDateChange"/>
+              <button class="chip" :class="{on: isToday}" @click="setSignToday">今日</button>
+              <span class="sb-hint">合同顶部、签署块双方日期、"签约当日"各期均以此为准</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 付款计划（总价与币种并入此处：编辑总价/切币种时与各期、合计校验同屏对照） -->
+        <div class="sec" v-if="cfg">
+          <div class="sec-head"><span class="dot"></span>价款与付款
+            <span class="sec-hint">各期合计须＝{{ totalKey === 'total_price' ? '总售价' : '总费用' }}</span>
+            <span class="spacer"></span>
+            <button class="btn sm" @click="addRow">＋ 加一期</button>
+            <button class="btn sm ghost" @click="resetPayRows">恢复模板预设</button>
+          </div>
+          <div class="sec-body">
             <div class="group-label">价款与币种</div>
             <div class="fields">
               <div class="field">
@@ -818,32 +896,17 @@ const app = createApp({
               <div class="field" v-for="f in cfg.fee_fields" :key="f.key"
                    :class="fieldState({key: f.key, required: f.required, auto: false})">
                 <label>{{ f.label }}<em v-if="f.required">*</em></label>
-                <input :id="'f-' + f.key" class="f-inp" type="number" min="0" step="1000"
+                <select v-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
+                        v-model="form[f.key]" @change="onFieldInput(f.key)">
+                  <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                </select>
+                <input v-else :id="'f-' + f.key" class="f-inp" type="number" min="0" step="1000"
                        v-model.number="form[f.key]" placeholder="待填" @input="onFieldInput(f.key)"/>
                 <button v-if="aiFilled[f.key]" class="badge ai" @click="confirmAI(f.key)">AI · 未核</button>
                 <div class="fee-cn" v-if="form[f.key] > 0">{{ currencyLabel(form.currency).split(' ')[0] }}{{ toCN(form[f.key]) }}</div>
               </div>
             </div>
 
-            <!-- 签署日期条 -->
-            <div class="sign-bar">
-              <span class="sb-label">签署日期</span>
-              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date" @change="onHitDateChange"/>
-              <button class="chip" :class="{on: isToday}" @click="setSignToday">今日</button>
-              <span class="sb-hint">合同顶部、签署块双方日期、"签约当日"各期均以此为准</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 付款计划 -->
-        <div class="sec" v-if="cfg">
-          <div class="sec-head"><span class="dot"></span>付款计划
-            <span class="sec-hint">各期合计须＝{{ totalKey === 'total_price' ? '总售价' : '总费用' }}</span>
-            <span class="spacer"></span>
-            <button class="btn sm" @click="addRow">＋ 加一期</button>
-            <button class="btn sm ghost" @click="resetPayRows">恢复模板预设</button>
-          </div>
-          <div class="sec-body">
             <div class="pay-cards">
               <div class="pay-card" v-for="(it, idx) in payment.rows" :key="idx">
                 <div class="pc-seq">

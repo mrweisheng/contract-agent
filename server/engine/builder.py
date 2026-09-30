@@ -12,8 +12,10 @@ from docx import Document
 
 from engine import writer as W
 from engine.types_config import get_type, template_path, TEMPLATES_DIR
+from engine import fx
 from engine.money import (to_cn_upper, with_commas, currency_label, currency_symbol,
-                          amount_phrase, clean_amount, clean_currency)
+                          amount_phrase, amount_phrase_dual, dual_numeric,
+                          clean_amount, clean_currency)
 
 PARTY_LABEL_MAP = [
     ("证件", "client_id"),
@@ -100,7 +102,7 @@ def _fill_signature_dates(doc, y, m, d) -> int:
 
 
 def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, out_path: str,
-                   draft: bool = False, issues: list = None):
+                   draft: bool = False, issues: list = None, fx_rate: float = None):
     """生成合同，返回变更报告（供核对器比对）。
     draft=True（实时预览）：录入类问题（金额/日期/币种/质保参数）不中断，
     用占位值渲染并汇总到 report["draft_issues"]；模板结构类问题（锚点/表格/
@@ -136,6 +138,15 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     doc = Document(out_path)
 
     report = {"type": type_key, "currency": cur, "fee_rows": [], "section_paras": None}
+    if fx_rate is None:
+        fx_info = fx.get_hkd_cny()
+        rate = fx_info["rate"]
+        report["fx_rate"], report["fx_source"] = rate, fx_info["source"]
+        if fx_info["source"] == "fallback" and draft:
+            issues.append(f"汇率获取失败，第二币种换算按兜底汇率 {rate}")
+    else:
+        rate = fx_rate
+        report["fx_rate"], report["fx_source"] = rate, "fixed"
 
     # 1. 顶部编号/日期行
     meta = doc.paragraphs[0]
@@ -175,14 +186,20 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
                         val = cfg["quota_auto"]
                     W.set_cell_text(row.cells[1], str(val or "").strip() or "—")
 
-    # 4. 换车费用（过户类）
+    # 4. 换车费用（过户类）。行名默认「换车费用」，客户说「上车费用」则随客户用词
+    #    （两名词同指现牌流程中车辆相关费用，白名单防幻觉，其余输入一律回默认）
     if cfg.get("exchange_fee"):
         t = W.find_table(doc, cfg["exchange_fee"]["anchor"])
         if t is not None:
             amt = _lenient_amount(form.get("exchange_fee") or 0, "换车费用", draft, issues)
+            xlabel = str(form.get("exchange_label") or "").strip()
+            if xlabel not in (cfg["exchange_fee"]["anchor"], *cfg["exchange_fee"].get("aliases", [])):
+                xlabel = cfg["exchange_fee"]["anchor"]
             row = t.rows[0]
-            W.set_cell_text(row.cells[1], amount_phrase(amt, cur))
+            W.set_cell_text(row.cells[0], xlabel)
+            W.set_cell_text(row.cells[1], amount_phrase_dual(amt, cur, rate))
             report["exchange_fee"] = amt
+            report["exchange_label"] = xlabel
 
     # 5. 付款计划 → 条款区 + 费用表
     fee_tbl = W.find_table(doc, cfg["fee_table_anchor"])
@@ -194,11 +211,11 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     sec_no, next_no = cfg["payment_section"]
 
     if mode == "default":
-        _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues)
+        _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate)
     elif mode == "one_time":
-        _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues)
+        _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
     elif mode == "custom":
-        _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues)
+        _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
     else:
         raise ValueError(f"未知付款模式 {mode}")
 
@@ -421,19 +438,19 @@ def _row_name(installments, i: int) -> str:
     return W.payment_row_name(labels, i)
 
 
-def _fill_amount_cell(row, cfg, cur, amount, total=None):
+def _fill_amount_cell(row, cfg, cur, amount, rate):
     style = cfg["fee_cell_style"]
     if style == "split":
         W.set_cell_text(row.cells[1], f"{currency_label(cur)}（大写）{to_cn_upper(amount)}")
-        W.set_cell_text(row.cells[2], f"{currency_symbol(cur)}{with_commas(amount)}")
-    else:  # single / single_rmb 统一替换单元格为完整金额短语
-        W.set_cell_text(row.cells[1], amount_phrase(amount, cur))
+        W.set_cell_text(row.cells[2], dual_numeric(amount, cur, rate))
+    else:  # single / single_rmb 统一替换单元格为完整金额短语（含第二币种换算）
+        W.set_cell_text(row.cells[1], amount_phrase_dual(amount, cur, rate))
 
 
-def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues):
+def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate):
     # 费用表：总金额行
     rows = fee_tbl.rows
-    _fill_amount_cell(rows[0], cfg, cur, total)
+    _fill_amount_cell(rows[0], cfg, cur, total, rate)
 
     if cfg.get("car_default"):
         # 卖车默认两段：订金 / 订金日期 / 尾款（自动=总价-订金）
@@ -448,10 +465,10 @@ def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn,
         if draft and balance <= 0:
             balance = 0
         deposit = max(deposit, 0)
-        _fill_amount_cell(rows[1], cfg, cur, deposit)
+        _fill_amount_cell(rows[1], cfg, cur, deposit, rate)
         W.set_cell_text(rows[2].cells[1],
                         _date_cn_safe(payment.get("deposit_date"), "订金日期", draft, issues))
-        _fill_amount_cell(rows[3], cfg, cur, balance)
+        _fill_amount_cell(rows[3], cfg, cur, balance, rate)
         report["fee_rows"] = [W.row_label(r) for r in rows]
         report["amounts"] = [total, deposit, balance]
         # 三节尾款句：金额 + 日期空位顺序填空（客户给了尾款日期 → 填空保留「日期或过户当日」；
@@ -485,7 +502,7 @@ def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn,
         amounts = [_lenient_amount(payment.get(k) or 0, f"第{i + 1}期金额", draft, issues)
                    for i, k in enumerate(("pay1", "pay2", "pay3"))]
         for i, amt in enumerate(amounts):
-            _fill_amount_cell(rows[i + 1], cfg, cur, amt)
+            _fill_amount_cell(rows[i + 1], cfg, cur, amt, rate)
         report["fee_rows"] = [W.row_label(r) for r in rows]
         report["amounts"] = [total] + amounts
         # 定金时点展开为绝对日期（生成日即签约日，与顶部签署日期同源）：
@@ -517,9 +534,9 @@ def _ot_desc(payment, draft, issues) -> str:
     return event or ""
 
 
-def _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues):
+def _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate):
     rows = fee_tbl.rows
-    _fill_amount_cell(rows[0], cfg, cur, total)
+    _fill_amount_cell(rows[0], cfg, cur, total, rate)
     desc = _ot_desc(payment, draft, issues)
     if not desc:
         msg = "一次性付清需提供支付日期或条件"
@@ -549,7 +566,7 @@ def _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_
     _rewrite_payment(doc, cfg, report, sec_no, next_no, [text])
 
 
-def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues):
+def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate):
     installments = payment.get("installments") or []
     if not installments:
         raise ValueError("自定义分期缺少期次数据")
@@ -575,7 +592,7 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
                 raise ValueError(msg)
             issues.append(msg)
     rows = fee_tbl.rows
-    _fill_amount_cell(rows[0], cfg, cur, total)
+    _fill_amount_cell(rows[0], cfg, cur, total, rate)
     n = len(installments)
     # 统一行样式：以模板第1数据行为源，删除原有分期行后克隆 n 份
     src_tr = copy.deepcopy(rows[1]._tr)
@@ -587,7 +604,7 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
     for i, ins in enumerate(installments):
         row = rows[i + 1]
         W.set_cell_text(row.cells[0], _row_name(installments, i))
-        _fill_amount_cell(row, cfg, cur, amounts[i])
+        _fill_amount_cell(row, cfg, cur, amounts[i], rate)
     report["fee_rows"] = [W.row_label(r) for r in rows]
     report["amounts"] = [total] + amounts
 

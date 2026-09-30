@@ -77,7 +77,13 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
             if BLANK_RE.search(joined):
                 errors.append(f"费用表存在未填空位：{row.cells[0].text.strip()[:20]}")
     if cfg.get("exchange_fee"):
-        t = W.find_table(doc, cfg["exchange_fee"]["anchor"])
+        # 行名可能已随客户用词改写（上车费用），按锚点+别名依次找
+        xf = cfg["exchange_fee"]
+        t = None
+        for name in [xf["anchor"], *xf.get("aliases", [])]:
+            t = W.find_table(doc, name)
+            if t is not None:
+                break
         if t and BLANK_RE.search(" ".join(c.text for c in t.rows[0].cells)):
             errors.append("换车费用表存在未填空位")
     # 条款区残留空位
@@ -113,19 +119,23 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
             if sum(amounts) != report["total"]:
                 errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
 
-    # 4. 币种唯一
+    # 4. 币种唯一。费用表数字写法带设计内第二币种换算后缀（「 / ¥X」或「 / HK$X」，
+    #    固定汇率、方向与主币种相反），扫描前剥掉；只剥预期方向——方向写反仍算违规
+    other_sym = currency_symbol("CNY" if cur == "HKD" else "HKD")
+    conv_suffix_re = re.compile(r"\s*/\s*" + re.escape(other_sym) + r"[\d,]+")
     tokens = set()
     if fee_tbl:
         for row in fee_tbl.rows:
             for c in row.cells:
+                text = conv_suffix_re.sub("", c.text)
                 for tk in ("HK$", "港币"):
-                    if tk in c.text:
+                    if tk in text:
                         tokens.add("HKD")
                 for tk in ("¥", "人民币"):
-                    if tk in c.text:
+                    if tk in text:
                         tokens.add("CNY")
                 # 新办模板残留的孤立 $ 归为港币语义
-                if re.search(r"(?<![A-Za-z￥])\$[\d,]", c.text):
+                if re.search(r"(?<![A-Za-z￥])\$[\d,]", text):
                     tokens.add("HKD")
     if tokens and tokens != {cur}:
         errors.append(f"币种不唯一：文档中出现 {sorted(tokens)}，与所选 {cur} 不一致")

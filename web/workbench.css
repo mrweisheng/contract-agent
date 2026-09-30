@@ -95,12 +95,14 @@ body { font-family: var(--sans); background: var(--bg); color: #2b2b28; font-siz
 .group-label { font-size: 11px; letter-spacing: 2px; color: var(--muted); margin: 14px 0 8px;
                display: flex; align-items: center; gap: 8px; }
 .group-label::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-.group-label.toggle { cursor: pointer; user-select: none; }
-.group-label.toggle:hover { color: var(--ai); }
-.group-label .caret { flex: none; margin-left: 10px; color: var(--ai); font-size: 11px;
-                      letter-spacing: 0; }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 .field { position: relative; }
+/* 「提到才显示」折叠条：中性文案，不暴露具体字段名（客户可能正看着屏幕）；
+   撑满 fields 网格整行，点开后未提及字段出现在其下方 */
+.extra-fold-bar { grid-column: 1 / -1; justify-self: start; border: 1px dashed var(--line);
+                  background: none; border-radius: 8px; padding: 7px 14px; font-size: 12px;
+                  color: var(--muted); cursor: pointer; font-family: var(--sans); transition: all .15s; }
+.extra-fold-bar:hover { color: var(--ink); border-color: var(--ink-2); }
 .field label { display: block; font-size: 11.5px; color: #6b655c; margin-bottom: 4px; }
 .field label em { color: var(--bad); font-style: normal; margin-left: 2px; }
 .f-inp { width: 100%; border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px;
