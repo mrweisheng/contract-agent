@@ -214,7 +214,7 @@ const app = createApp({
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       initForm(); initPayment();
-      editMode.value = "edit"; onlyIssue.value = false; openPay.value = 0;   // 台账视图态复位
+      editMode.value = "edit"; onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
     }
@@ -395,6 +395,7 @@ const app = createApp({
     const editMode = ref("edit");   // 录入 / 核对：核对态只褪输入框外衣，数据与联动照常
     const onlyIssue = ref(false);   // 只看待补：无缺失且无 AI 待核的行/期整行隐藏
     const openPay = ref(0);         // 时间轴展开的期索引（-1＝全部收起）
+    const aiOpen = ref(false);      // AI 快速导入默认收起，点按钮展开
     const ledgerMode = computed(() => cfg.value?.ui_mode === "ledger");
     const shortLabel = s => String(s || "").replace(/（[^）]*）/g, "");   // 「换车费用（可为0…）」→「换车费用」
     function inpSize(v) {   // 行内输入框按内容估宽（CJK 记 2 单位）；number/date 由 CSS 定宽
@@ -1002,7 +1003,7 @@ const app = createApp({
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
       editMode, onlyIssue, openPay, ledgerMode, ledgerSections,
-      shortLabel, inpSize, rowIssue, rowIcon, stepIssue, condText, togglePay, eventPlaceholder,
+      shortLabel, inpSize, rowIssue, rowIcon, stepIssue, condText, togglePay, eventPlaceholder, aiOpen,
       feeMain, feeRest, payDone, overall, payIssue, fixDiffToLast, genBlock, tryGenerate,
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
       onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
@@ -1059,18 +1060,24 @@ const app = createApp({
       <div class="pane-body" :key="paneKey">
         <div v-if="fxNotice" class="fx-warn"><span class="fx-warn-ic">⚠</span>{{ fxNotice }}</div>
 
-        <!-- 智能录入：台账模式＝金色细条一行；常规模式＝原卡片 -->
-        <div v-if="ledgerMode" class="ai-bar">
-          <div class="ai-row">
-            <textarea class="nl" v-model="nlText" rows="2" :placeholder="nlPlaceholder()"></textarea>
-            <button class="btn primary" :disabled="extracting || parsing" @click="runExtract">
-              <span v-if="extracting || parsing" class="spin"></span>{{ extracting ? '提取中…' : parsing ? '解析付款中…' : 'AI 提取' }}
-            </button>
-          </div>
-          <div class="pipeline" :class="{show: extracting || parsing || pipe.extract || pipe.pay}">
-            <div class="stage" :class="pipe.extract">{{ {run:'提取字段中…',done:'✓ 字段提取',fail:'✗ 提取失败'}[pipe.extract] || '待提取' }}</div>
-            <div class="stage" :class="pipe.pay">{{ {run:'解析付款中…',done:'✓ 付款解析',fail:'✗ 付款解析'}[pipe.pay] || '跳过' }}</div>
-          </div>
+        <!-- 智能录入：台账模式＝默认收起的金色细条，点开才是输入区；常规模式＝原卡片 -->
+        <div v-if="ledgerMode" class="ai-bar" :class="{open: aiOpen}">
+          <button v-if="!aiOpen" type="button" class="ai-toggle" @click="aiOpen = true">
+            <span class="ai-toggle-star">✦</span>AI 快速导入<span class="ai-toggle-hint">粘贴客户原文，自动填表</span>
+          </button>
+          <template v-else>
+            <div class="ai-row">
+              <textarea class="nl" v-model="nlText" rows="2" :placeholder="nlPlaceholder()"></textarea>
+              <button class="btn primary" :disabled="extracting || parsing" @click="runExtract">
+                <span v-if="extracting || parsing" class="spin"></span>{{ extracting ? '提取中…' : parsing ? '解析付款中…' : 'AI 提取' }}
+              </button>
+              <button class="ai-collapse" title="收起" @click="aiOpen = false">▾</button>
+            </div>
+            <div class="pipeline" :class="{show: extracting || parsing || pipe.extract || pipe.pay}">
+              <div class="stage" :class="pipe.extract">{{ {run:'提取字段中…',done:'✓ 字段提取',fail:'✗ 提取失败'}[pipe.extract] || '待提取' }}</div>
+              <div class="stage" :class="pipe.pay">{{ {run:'解析付款中…',done:'✓ 付款解析',fail:'✗ 付款解析'}[pipe.pay] || '跳过' }}</div>
+            </div>
+          </template>
         </div>
         <div v-else class="sec">
           <div class="sec-head"><span class="dot"></span>智能录入<span class="sec-hint">粘贴客户沟通原文，AI 自动回填，金色字段需核对</span></div>

@@ -366,10 +366,20 @@ select.f-inp { appearance: auto; }
 .overall span { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
                 white-space: nowrap; }
 
-/* AI 快速导入：金色细条一行（说明文字不占位，空态靠 placeholder） */
+/* AI 快速导入：金色细条，默认收起为一个状态按钮，点开才是输入区 */
 .ai-bar { margin-bottom: 14px; border: 1px solid #ecdfbd; border-left: 3px solid var(--ai);
           border-radius: 11px; background: linear-gradient(180deg, #fffdf4, #fbf6e9);
-          padding: 10px 12px; }
+          padding: 8px 10px; }
+.ai-bar.open { padding: 10px 12px; }
+.ai-toggle { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
+             background: transparent; cursor: pointer; font-family: var(--sans);
+             font-size: 13px; color: var(--ink); padding: 4px 6px; text-align: left; }
+.ai-toggle:hover { color: var(--ai); }
+.ai-toggle-star { color: var(--ai); }
+.ai-toggle-hint { font-size: 11px; color: var(--muted); margin-left: auto; }
+.ai-collapse { border: 0; background: none; color: var(--muted); cursor: pointer;
+               font-size: 12px; padding: 4px 6px; flex: none; align-self: center; }
+.ai-collapse:hover { color: var(--ink); }
 .ai-bar .ai-row { display: flex; gap: 10px; align-items: flex-start; }
 .ai-bar .nl { flex: 1; margin: 0; min-height: 40px; max-height: 120px; }
 .ai-bar .btn { flex: none; }
