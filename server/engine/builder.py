@@ -610,6 +610,7 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
     # 付款时间/事件逐期写入条款区文字（表格保持模板形态只列名称+金额，不加日期列），
     # 行名与费用表行名一致，一一对应；预设节点的专业文案由解析层回填进 trigger
     SIGN_DAY_RE = re.compile(r"^(本合约|本协议|合同)?签订(当日|当天|之日)$|^签约(当日|当天|之日|时)$")
+    PAY_END_RE = re.compile(r"(支付|付清|付款|支付完毕|付)$")
 
     def _when(ins) -> str:
         iso = None
@@ -625,6 +626,9 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
                     iso = cand
         ev = (ins.get("trigger") or "").strip()
         if iso and ev:
+            # 描述里已含同一日期（如「2026年10月20日前付清」），直接用原话，避免「X日或X日…」重复
+            if W.date_cn(iso) in ev:
+                return ev
             # 「签约当日」类短语与日期同源（都源于签署日），并列会出现「X日或签约当日」，只保留日期
             if not SIGN_DAY_RE.match(re.sub(r"(支付|付清|付款|支付完毕)$", "", ev)):
                 return f"{W.date_cn(iso)}或{ev}"
@@ -635,7 +639,7 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
     for i, ins in enumerate(installments):
         when = _when(ins) or PLACEHOLDER_DATE   # 占位仅 draft 可达，非 draft 已被 derive 拦截
         line = f"{_row_name(installments, i)}：于{when}"
-        if not when.endswith("付"):   # 支付/付清/付款/…付 均不再补「支付」
+        if not PAY_END_RE.search(when):   # 支付/付清/付款/支付完毕/…付 结尾均不再补「支付」
             line += "支付"
         texts.append(line + "。")
     _rewrite_payment(doc, cfg, report, sec_no, next_no, texts)

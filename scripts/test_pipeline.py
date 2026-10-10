@@ -653,6 +653,12 @@ def run_newport_matrix():
              "trigger": "乙方完成两地牌代办申请并取得车辆行驶证、批文卡及禁区纸后，甲方在乙方处领取车辆铁牌等通关资料时现场支付",
              "trigger_date": None},
         ]},
+        # 边界：触发词以「付清」结尾不再补「支付」（病句）；描述已含与 trigger_date 同日不再重复日期
+        "custom_edge": {"mode": "custom", "installments": [
+            {"seq": 1, "amount": 100000, "label": "定金", "trigger": "签约当日支付", "trigger_date": "2026-10-09"},
+            {"seq": 2, "amount": 50000, "label": "第二期", "trigger": "递交资料后3日内付清", "trigger_date": None},
+            {"seq": 3, "amount": 50000, "label": "尾款", "trigger": "2026年10月20日前支付", "trigger_date": "2026-10-20"},
+        ]},
     }
     for port in ALL_PORTS:
         for mname, pay in modes.items():
@@ -664,12 +670,22 @@ def run_newport_matrix():
                 errs = check_rules("new_port", form, pay, report, doc)
                 errs += check_fingerprint(report["template"], out, "new_port", report, form)
                 if pay["mode"] == "custom":
-                    if "付款日期" in "\n".join(p.text for p in doc.paragraphs):
+                    body = "\n".join(p.text for p in doc.paragraphs)
+                    if "付款日期" in body:
                         errs.append("custom 出现「付款日期」字样")
                     fee = W_find(doc, "服务总费用")
                     for lab in [r.cells[0].text.strip() for r in fee.rows][1:]:
-                        if f"{lab}：于" not in "\n".join(p.text for p in doc.paragraphs):
+                        if f"{lab}：于" not in body:
                             errs.append(f"条款缺少分期说明：{lab}")
+                    if mname == "custom_edge":
+                        for bad in ("付清支付", "付款支付", "支付完毕支付"):
+                            if bad in body:
+                                errs.append(f"病句：以「{bad}」结尾的条款")
+                        if "2026年10月20日或2026年10月20日" in body:
+                            errs.append("日期重复：描述已含同日仍并列「X日或X日」")
+                        for good in ("第二期：于递交资料后3日内付清。", "尾款：于2026年10月20日前支付。"):
+                            if good not in body:
+                                errs.append(f"边界条款缺失/不符：{good}")
                 if errs:
                     ok = False
                     print(f"[FAIL] 口岸矩阵 {port}×{mname}")
