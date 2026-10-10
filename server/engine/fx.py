@@ -1,66 +1,72 @@
 # -*- coding: utf-8 -*-
-"""HKD→CNY 汇率提供器：官方牌价优先 + SQLite 缓存 + 多级兜底。
+"""HKD→CNY 汇率提供器：新浪主源 + 腾讯备源，双源失败即报错。
 
-取价顺序：缓存（≤TTL）→ 中行牌价页「中行折算价」→ open.er-api.com →
-过期缓存旧值 → FALLBACK_RATE 常量。任何网络异常都不抛出——合同生成
-不因汇率源中断，降级路径在 source 字段里体现（路由层据此提示）。
+取价顺序：缓存（≤TTL，仅限流）→ 新浪外汇 → 腾讯财经。两源都失败抛 FXError，
+由路由层转 502——合同上的第二币种换算宁可失败，也不用写死常量或过期旧值
+静默兜底（写死 0.88 曾比市场偏低约 2%，客户拿百度核对必然有异议）。
 
+口径说明：新浪/腾讯都是市场买卖报价，取买卖中间价——与百度 FinScope、XE
+等客户常查工具同口径（2026-10-10 实测与百度 FinScope 差 0.01%，与 er-api 差
+0.21%）；中行折算价属银行内部口径、比市场中间价高约 0.6%，不采用。
 汇率仅供费用表第二币种换算展示，主币种金额不受影响；
-第二币种的换算加成见 money.CONV_MARKUP（静默系数，界面不展示不提醒）。
+换算加成见 money.CONV_MARKUP（静默系数，界面不展示不提醒）。
 """
 import datetime
-import json
-import re
 import urllib.request
 
 from api import store
 
-TTL_HOURS = 12
-FALLBACK_RATE = 0.88   # 全部数据源失败时的最终兜底
-_BOC_URL = "https://www.boc.cn/sourcedb/whpj/index_1.html"   # 「港币」行所在分页（实测）
-_ERAPI_URL = "https://open.er-api.com/v6/latest/HKD"
+TTL_HOURS = 1   # 缓存只为限流（预览每次编辑都取价，不能裸打外网），不为扛故障——故障就该报错
+
+_SINA_URL = "https://hq.sinajs.cn/list=fx_shkdcny"
+_SINA_REFERER = "https://finance.sina.com.cn/"
+_TENCENT_URL = "https://qt.gtimg.cn/q=whHKDCNY"
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
+# 合理区间校验：源返回异常数据（改版/劫持）一律弃用，等同源失败
+_RATE_MIN, _RATE_MAX = 0.5, 1.5
 
-def _http_get(url: str, timeout: float = 5.0) -> str | None:
+
+class FXError(Exception):
+    """新浪、腾讯两个汇率源均不可用（合同生成/预览中止）。"""
+
+
+def _http_get(url: str, referer: str | None = None, encoding: str = "utf-8") -> str | None:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-        try:
-            return raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return raw.decode("gb18030", errors="ignore")   # 中行历史页面可能走 GBK 系编码
+        headers = {"User-Agent": _UA}
+        if referer:
+            headers["Referer"] = referer
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.read().decode(encoding, errors="ignore")
     except Exception:
         return None
 
 
-def _rate_from_boc() -> float | None:
-    """中行牌价「港币」行的中行折算价（单位：100 港元兑人民币）→ 除以 100。"""
-    html = _http_get(_BOC_URL)
-    if not html:
-        return None
-    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
-        cells = [re.sub(r"<[^>]+>", "", c).strip()
-                 for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
-        if cells and cells[0] == "港币" and len(cells) >= 6:
-            try:
-                v = float(cells[5])
-            except ValueError:
-                return None
-            return round(v / 100, 6) if 0 < v < 200 else None   # 原始值按「每 100 外币」校验
-    return None
-
-
-def _rate_from_erapi() -> float | None:
-    raw = _http_get(_ERAPI_URL)
-    if not raw:
+def _rate_from_sina() -> float | None:
+    """新浪外汇（国内财经工具报价的事实标准，与百度 FinScope 同源同值）：
+    var hq_str_fx_shkdcny="港币人民币,买价,卖价,..."，取买卖中间价。"""
+    raw = _http_get(_SINA_URL, referer=_SINA_REFERER, encoding="gbk")
+    if not raw or '"' not in raw:
         return None
     try:
-        r = float(json.loads(raw)["rates"]["CNY"])
-        return r if 0 < r < 2 else None
-    except Exception:
+        fields = raw.split('"')[1].split(",")
+        rate = (float(fields[1]) + float(fields[2])) / 2
+    except (IndexError, ValueError):
         return None
+    return round(rate, 6) if _RATE_MIN < rate < _RATE_MAX else None
+
+
+def _rate_from_tencent() -> float | None:
+    """腾讯财经：v_whHKDCNY="...~港元人民币~...~现价~..."（~ 分隔，第 4 段为现价）。"""
+    raw = _http_get(_TENCENT_URL, encoding="gbk")
+    if not raw or "~" not in raw:
+        return None
+    try:
+        rate = float(raw.split("~")[3])
+    except (IndexError, ValueError):
+        return None
+    return round(rate, 6) if _RATE_MIN < rate < _RATE_MAX else None
 
 
 def _age_hours(fetched_at: str) -> float:
@@ -72,22 +78,20 @@ def _age_hours(fetched_at: str) -> float:
 
 
 def get_hkd_cny() -> dict:
-    """返回 {rate, source}；source ∈ cache/boc/er-api/stale/fallback。
-    缓存读写失败一律静默降级（合同生成不因本地 DB 问题中断）。"""
+    """返回 {rate, source}，source ∈ sina/tencent；双源失败抛 FXError。
+    缓存读写失败静默忽略（缓存只是限流手段，不影响正确性）。"""
     try:
         cached = store.fx_get("HKD", "CNY")
     except Exception:
         cached = None
     if cached and _age_hours(cached["fetched_at"]) < TTL_HOURS:
-        return {"rate": cached["rate"], "source": "cache"}
-    for fetch, name in ((_rate_from_boc, "boc"), (_rate_from_erapi, "er-api")):
+        return {"rate": cached["rate"], "source": cached["source"]}
+    for fetch, name in ((_rate_from_sina, "sina"), (_rate_from_tencent, "tencent")):
         rate = fetch()
-        if rate:
+        if rate is not None:
             try:
                 store.fx_put("HKD", "CNY", rate, name)
             except Exception:
                 pass
             return {"rate": rate, "source": name}
-    if cached:
-        return {"rate": cached["rate"], "source": "stale"}
-    return {"rate": FALLBACK_RATE, "source": "fallback"}
+    raise FXError("新浪、腾讯汇率源均不可达，请检查服务器网络后重试")
