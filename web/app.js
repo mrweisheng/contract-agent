@@ -467,6 +467,7 @@ const app = createApp({
      * 结构定位（表格锚文本+行标签子串+列号，或段落子串），不用值匹配——
      * 金额在合同里是「港币（大写）零元整（HK$0）」，拿表单原值搜文本必失败。
      * 锚点配置在 server/engine/types_config.py field_anchors，经 /api/types 下发。
+     * 分期卡片：款项名/金额→费用表行；事件条件、日期（无日期列模式）→表格下方逐期条款段。
      * 生命周期为「激活信号」驱动（focusin / pointerdown / 日期 change 均可激活）：
      * 焦点仍在字段内就一直保持，移到非字段区域后缓冲 PV_HIT_HIDE_MS 再隐藏，无硬超时。 */
     const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -489,14 +490,33 @@ const app = createApp({
       return matched ? "default" : "custom";
     }
 
+    // 卖车默认模式：费用表带「订金支付日期」行，日期落在表里（其余模式日期只在条款文字）
+    const carDateInTable = () => payModeNow() === "default" && !!cfg.value?.car_default;
+
     // 分期卡片 → 费用表行号（0=总费用行；-1=末行）。卖车默认模式错位：
-    // 订金金额→行1、订金支付日期→行2、尾款→末行（购车尾款）；其余模式统一 行1+期号
+    // 订金金额→行1、订金日期→行2、尾款→末行（购车尾款）；其余模式统一 行1+期号
     function installmentRowIdx(idx, pfield) {
-      if (payModeNow() === "default" && cfg.value?.car_default) {
+      if (carDateInTable()) {
         if (idx === 0) return pfield === "date" ? 2 : 1;
         return -1;
       }
       return 1 + idx;
+    }
+
+    // 事件条件/日期聚焦的目标条款段：取费用表目标行行名（服务端兜底名，卡片 label 留空也有），
+    // 找正文以「行名：」开头的段落（条款行与表行一一对应，见 builder._custom_mode）；
+    // 同名多期按卡片序号取第 N 个出现，与生成顺序一致。找不到返回 null → 回退高亮费用表行。
+    function clauseTarget(cardIdx, instIdx) {
+      const a = cfg.value.field_anchors?.installment;
+      const tbl = a && resolveAnchor(a);
+      const row = tbl?.rows?.[instIdx === -1 ? tbl.rows.length - 1 : instIdx];
+      const label = row?.cells?.[0]?.textContent?.trim();
+      if (!tbl || !label) return null;
+      const hits = [...sheetEl.value.querySelectorAll("p")].filter(p => {
+        const t = (p.textContent || "").trim();
+        return t.startsWith(`${label}：`) || t.startsWith(`${label}:`);
+      });
+      return hits.length ? hits[cardIdx % hits.length] : null;
     }
 
     function resolveAnchor(a, instIdx) {
@@ -554,14 +574,17 @@ const app = createApp({
     function applyPvHit(scroll) {
       clearPvHit();
       if (!pvHit || !cfg.value) return;
-      let a = null, instIdx;
+      let a = null, instIdx, el = null;
       if (pvHit.key === "__inst") {
         a = cfg.value.field_anchors?.installment;
         instIdx = installmentRowIdx(pvHit.cardIdx, pvHit.pfield);
+        // 事件条件、无日期列模式的日期：内容落在表格下方逐期条款行，优先抓条款段
+        if (pvHit.pfield === "event" || (pvHit.pfield === "date" && !carDateInTable()))
+          el = clauseTarget(pvHit.cardIdx, instIdx);
       } else {
         a = cfg.value.field_anchors?.[pvHit.key];
       }
-      const el = a && resolveAnchor(a, instIdx);
+      if (!el) el = a && resolveAnchor(a, instIdx);
       if (!el) return;
       el.classList.add("pv-hit");
       pinBeacon(el);
