@@ -328,10 +328,14 @@ const app = createApp({
       const rows = payment.rows;
       const row = { seq: 1, label: "", amount: null, date: "", event: "", lockDate: false };
       // 「尾款」永远最后一期：新行插到它前面，否则追加到末尾；按落位自动命名「第N期」
-      // （前面已有第一/二/三期时，插在尾款前的新行自动叫「第三期」，以此类推）
+      // （前面已有第一/二/三期时，插在尾款前的新行自动叫「第三期」，以此类推；
+      //   名字被占（删过中间期再加）就往后顺延，绝不重名）
       const last = rows[rows.length - 1];
       const at = last && (last.label || "").trim() === "尾款" ? rows.length - 1 : rows.length;
-      row.label = `第${SEQ_CN(at + 1)}期`;
+      const taken = new Set(rows.map(r => (r.label || "").trim()));
+      let n = at + 1;
+      while (taken.has(`第${SEQ_CN(n)}期`)) n += 1;
+      row.label = `第${SEQ_CN(n)}期`;
       rows.splice(at, 0, row);
       rows.forEach((r, j) => r.seq = j + 1);
       schedulePreview();

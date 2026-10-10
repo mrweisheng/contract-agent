@@ -28,14 +28,22 @@ FILE_BIZ = {  # 生成文件名「日期+客户名+业务」里的业务段
 
 def _gen_filename(req_type: str, form: dict) -> str:
     """生成文件名：日期+客户名+业务（如 20261010张三新办莲塘），比纯编号可读。
-    编号仍单独分配并贯穿历史库/下载接口，文件名只影响落盘与展示。"""
+    编号仍单独分配并贯穿历史库/下载接口，文件名只影响落盘与展示。
+    同客户同日重生成会撞名：已存在时加序号后缀（-2/-3），避免防覆盖归档
+    把旧文件改名导致旧编号记录的下载 404。"""
     import datetime
     ymd = datetime.date.today().strftime("%Y%m%d")
     client = re.sub(r'[\\/:*?"<>|\s]+', "", str(form.get("client_name") or "")) or "客户"
     biz = FILE_BIZ.get(req_type, req_type)
     if req_type == "new_port":
         biz = "新办" + str(form.get("port") or "").replace("口岸", "").replace("大桥", "")
-    return f"{ymd}{client}{biz}.docx"
+    base = f"{ymd}{client}{biz}"
+    path = os.path.join(store.OUT_DIR, f"{base}.docx")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(store.OUT_DIR, f"{base}-{n}.docx")
+        n += 1
+    return os.path.basename(path)
 
 # LLM 复核确认项过滤：结论为「检查通过」的条目不作为警告展示（提示词已禁，此处兜底）
 NO_ISSUE_RE = re.compile(r"未发现.{0,8}(问题|异常|重复|缺失)")
