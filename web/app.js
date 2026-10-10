@@ -504,19 +504,28 @@ const app = createApp({
     }
 
     // 事件条件/日期聚焦的目标条款段：取费用表目标行行名（服务端兜底名，卡片 label 留空也有），
-    // 找正文以「行名：」开头的段落（条款行与表行一一对应，见 builder._custom_mode）；
-    // 同名多期按卡片序号取第 N 个出现，与生成顺序一致。找不到返回 null → 回退高亮费用表行。
+    // 找正文以「行名：」开头的段落（条款行与表行一一对应，见 builder._custom_mode）。
+    // 行名含「｜」时（默认模式模板行名如「第三期｜尾款」）依次尝试：原样→去「｜」拼接
+    // （「第三期尾款：」）→各段（「尾款：」），覆盖模板条款措辞；同名多期按卡片序号取第 N 个。
+    // 全部不中（如卖车模板尾款是「剩余购车尾款港币…」句式）→ 返回 null 回退高亮费用表行。
     function clauseTarget(cardIdx, instIdx) {
       const a = cfg.value.field_anchors?.installment;
       const tbl = a && resolveAnchor(a);
       const row = tbl?.rows?.[instIdx === -1 ? tbl.rows.length - 1 : instIdx];
       const label = row?.cells?.[0]?.textContent?.trim();
       if (!tbl || !label) return null;
-      const hits = [...sheetEl.value.querySelectorAll("p")].filter(p => {
-        const t = (p.textContent || "").trim();
-        return t.startsWith(`${label}：`) || t.startsWith(`${label}:`);
-      });
-      return hits.length ? hits[cardIdx % hits.length] : null;
+      const cands = [label];
+      if (label.includes("｜")) {
+        cands.push(label.replace(/｜/g, ""));
+        for (const seg of label.split("｜")) if (seg) cands.push(seg);
+      }
+      const ps = [...sheetEl.value.querySelectorAll("p")];
+      const texts = ps.map(p => (p.textContent || "").trim());
+      for (const cand of cands) {
+        const hits = ps.filter((_, i) => texts[i].startsWith(`${cand}：`) || texts[i].startsWith(`${cand}:`));
+        if (hits.length) return hits[cardIdx % hits.length];
+      }
+      return null;
     }
 
     function resolveAnchor(a, instIdx) {
