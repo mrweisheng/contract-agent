@@ -76,7 +76,10 @@ def _filter_notes(notes: list) -> list:
 @router.get("/fx")
 def get_fx():
     """前端费用输入行的实时约合提示：与合同落盘同一汇率源、同一加成口径。"""
-    info = fx.get_hkd_cny()
+    try:
+        info = fx.get_hkd_cny()
+    except fx.FXError as ex:
+        raise HTTPException(502, str(ex))
     return {"rate": info["rate"], "source": info["source"]}
 
 
@@ -298,9 +301,10 @@ def generate(req: GenerateReq, background_tasks: BackgroundTasks):
         errors.extend(fp_issues)
 
         warnings = []
-        if report.get("fx_source") == "fallback":
-            warnings.append(f"汇率源不可用，第二币种换算按兜底汇率 {report.get('fx_rate')} 计算")
         text = extract_contract_text(doc)
+    except fx.FXError as ex:
+        store.release_no(no)
+        raise HTTPException(502, str(ex))
     except ValueError as ex:
         store.release_no(no)
         raise HTTPException(422, str(ex))
@@ -351,6 +355,8 @@ def preview(req: PreviewReq):
                                     draft=True, issues=issues)
             with open(path, "rb") as f:
                 data = f.read()
+    except fx.FXError as ex:
+        raise HTTPException(502, str(ex))
     except ValueError as ex:
         raise HTTPException(422, f"模板结构异常，无法预览：{ex}")
     except HTTPException:

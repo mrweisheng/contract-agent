@@ -153,8 +153,6 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         fx_info = fx.get_hkd_cny()
         rate = fx_info["rate"]
         report["fx_rate"], report["fx_source"] = rate, fx_info["source"]
-        if fx_info["source"] == "fallback" and draft:
-            issues.append(f"汇率获取失败，第二币种换算按兜底汇率 {rate}")
     else:
         rate = fx_rate
         report["fx_rate"], report["fx_source"] = rate, "fixed"
