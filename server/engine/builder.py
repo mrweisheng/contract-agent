@@ -20,7 +20,9 @@ from engine.money import (to_cn_upper, with_commas, currency_label, currency_sym
 PARTY_LABEL_MAP = [
     ("证件", "client_id"),
     ("联络人", "client_contact"),
+    ("联系人", "client_contact"),
     ("联络电话", "client_phone"),
+    ("电话", "client_phone"),
     ("联络地址", "client_address"),
     ("地址", "client_address"),
 ]
@@ -79,25 +81,32 @@ def _archive_existing(out_path: str) -> str:
     return archived
 
 
-SIG_DATE_BLANK_RE = re.compile(r"日期：_{2,}年_{2,}月_{2,}日")
+# 签署块日期空位：年份可预填（高才移民模板「日期：2026年____月____日」），填入时整段替换
+SIG_DATE_BLANK_RE = re.compile(r"日期：(?:_{2,}|\d{4})年_{2,}月_{2,}日")
+# 「日期：」标签格与空位格分离的模板（高才移民）：空位独占一段，无「日期：」前缀
+SIG_DATE_BARE_RE = re.compile(r"(?:_{2,}|\d{4})年_{2,}月_{2,}日")
 
 
 def _fill_signature_dates(doc, y, m, d) -> int:
-    """签署确认块双方「日期：____年____月____日」精确替换（只动日期空位，
-    签名/姓名/印章留给手签）。返回替换处数。"""
-    text = f"日期：{y}年{m}月{d}日"
+    """签署确认块双方日期空位精确替换（只动日期空位，签名/姓名/印章留给手签）。
+    两种模板形态：「日期：____年__月__日」同段；「日期：」标签+「2026年__月__日」独立格。
+    不做已填去重——填过的段落不再匹配空位模式，天然幂等（曾用 id(p._p) 去重，
+    但 lxml 代理对象 GC 后 id 会复用，会把另一处同文空位误判成已填导致漏填）。"""
     filled = 0
-    seen = set()
     for tbl in doc.tables:
         for row in tbl.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
-                    m = SIG_DATE_BLANK_RE.search(p.text)
-                    if m and (id(p._p), m.group(0)) not in seen:
-                        # merged cell 会被多行重复迭代，去重后计数
-                        seen.add((id(p._p), m.group(0)))
-                        if W.replace_in_paragraph(p, m.group(0), text):
-                            filled += 1
+                    mm = SIG_DATE_BLANK_RE.search(p.text)
+                    if mm:
+                        old, new = mm.group(0), f"日期：{y}年{m}月{d}日"
+                    else:
+                        bm = SIG_DATE_BARE_RE.fullmatch(p.text.strip())
+                        if not bm:
+                            continue
+                        old, new = bm.group(0), f"{y}年{m}月{d}日"
+                    if W.replace_in_paragraph(p, old, new):
+                        filled += 1
     return filled
 
 
@@ -120,8 +129,10 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         tpl = os.path.join(TEMPLATES_DIR, next(iter(cfg["template_map"].values())))
     # 入参校验前置：币种与总费用先解析，任一不合法就在复制模板之前失败，
     # 避免在 out/ 留下不在历史列表里的孤儿模板副本。
+    raw_cur = (cfg["currency_default"] if cfg.get("currency_locked")
+               else (form.get("currency") or cfg["currency_default"]))
     try:
-        cur = clean_currency(form.get("currency") or cfg["currency_default"])
+        cur = clean_currency(raw_cur)
     except ValueError as ex:
         if not draft:
             raise
@@ -148,17 +159,23 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         rate = fx_rate
         report["fx_rate"], report["fx_source"] = rate, "fixed"
 
-    # 1. 顶部编号/日期行
-    meta = doc.paragraphs[0]
+    # 1. 顶部编号/日期行（meta_number_line：编号独立成段且无日期空位，只填编号；
+    #    签署日期只落在签署确认块，与 _fill_signature_dates 同源）
     sign_date = str(form.get("sign_date") or "").strip()
     if sign_date and draft and not W.is_valid_iso_date(sign_date):
         issues.append(f"签署日期「{sign_date}」无法识别，预览按今日显示")
         sign_cn = W.today_cn()
     else:
         sign_cn = W.date_cn(sign_date) if sign_date else W.today_cn()
-    n = W.fill_blanks_in_paragraph(meta, [agreement_no, sign_cn])
-    if n < 2:
-        raise ValueError("模板顶部编号/日期行缺少空位，请检查模板")
+    if cfg.get("meta_number_line"):
+        meta = W.find_paragraph(doc, cfg["meta_number_line"])
+        if meta is None or W.fill_blanks_in_paragraph(meta, [agreement_no]) < 1:
+            raise ValueError("模板编号行缺少空位，请检查模板")
+    else:
+        meta = doc.paragraphs[0]
+        n = W.fill_blanks_in_paragraph(meta, [agreement_no, sign_cn])
+        if n < 2:
+            raise ValueError("模板顶部编号/日期行缺少空位，请检查模板")
 
     # 2. 甲乙双方表（客户侧）
     party_tbl = W.find_table(doc, cfg["party_table_anchor"])
@@ -186,6 +203,26 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
                         val = cfg["quota_auto"]
                     W.set_cell_text(row.cells[1], str(val or "").strip() or "—")
 
+    # 3.5 申请人信息表（高才移民）：整行重写为模板同款句式；
+    #     空值落全角空位（打印后可手写），主申请人缺省同委托方
+    app_cfg = cfg.get("applicant_table")
+    if app_cfg:
+        t = W.find_table(doc, app_cfg["anchor"])
+        if t is None:
+            raise ValueError("找不到申请人信息表")
+        lead = (str(form.get("lead_applicant") or "").strip()
+                or str(form.get("client_name") or "").strip() or "　　")
+        spouse = str(form.get("spouse_name") or "").strip() or "　　"
+        minors = str(form.get("minor_children") or "").strip() or "　"
+        totaln = str(form.get("total_applicants") or "").strip() or "　"
+        if draft and not any(str(form.get(k) or "").strip() for k in
+                             ("lead_applicant", "spouse_name", "minor_children", "total_applicants")):
+            issues.append("申请人信息未填：主申请人按委托方、随行人数留空位（可打印后手写）")
+        W.set_paragraph_text(t.rows[0].cells[0].paragraphs[0],
+                             app_cfg["lead_line"].format(name=lead))
+        W.set_paragraph_text(t.rows[1].cells[0].paragraphs[0],
+                             app_cfg["family_line"].format(spouse=spouse, minors=minors, total=totaln))
+
     # 4. 换车费用（过户类）。行名默认「换车费用」，客户说「上车费用」则随客户用词
     #    （两名词同指现牌流程中车辆相关费用，白名单防幻觉，其余输入一律回默认）
     if cfg.get("exchange_fee"):
@@ -210,7 +247,9 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     report["mode"] = mode
     sec_no, next_no = cfg["payment_section"]
 
-    if mode == "default":
+    if cfg.get("installment_table"):
+        _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, mode)
+    elif mode == "default":
         _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate)
     elif mode == "one_time":
         _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
@@ -424,6 +463,45 @@ def derive_payment(type_key: str, payment: dict, total: int = None,
 
 # ---------------- 三种付款模式 ----------------
 
+# ---------------- 付款时点措辞（custom 分期条款 / 移民分期散文共用） ----------------
+
+SIGN_DAY_RE = re.compile(r"^(本合约|本协议|合同)?签订(当日|当天|之日)$|^签约(当日|当天|之日|时)$")
+PAY_END_RE = re.compile(r"(支付|付清|付款|支付完毕|付)$")
+# 时点短语以「定金/尾款/款项」等宾语结尾时自带动词（支付定金/付尾款），不再补「支付」
+PAY_OBJ_RE = re.compile(r"[金款]$")
+
+
+def pay_when_phrase(when: str) -> str:
+    """「于{when}支付…」句式用的时点短语：不以「付」类动词或「金/款」宾语结尾才补「支付」。"""
+    if PAY_END_RE.search(when) or PAY_OBJ_RE.search(when):
+        return when
+    return when + "支付"
+
+
+def payment_when(ins) -> str:
+    """一期付款时点文字：绝对日期优先；「签约当日」类短语与日期同源只留日期；
+    描述里已含同一日期直接用原话（避免「X日或X日…」）；其余返回条件原文。"""
+    iso = None
+    td = (ins.get("trigger_date") or "").strip()
+    if W.is_valid_iso_date(td):
+        iso = td
+    else:
+        # trigger_date 缺失/非法时，从条件描述里捞「X年X月X日」
+        m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", (ins.get("trigger") or "").strip())
+        if m:
+            cand = f"{int(m.group(1))}-{int(m.group(2))}-{int(m.group(3))}"
+            if W.is_valid_iso_date(cand):
+                iso = cand
+    ev = (ins.get("trigger") or "").strip()
+    if iso and ev:
+        if W.date_cn(iso) in ev:
+            return ev
+        if not SIGN_DAY_RE.match(re.sub(r"(支付|付清|付款|支付完毕)$", "", ev)):
+            return f"{W.date_cn(iso)}或{ev}"
+        return W.date_cn(iso)
+    return W.date_cn(iso) if iso else ev
+
+
 def _rewrite_payment(doc, cfg, report, sec_no, next_no, texts):
     """改写条款区付款段（只动分期段，保留费用范围/逾期/收款账户等无关条款）。"""
     labels = [p["label"] for p in (cfg.get("pay_preset") or [])]
@@ -609,37 +687,101 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
 
     # 付款时间/事件逐期写入条款区文字（表格保持模板形态只列名称+金额，不加日期列），
     # 行名与费用表行名一致，一一对应；预设节点的专业文案由解析层回填进 trigger
-    SIGN_DAY_RE = re.compile(r"^(本合约|本协议|合同)?签订(当日|当天|之日)$|^签约(当日|当天|之日|时)$")
-    PAY_END_RE = re.compile(r"(支付|付清|付款|支付完毕|付)$")
-
-    def _when(ins) -> str:
-        iso = None
-        td = (ins.get("trigger_date") or "").strip()
-        if W.is_valid_iso_date(td):
-            iso = td
-        else:
-            # trigger_date 缺失/非法时，从条件描述里捞「X年X月X日」
-            m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", (ins.get("trigger") or "").strip())
-            if m:
-                cand = f"{int(m.group(1))}-{int(m.group(2))}-{int(m.group(3))}"
-                if W.is_valid_iso_date(cand):
-                    iso = cand
-        ev = (ins.get("trigger") or "").strip()
-        if iso and ev:
-            # 描述里已含同一日期（如「2026年10月20日前付清」），直接用原话，避免「X日或X日…」重复
-            if W.date_cn(iso) in ev:
-                return ev
-            # 「签约当日」类短语与日期同源（都源于签署日），并列会出现「X日或签约当日」，只保留日期
-            if not SIGN_DAY_RE.match(re.sub(r"(支付|付清|付款|支付完毕)$", "", ev)):
-                return f"{W.date_cn(iso)}或{ev}"
-            return W.date_cn(iso)
-        return W.date_cn(iso) if iso else ev
-
     texts = []
     for i, ins in enumerate(installments):
-        when = _when(ins) or PLACEHOLDER_DATE   # 占位仅 draft 可达，非 draft 已被 derive 拦截
-        line = f"{_row_name(installments, i)}：于{when}"
-        if not PAY_END_RE.search(when):   # 支付/付清/付款/支付完毕/…付 结尾均不再补「支付」
-            line += "支付"
-        texts.append(line + "。")
+        when = payment_when(ins) or PLACEHOLDER_DATE   # 占位仅 draft 可达，非 draft 已被 derive 拦截
+        texts.append(f"{_row_name(installments, i)}：于{pay_when_phrase(when)}。")
     _rewrite_payment(doc, cfg, report, sec_no, next_no, texts)
+
+
+# ---------------- 移民式费用区（总费用行表 + 分期散文表） ----------------
+
+def _imm_set_row(row, label, verb, amt):
+    """分期散文行改写，保留模板句式「{label}  {verb}人民币{n}元整(大写：人民币{upper})」。"""
+    W.set_paragraph_text(row.cells[1].paragraphs[0],
+                         f"{label}  {verb}人民币{amt}元整(大写：人民币{to_cn_upper(amt)})。")
+
+
+def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, mode):
+    """高才移民模板费用区：总费用行（数字句+大写句正则原位替换保格式）
+    + 分期散文表（default 只换金额；one_time/custom 克隆首行改写整句）
+    + 总费用表「分N期支付」格随期数改写。"""
+    if fee_tbl is None:
+        raise ValueError("找不到费用表")
+    row0 = fee_tbl.rows[0]
+    if not W.re_replace_in_paragraph(row0.cells[1].paragraphs[0],
+                                     r"人民币[:：]\s*[\d,]+\s*元整\.?", f"人民币：{total}元整."):
+        raise ValueError("总费用行金额句与模板不符，请检查模板")
+    if not W.re_replace_in_paragraph(row0.cells[2].paragraphs[0],
+                                     r"大写[:：]\s*人民币[^）)]+", f"大写：人民币{to_cn_upper(total)}"):
+        raise ValueError("总费用行大写句与模板不符，请检查模板")
+
+    inst_tbl = W.find_table(doc, cfg["installment_table"])
+    if inst_tbl is None:
+        raise ValueError("找不到分期付款表")
+    amounts = []
+
+    if mode == "default":
+        if len(inst_tbl.rows) != 3:
+            raise ValueError("分期付款表行数与预设三期不符，请检查模板")
+        amounts = [_lenient_amount(payment.get(k) or 0, f"第{i + 1}期金额", draft, issues)
+                   for i, k in enumerate(("pay1", "pay2", "pay3"))]
+        for row, amt in zip(inst_tbl.rows, amounts):
+            p = row.cells[1].paragraphs[0]
+            if not (W.re_replace_in_paragraph(p, r"人民币\d+元整", f"人民币{amt}元整")
+                    and W.re_replace_in_paragraph(p, r"(大写[:：]\s*人民币)[^）)]+",
+                                                  rf"\g<1>{to_cn_upper(amt)}")):
+                raise ValueError("分期付款表金额句与模板不符，请检查模板")
+        n = 3
+    elif mode == "one_time":
+        desc = _ot_desc(payment, draft, issues) or PLACEHOLDER_DATE
+        amounts = [total]
+        _imm_set_row(inst_tbl.rows[0], "第一期", f"于{desc}一次性支付", total)
+        for idx in range(len(inst_tbl.rows) - 1, 0, -1):
+            W.delete_row(inst_tbl, idx)
+        n = 1
+    else:  # custom
+        installments = payment.get("installments") or []
+        if not installments:
+            raise ValueError("自定义分期缺少期次数据")
+        amounts = [_lenient_amount(x.get("amount") or 0, f"第{i + 1}期金额", draft, issues)
+                   for i, x in enumerate(installments)]
+        if any(a <= 0 for a in amounts):
+            msg = "各期金额必须大于 0"
+            if not draft:
+                raise ValueError(msg)
+            issues.append(msg)
+            amounts = [max(a, 0) for a in amounts]
+        if sum(amounts) != total:
+            msg = f"各期合计 {sum(amounts)} ≠ 总费用 {total}，请先在界面修正"
+            if not draft:
+                raise ValueError(msg)
+            issues.append(msg)
+        for i, ins in enumerate(installments):
+            if not (W.is_valid_iso_date((ins.get("trigger_date") or "").strip())
+                    or (ins.get("trigger") or "").strip()):
+                msg = f"第{i + 1}期缺少付款时间／节点／条件（既无日期也无触发条件），不能生成"
+                if not draft:
+                    raise ValueError(msg)
+                issues.append(msg)
+        # 以模板首行为样式源克隆到 n 行，逐行改写散文句（首行即第一期，克隆补其余期数）
+        while len(inst_tbl.rows) > 1:
+            W.delete_row(inst_tbl, 1)
+        for _ in range(len(installments) - 1):
+            W.clone_row(inst_tbl, 0)
+        for i, ins in enumerate(installments):
+            when = payment_when(ins) or PLACEHOLDER_DATE
+            _imm_set_row(inst_tbl.rows[i], _row_name(installments, i),
+                         f"于{pay_when_phrase(when)}", amounts[i])
+        n = len(installments)
+
+    phase = fee_tbl.rows[0].cells[cfg.get("phase_cell", 3)]
+    # 中文量词习惯：两期（不是「二期」）
+    want = "一次性支付：" if mode == "one_time" else f"分{'两' if n == 2 else W.seq_cn(n)}期支付："
+    if phase.text.strip() != want:   # 模板已是对的（默认三期）就不动，指纹零变化
+        W.set_cell_text(phase, want)
+    # fee_rows 语义=费用表（总费用行表）行标签，供 checker 指纹比对；分期散文行由
+    # check_rules 的移民分支直接从表格解析金额校验合计
+    report["fee_rows"] = [W.row_label(r) for r in fee_tbl.rows]
+    report["amounts"] = [total] + amounts
+    report["section_paras"] = None

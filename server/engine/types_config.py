@@ -301,6 +301,83 @@ TYPES = {
             {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
         ],
     },
+
+    # ============ 高才移民 ============
+    "immigration": {
+        "label": "高才移民（香港高端人才通行证计划）",
+        "short": "高才移民",
+        "template": "高才移民合同.docx",
+        "currency_default": "CNY",
+        "currency_locked": True,   # 模板散文多处写死「人民币」，不提供币种选择
+        "client_side": "甲方（委托方）",
+        "payer": "甲方", "payee": "乙方",   # 客户付华星，与两地牌方向相反
+        "party_table_anchor": "甲方（委托方）",
+        "party_label_col": 0, "party_value_col": 1,
+        "kv_tables": [],
+        "fee_total_label": "服务费",
+        # 顶部编号行：编号在含「合同编号」的段落里，只有编号一个空位（无日期）
+        "meta_number_line": "合同编号",
+        # 申请人信息表（留空处打印后可手写：空值一律落全角空位）
+        "applicant_table": {
+            "anchor": "为主申请人",
+            "lead_line": "甲方以{name}为主申请人，",
+            "family_line": "配偶{spouse}随行，包括未成年子女：（{minors}）人，共计（{total}）人。",
+        },
+        # 费用区 = 总费用行表 + 分期散文表（模板形态与车牌类「行名|大写|数字」不同）：
+        # 分期时点写在散文行内，总费用表末格「分三期支付：」随实际期数改写。
+        # 分期表锚点用散文行独有子串「元整(大写：人民币」（金额句跨模式必在，
+        # 总费用表的大写句在独立格不含此相邻子串），改写后仍能定位
+        "fee_table_anchor": "甲方需支付乙方服务费",
+        "installment_table": "元整(大写：人民币",
+        "phase_cell": 3,
+        # 付款计划预设（模板固定三期；金额为模板原文，前端预填可改）
+        "pay_preset": [
+            {"label": "第一期", "event": "签订合约后三个工作日内支付定金", "amount": 100000},
+            {"label": "第二期", "event": "甲方提供乙方所需个人资料清单成功办理公司过户后三个工作日内", "amount": 200000},
+            {"label": "第三期", "event": "获得香港入境事务处对甲方的申请发出批准函后的三个工作日内", "amount": 100000},
+        ],
+        "payment_section": ("三", "四"),
+        "fee_rows_default": ["服务费"],
+        "exchange_fee": False,
+        # 金额解析正则（checker 用）：模板散文写法「人民币：400000元整.」「(大写：人民币肆拾万元整）」
+        "amount_num_re": r"人民币[:：]\s*([\d,]+)\s*元整",
+        "amount_cn_re": r"大写[:：]\s*人民币(.+?元整)",
+        "signature_anchor": "代表签名",
+        "field_anchors": {
+            "client_name": {"table": "@party", "row": "甲方（委托方）", "col": 1},
+            "client_id": {"table": "@party", "row": "证件", "col": 1},
+            "client_contact": {"table": "@party", "row": "联系人", "col": 1},
+            "client_phone": {"table": "@party", "row": "电话", "col": 1},
+            "client_address": {"table": "@party", "row": "联系地址", "col": 1},
+            "lead_applicant": {"table": "为主申请人", "row": "主申请人", "col": 0},
+            "spouse_name": {"table": "为主申请人", "row": "配偶", "col": 0},
+            "minor_children": {"table": "为主申请人", "row": "未成年子女", "col": 0},
+            "total_applicants": {"table": "为主申请人", "row": "共计", "col": 0},
+            "total_fee": {"table": "@fee", "row": "甲方需支付乙方服务费", "col": 1},
+            "currency": {"table": "@fee", "row": "甲方需支付乙方服务费", "col": 1},
+            "sign_date": {"table": "代表签名"},
+            # 分期散文表：行即条款（时点+金额都在行内），各子字段统一高亮对应行
+            "installment": {"table": "支付定金"},
+        },
+        "groups": [
+            {"title": "委托方信息（甲方）", "fields": [
+                {"key": "client_name", "label": "委托方名称", "type": "text", "required": True},
+                {"key": "client_id", "label": "证件／注册编号", "type": "text", "required": True},
+                {"key": "client_contact", "label": "联系人", "type": "text", "required": False},
+                {"key": "client_phone", "label": "电话／邮箱", "type": "text", "required": True},
+                {"key": "client_address", "label": "联系地址", "type": "text", "required": False},
+            ]},
+            {"title": "申请人信息（主申请人及随行家属）", "fields": [
+                {"key": "lead_applicant", "label": "主申请人姓名（空=同委托方）", "type": "text", "required": False},
+                {"key": "spouse_name", "label": "配偶姓名（无随行留空）", "type": "text", "required": False},
+                {"key": "minor_children", "label": "未成年子女人数", "type": "text", "required": False},
+                {"key": "total_applicants", "label": "随行共计人数", "type": "text", "required": False},
+            ]},
+        ],
+        "fee_fields": [
+            {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
+        ],
+    },
 }
 
 CURRENCY_OPTIONS = [

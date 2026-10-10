@@ -139,6 +139,7 @@ const app = createApp({
       if (np && np.ports) items.push({
         title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
       });
+      if (get("immigration")) items.push({ title: "移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
       return items;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
@@ -164,7 +165,9 @@ const app = createApp({
       return (cfg.value?.pay_preset || []).map((p, i) => {
         const f = fill(i);
         return {
-          seq: i + 1, label: f.label || p.label, amount: f.amount,
+          seq: i + 1, label: f.label || p.label,
+          // 预设自带模板金额（移民类）时预填，客户描述/AI 解析值优先
+          amount: f.amount != null ? f.amount : (p.amount != null ? p.amount : null),
           // 日期兜底仅限"签约当日"行（无事件的定金/订金行）；其余行客户没给就留空，绝不代填
           date: (p.dated && !p.event) ? (f.date || form.sign_date || "") : (f.date || ""),
           event: p.event || "",
@@ -494,8 +497,10 @@ const app = createApp({
     const carDateInTable = () => payModeNow() === "default" && !!cfg.value?.car_default;
 
     // 分期卡片 → 费用表行号（0=总费用行；-1=末行）。卖车默认模式错位：
-    // 订金金额→行1、订金日期→行2、尾款→末行（购车尾款）；其余模式统一 行1+期号
+    // 订金金额→行1、订金日期→行2、尾款→末行（购车尾款）；其余模式统一 行1+期号；
+    // 移民式分期表（imm_fee）无总费用行，行号=期号
     function installmentRowIdx(idx, pfield) {
+      if (cfg.value?.imm_fee) return idx;
       if (carDateInTable()) {
         if (idx === 0) return pfield === "date" ? 2 : 1;
         return -1;
@@ -755,6 +760,7 @@ const app = createApp({
       transfer_gx: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托高新过户车牌 LN1234，目标香港公司 XX 物流有限公司，通行莲塘口岸，服务总费用人民币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期提交资料后 3 日内付，尾款过户完成后付。",
       transfer_ns: "示例：客户鸿达投资有限公司（证件 91110000MA0000000X，联络人李四，电话 13800001234）委托纳税过户车牌 LN1234，目标香港公司 XX 物流有限公司、目标内地公司 XX 国际货运代理有限公司，通行深圳湾口岸，服务总费用人民币 30 万；分三期支付，每期 10 万。",
       new_port: "示例：客户王五（身份证 440000000000000000，电话 13800001234）通过莲塘口岸新办粤 Z 两地牌，服务总费用人民币 25 万；分三期支付，第一期签约当日付，第二期省厅获编号后 1 个工作日内付，第三期领取铁牌等通关资料时付。",
+      immigration: "示例：客户赵六（身份证 440000000000000000，电话 13800001234，邮箱 zhaoliu@xx.com）办理香港高才计划，主申请人赵六，配偶钱七随行，未成年子女 1 人共计 3 人；服务费人民币 40 万分三期，定金 10 万签约后 3 个工作日内付，第二期 20 万公司过户后付，第三期 10 万获入境处批准函后付。",
     };
     function nlPlaceholder() { return NL_PLACEHOLDERS[selected.type] || NL_PLACEHOLDERS.car; }
     const TEMPLATE_NAMES = {
@@ -765,6 +771,7 @@ const app = createApp({
       "深圳湾口岸": "深圳湾口岸粤Z新办协议",
       "港珠澳大桥口岸": "港珠澳大桥口岸粤Z新办协议",
       "沙头角口岸": "沙头角口岸粤Z新办协议",
+      immigration: "高才移民服务合约",
     };
     const templateName = computed(() => {
       if (selected.type === "new_port") return TEMPLATE_NAMES[form.port] || "粤Z新办协议";
@@ -927,12 +934,16 @@ const app = createApp({
           <div class="sec-body">
             <div class="group-label">价款与币种</div>
             <div class="fields">
-              <div class="field">
+              <div class="field" v-if="!cfg.currency_locked">
                 <label>币种<em>*</em></label>
                 <select id="f-currency" class="f-inp" v-model="form.currency" @change="onFieldInput('currency')">
                   <option v-for="c in currencies" :key="c.value" :value="c.value">{{ c.label }}</option>
                 </select>
                 <button v-if="aiFilled.currency" class="badge ai" @click="confirmAI('currency')">AI · 未核</button>
+              </div>
+              <div class="field" v-else>
+                <label>币种</label>
+                <input class="f-inp" :value="currencyLabel(form.currency) + '（随模板固定）'" disabled/>
               </div>
               <div class="field" v-for="f in cfg.fee_fields" :key="f.key"
                    :class="fieldState({key: f.key, required: f.required, auto: false})">

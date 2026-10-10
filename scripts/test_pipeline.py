@@ -752,6 +752,118 @@ def run_exchange_alias():
     return ok
 
 
+def run_immigration():
+    """高才移民：总费用行+分期散文表三模式（default 换金额/one_time/custom 克隆重写）、
+    「分N期支付」格、申请人信息表、编号行、签署日期（年份预填变体）。"""
+    from engine.writer import find_table
+    ok = True
+    out = os.path.join(OUT, "_imm.docx")
+    base = {
+        "agreement_no": "", "sign_date": "2026-10-10", "currency": "CNY",
+        "client_name": "赵六", "client_id": "440301199001010000",
+        "client_contact": "赵太太", "client_phone": "13800001234",
+        "client_address": "深圳市福田区测试路1号",
+        "total_fee": 400000,
+        "lead_applicant": "", "spouse_name": "钱七", "minor_children": "1", "total_applicants": "3",
+    }
+
+    def fee_texts(doc):
+        total_tbl = find_table(doc, "甲方需支付乙方服务费")
+        inst_tbl = find_table(doc, "元整(大写：人民币")
+        return (" | ".join(c.text.strip() for c in total_tbl.rows[0].cells),
+                [r.cells[1].text.strip() for r in inst_tbl.rows])
+
+    def build_and_check(tag, form, pay, expect_total_cell=None, expect_rows=None,
+                        expect_phase=None, draft=False):
+        nonlocal ok
+        try:
+            report = build_contract("immigration", form, pay, "20261010001", out, draft=draft)
+            report["agreement_no"] = "20261010001"
+            doc = Document(out)
+            errs = [] if draft else check_rules("immigration", form, pay, report, doc)
+            if not draft:
+                errs += check_fingerprint(report["template"], out, "immigration", report, form)
+            if expect_total_cell is not None:
+                total_cell, rows = fee_texts(doc)
+                if expect_total_cell not in total_cell:
+                    errs.append(f"总费用行不符：{total_cell}")
+                if expect_phase is not None and f"分{expect_phase}期支付：" not in total_cell:
+                    errs.append(f"期数格不符：{total_cell}")
+                if expect_rows is not None and rows != expect_rows:
+                    errs.append(f"分期行不符：{rows}")
+            if errs:
+                ok = False
+                print(f"[FAIL] 移民·{tag}")
+                for e in errs:
+                    print(f"   - {e}")
+            else:
+                print(f"[PASS] 移民·{tag}")
+        except Exception as ex:
+            ok = False
+            import traceback
+            traceback.print_exc()
+            print(f"[ERROR] 移民·{tag}: {ex}")
+
+    # 1) default：预设三期只换金额（金额=模板值时行文字零变化）；主申请人缺省同委托方
+    form = dict(base)
+    build_and_check(
+        "default", form, {"mode": "default", "pay1": 100000, "pay2": 200000, "pay3": 100000},
+        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 分三期支付：",
+        expect_rows=[
+            "第一期  于签订合约后三个工作日内支付定金人民币100000元整(大写：人民币壹拾万元整)。",
+            "第二期  于甲方提供乙方所需个人资料清单成功办理公司过户后三个工作日内支付乙方：人民币200000元整(大写：人民币贰拾万元整)。",
+            "第三期   获得香港入境事务处对甲方的申请发出批准函后的三个工作日内支付乙方：人民币100000元整(大写：人民币壹拾万元整)。",
+        ])
+    doc = Document(out)
+    app_tbl = find_table(doc, "为主申请人")
+    app0 = app_tbl.rows[0].cells[0].text.strip()
+    app1 = app_tbl.rows[1].cells[0].text.strip()
+    if app0 != "甲方以赵六为主申请人，" or app1 != "配偶钱七随行，包括未成年子女：（1）人，共计（3）人。":
+        ok = False
+        print(f"[FAIL] 移民·default 申请人表：{app0!r} / {app1!r}")
+    meta = next(p for p in doc.paragraphs if "合同编号" in p.text)
+    if meta.text.strip() != "合同编号：20261010001":
+        ok = False
+        print(f"[FAIL] 移民·default 编号行：{meta.text!r}")
+    sig_dates = [c.text for t in doc.tables for r in t.rows for c in r.cells
+                 if c.text.strip() == "2026年10月10日"]
+    if len(sig_dates) < 2:
+        ok = False
+        print(f"[FAIL] 移民·default 签署日期填充处数={len(sig_dates)}")
+
+    # 2) custom 两期：克隆首行改写整句；「分两期支付」；签约当日与日期同源只留日期
+    form2 = dict(base, spouse_name="", minor_children="", total_applicants="")
+    build_and_check(
+        "custom2", form2, {"mode": "custom", "installments": [
+            {"seq": 1, "amount": 150000, "label": "定金", "trigger": "签约当日支付", "trigger_date": "2026-10-10"},
+            {"seq": 2, "amount": 250000, "label": "尾款", "trigger": "获得入境处批准函后3个工作日内", "trigger_date": None},
+        ]},
+        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 分两期支付：",
+        expect_rows=[
+            "定金  于2026年10月10日支付人民币150000元整(大写：人民币壹拾伍万元整)。",
+            "尾款  于获得入境处批准函后3个工作日内支付人民币250000元整(大写：人民币贰拾伍万元整)。",
+        ])
+
+    # 3) one_time：单行一次性支付 + 「一次性支付」格
+    build_and_check(
+        "one_time", dict(base), {"mode": "one_time", "pay_date": "2026-11-01", "pay_event": ""},
+        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 一次性支付：",
+        expect_rows=[
+            "第一期  于2026年11月1日一次性支付人民币400000元整(大写：人民币肆拾万元整)。",
+        ])
+
+    # 4) draft 空表单：占位渲染不中断
+    build_and_check("draft空表单", {
+        "agreement_no": "", "sign_date": "", "currency": "CNY",
+        "client_name": "", "client_id": "", "client_phone": "",
+        "lead_applicant": "", "spouse_name": "", "minor_children": "", "total_applicants": "",
+    }, {"mode": "default", "pay1": 0, "pay2": 0, "pay3": 0}, draft=True)
+
+    if os.path.exists(out):
+        os.remove(out)
+    return ok
+
+
 def main():
     all_ok = True
     for name, tkey, form, payment in CASES:
@@ -834,7 +946,8 @@ def main():
             import traceback
             traceback.print_exc()
     all_ok = (all_ok and run_negative() and run_derive() and run_draft()
-              and run_dual_currency() and run_exchange_alias() and run_newport_matrix())
+              and run_dual_currency() and run_exchange_alias() and run_newport_matrix()
+              and run_immigration())
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 

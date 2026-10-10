@@ -118,6 +118,18 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
         if amounts and report.get("mode") in ("default", "custom"):
             if sum(amounts) != report["total"]:
                 errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
+    # 移民式分期散文表：金额写在行内散文里，同样校验合计
+    if cfg.get("installment_table"):
+        inst_tbl = W.find_table(doc, cfg["installment_table"])
+        if inst_tbl:
+            amounts = []
+            for row in inst_tbl.rows:
+                m = re.search(r"人民币[:：]?\s*(\d[\d,]*)\s*元整", row.cells[1].text)
+                if m and int(m.group(1).replace(",", "")) > 0:
+                    amounts.append(int(m.group(1).replace(",", "")))
+            if amounts and report.get("mode") in ("default", "custom"):
+                if sum(amounts) != report["total"]:
+                    errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
 
     # 4. 币种唯一。费用表数字写法带设计内第二币种换算后缀（「 / ¥X」或「 / HK$X」，
     #    固定汇率、方向与主币种相反），扫描前剥掉；只剥预期方向——方向写反仍算违规
@@ -156,14 +168,17 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
 
 
 def _parse_amount_cells(row, cfg):
-    """从费用行解析（数字金额, 大写金额含「元整」）。"""
+    """从费用行解析（数字金额, 大写金额含「元整」）。
+    cfg 配置 amount_num_re/amount_cn_re 时（移民散文式模板）用类型专属正则。"""
+    num_re = cfg.get("amount_num_re")
+    cn_re = cfg.get("amount_cn_re")
     texts = [c.text for c in row.cells]
     num = cn = None
     for t in texts:
-        m = re.search(r"(?:HK\$|¥|\$)\s*([\d,]+)", t)
+        m = re.search(num_re, t) if num_re else re.search(r"(?:HK\$|¥|\$)\s*([\d,]+)", t)
         if m and num is None:
             num = int(m.group(1).replace(",", ""))
-        m2 = re.search(r"（大写）(.+?元整)", t)
+        m2 = re.search(cn_re, t) if cn_re else re.search(r"（大写）(.+?元整)", t)
         if m2 and cn is None:
             cn = m2.group(1)
     return num, cn
@@ -343,6 +358,8 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
     for i in range(ts - 1):
         if i == 0:
             continue  # 首段为编号/日期行（设计内填充）
+        if "合同编号" in tp[i].text:
+            continue  # 编号行（移民模板独立成段，设计内填充编号）
         if i >= len(op):
             issues.append(f"段落缺失（第{i + 1}段）")
             break
@@ -429,25 +446,32 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
                     issues.append("付款条款段落样式与模板不一致")
                     break
 
-    # 表格：除设计内会变的表（甲乙双方/数据表/费用表/换车费表）外，其余必须一致
+    # 表格：除设计内会变的表（甲乙双方/数据表/费用表/换车费表/申请人表/分期散文表）外，其余必须一致
     skip_anchors = [cfg["fee_table_anchor"], cfg["party_table_anchor"]]
     skip_anchors += [kv["anchor"] for kv in cfg.get("kv_tables", [])]
     if cfg.get("exchange_fee"):
         skip_anchors.append(cfg["exchange_fee"]["anchor"])
+    if isinstance(cfg.get("applicant_table"), dict):
+        skip_anchors.append(cfg["applicant_table"]["anchor"])
+    if isinstance(cfg.get("installment_table"), str):
+        skip_anchors.append(cfg["installment_table"])
+    sig_key = cfg.get("signature_anchor", "授权代表签署")
 
     def _tbl_alltext(t):
         return " ".join(c.text for r in t.rows for c in r.cells)
 
     def _norm_dates(s):
-        """签署表日期归一化：模板空位与填充后的日期视为同一设计内变更。"""
-        return re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", s)
+        """签署表日期归一化：模板空位与填充后的日期视为同一设计内变更。
+        覆盖两种形态：「日期：X年X月X日」同段；高才移民的空位独立格「2026年__月__日」。"""
+        s = re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", s)
+        return re.sub(r"(?:\d{4}|_{2,})年(?:\d{1,2}|_{2,})月(?:\d{1,2}|_{2,})日", "<日期>", s)
 
     for t_t in tpl.tables:
         t_all = _tbl_alltext(t_t)
-        if "授权代表签署" in t_all:
+        if sig_key and sig_key in t_all:
             # 签署确认表：日期空位填充属设计内变更（归一化后比对），其余内容必须与模板一致。
             # 必须在 skip_anchors 之前判定——签署表首格含「甲方（卖方）」会被当事表锚点误跳过。
-            t_o = next((c for c in out.tables if "授权代表签署" in _tbl_alltext(c)), None)
+            t_o = next((c for c in out.tables if sig_key in _tbl_alltext(c)), None)
             if t_o is None:
                 issues.append("表格丢失：签署确认块")
                 continue
@@ -485,7 +509,7 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         return tuple(_run_sig(p) for c in cells for p in c.paragraphs)
 
     sig_by_label = {r.cells[0].text.strip(): _row_sig(r) for r in tpl_fee.rows}
-    fallback_sig = _row_sig(tpl_fee.rows[1])
+    fallback_sig = _row_sig(tpl_fee.rows[1] if len(tpl_fee.rows) > 1 else tpl_fee.rows[0])
     for row in out_fee.rows:
         label = row.cells[0].text.strip()
         expect = sig_by_label.get(label, fallback_sig)
@@ -499,7 +523,7 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
     # 生成行非空 run 的格式必须都在模板同标签行（无同标签回退第1数据行）出现过，
     # 否则说明写入文字挂到了模板中不存在的格式上（文字落点跑偏）
     ms_by_label = {r.cells[0].text.strip(): _fmt_multiset(r) for r in tpl_fee.rows}
-    fb_ms = _fmt_multiset(tpl_fee.rows[1])
+    fb_ms = _fmt_multiset(tpl_fee.rows[1] if len(tpl_fee.rows) > 1 else tpl_fee.rows[0])
     for row in out_fee.rows:
         label = row.cells[0].text.strip()
         expect_ms = ms_by_label.get(label, fb_ms)

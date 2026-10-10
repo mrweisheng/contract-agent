@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api")
 
 TYPE_LABEL_FILE = {  # 下载文件名用
     "car": "车辆买卖合约", "transfer_gx": "高新两地牌过户", "transfer_ns": "纳税两地牌过户", "new_port": "粤Z新办协议",
+    "immigration": "高才移民服务合约",
 }
 
 # LLM 复核确认项过滤：结论为「检查通过」的条目不作为警告展示（提示词已禁，此处兜底）
@@ -60,6 +61,7 @@ def get_types():
             "label": cfg["label"],
             "short": cfg["short"],
             "currency_default": cfg["currency_default"],
+            "currency_locked": bool(cfg.get("currency_locked")),
             "port_required": bool(cfg.get("port_required")),
             "ports": PORTS if cfg.get("port_required") else None,
             "groups": cfg["groups"],
@@ -68,6 +70,7 @@ def get_types():
             "field_anchors": cfg.get("field_anchors"),  # 前端「聚焦字段→预览联动定位」锚点
             "client_side": cfg["client_side"],
             "car_default": bool(cfg.get("car_default")),
+            "imm_fee": bool(cfg.get("installment_table")),  # 移民式分期散文表：行号=期号（无总费用行）
         })
     return {"types": out, "currencies": CURRENCY_OPTIONS}
 
