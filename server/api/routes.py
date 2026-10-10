@@ -96,6 +96,8 @@ def get_types():
             "fee_fields": cfg["fee_fields"],
             "pay_preset": cfg.get("pay_preset", []),
             "field_anchors": cfg.get("field_anchors"),  # 前端「聚焦字段→预览联动定位」锚点
+            "ui_mode": cfg.get("ui_mode", ""),          # ledger＝事实台账布局（试点：高新现牌）
+            "ledger_rows": cfg.get("ledger_rows"),      # 台账行组织（ui_mode=ledger 时用）
             "client_side": cfg["client_side"],
             "car_default": bool(cfg.get("car_default")),
             "imm_fee": bool(cfg.get("installment_table")),  # 移民式分期散文表：行号=期号（无总费用行）
@@ -299,7 +301,9 @@ def generate(req: GenerateReq, background_tasks: BackgroundTasks):
 
         warnings = []
         if report.get("fx_source") == "fallback":
-            warnings.append(f"汇率源不可用，第二币种换算按兜底汇率 {report.get('fx_rate')} 计算")
+            warnings.append("市场汇率获取失败，第二币种换算按兜底汇率估算，仅供参考，请核对后再交付")
+        elif report.get("fx_source") == "stale":
+            warnings.append("未能连接市场汇率源，第二币种换算使用最近一次汇率（可能非最新），请核对")
         text = extract_contract_text(doc)
     except ValueError as ex:
         store.release_no(no)

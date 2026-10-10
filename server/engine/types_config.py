@@ -160,6 +160,20 @@ TYPES = {
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
+        # 前端布局：ledger＝事实台账（分节/行内编辑/付款时间轴，原型 06）；缺省为常规表单
+        "ui_mode": "ledger",
+        # 台账行组织：按组标题匹配；未匹配到的组整组平铺（一行一个字段）
+        "ledger_rows": [
+            {"title": "委托方信息（乙方）", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_contact", "client_phone"]},
+                {"label": "地址", "fields": ["client_address"]},
+            ]},
+            {"title": "指标与车辆数据", "rows": [
+                {"label": "车辆", "fields": ["plate", "port"]},
+                {"label": "指标", "fields": ["quota_type", "target_hk_company"]},
+            ]},
+        ],
         "groups": [
             {"title": "委托方信息（乙方）", "fields": [
                 {"key": "client_name", "label": "委托方名称（个人/公司）", "type": "text", "required": True},

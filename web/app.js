@@ -127,9 +127,20 @@ const app = createApp({
 
     /* ---------- 实时约合提示（费用输入行） ----------
      * 汇率与落盘同源（/api/fx → fx.get_hkd_cny，含 1.01 加成），换算口径与
-     * builder.convert_amount 一致；拉取失败静默降级为不显示约合。 */
+     * builder.convert_amount 一致；拉取失败/兜底时在录入栏顶部醒目提醒。 */
     const fxRate = ref(null);
-    fetch("/api/fx").then(r => r.json()).then(d => { fxRate.value = d.rate; }).catch(() => {});
+    const fxSource = ref("loading");
+    fetch("/api/fx")
+      .then(r => r.json())
+      .then(d => { fxRate.value = d.rate; fxSource.value = d.source; })
+      .catch(() => { fxSource.value = "error"; });
+    const fxNotice = computed(() => {
+      const s = fxSource.value;
+      if (s === "error") return "汇率获取失败：暂时无法换算港币/人民币金额，请检查网络后刷新页面再生成。";
+      if (s === "fallback") return "市场汇率获取失败：第二币种金额按兜底汇率估算，仅供参考，请核对后再生成。";
+      if (s === "stale") return "未能连接市场汇率源：使用最近一次汇率，可能非最新，请核对后再生成。";
+      return "";
+    });
     function fxAbout(v) {
       const n = parseInt(v);
       if (!fxRate.value || isNaN(n) || n <= 0) return "";
@@ -203,6 +214,7 @@ const app = createApp({
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       initForm(); initPayment();
+      editMode.value = "edit"; onlyIssue.value = false; openPay.value = 0;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
     }
@@ -374,6 +386,63 @@ const app = createApp({
       payment.rows.every(r => (parseInt(r.amount) || 0) > 0 &&
         (String(r.date || "").trim() || String(r.event || "").trim()))
     );
+
+    /* ---------- 事实台账（ui_mode=ledger，试点：高新现牌 · 原型 06） ----------
+     * 布局按「合同骨架」组织：分节编号与合同条款对应，事实行内编辑，付款为时间轴。
+     * 只换皮：数据/AI/联动/生成全部复用既有状态——字段 id（f-<key>）、付款卡
+     * （.pay-card[data-pfield]）、签署条（.sign-bar）与常规表单一致，
+     * hitFromTarget 的预览定位逻辑不感知布局差异。 */
+    const editMode = ref("edit");   // 录入 / 核对：核对态只褪输入框外衣，数据与联动照常
+    const onlyIssue = ref(false);   // 只看待补：无缺失且无 AI 待核的行/期整行隐藏
+    const openPay = ref(0);         // 时间轴展开的期索引（-1＝全部收起）
+    const ledgerMode = computed(() => cfg.value?.ui_mode === "ledger");
+    const shortLabel = s => String(s || "").replace(/（[^）]*）/g, "");   // 「换车费用（可为0…）」→「换车费用」
+    function inpSize(v) {   // 行内输入框按内容估宽（CJK 记 2 单位）；number/date 由 CSS 定宽
+      const s = String(v ?? "");
+      const w = [...s].reduce((a, ch) => a + (ch.charCodeAt(0) > 255 ? 2 : 1), 0);
+      return Math.min(48, Math.max(10, w + 1));
+    }
+    // 台账分节：组配置 + ledger_rows 行组织（按组标题匹配，未匹配的组平铺一行一字段）
+    const ledgerSections = computed(() => {
+      const c = cfg.value;
+      if (!c) return [];
+      return (c.groups || []).filter(g => g.reveal !== "on_fill").map((g, i) => {
+        const def = (c.ledger_rows || []).find(r => r.title === g.title);
+        const byKey = Object.fromEntries(g.fields.map(f => [f.key, f]));
+        const rows = def
+          ? def.rows.map(r => ({ label: r.label, facts: r.fields.map(k => byKey[k]).filter(Boolean) }))
+          : g.fields.map(f => ({ label: "", facts: [f] }));
+        const req = g.fields.filter(f => f.required && !f.auto);
+        const done = req.filter(f => String(form[f.key] ?? "").trim()).length;
+        return { no: String(i + 1).padStart(2, "0"), title: shortLabel(g.title), rows, done, total: req.length };
+      });
+    });
+    // 行问题态：miss 优先于 ai（红点压金点）；「只看待补」据此过滤
+    function rowIssue(r) {
+      const st = r.facts.map(f => fieldState(f));
+      if (st.includes("miss")) return "miss";
+      return st.includes("ai") ? "ai" : "";
+    }
+    function stepIssue(r) {
+      return !(parseInt(r.amount) > 0) ||
+        (!r.lockDate && !String(r.date || "").trim() && !String(r.event || "").trim());
+    }
+    function condText(r) {
+      if (r.lockDate) return "签约当日" + (form.sign_date ? `（${form.sign_date}）` : "");
+      const d = String(r.date || "").trim(), e = String(r.event || "").trim();
+      return (d && e) ? `${d} · ${e}` : (d || e || "待填付款条件");
+    }
+    function togglePay(i) { openPay.value = openPay.value === i ? -1 : i; }
+    // 价款区：totalKey 主费用进价款条，其余费用字段（换车费用/名目）排一行
+    const feeMain = computed(() => (cfg.value?.fee_fields || []).find(f => f.key === totalKey.value) || null);
+    const feeRest = computed(() => (cfg.value?.fee_fields || []).filter(f => f.key !== totalKey.value));
+    const payDone = computed(() => payment.rows.filter(r => parseInt(r.amount) > 0).length);
+    const allocState = computed(() => {
+      if (!total.value) return { cls: "off", text: "先填总费用" };
+      const diff = total.value - paySum.value;
+      return diff === 0 ? { cls: "ok", text: "分期已对齐" }
+                        : { cls: "bad", text: `差 ¥${commas(Math.abs(diff))}` };
+    });
 
     /* ---------- 完整性 ---------- */
     const missing = computed(() => {
@@ -841,11 +910,14 @@ const app = createApp({
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
+      editMode, onlyIssue, openPay, ledgerMode, ledgerSections,
+      shortLabel, inpSize, rowIssue, stepIssue, condText, togglePay,
+      feeMain, feeRest, payDone, allocState,
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
       onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
-      toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout,
+      toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
     };
   },
 
@@ -874,13 +946,23 @@ const app = createApp({
     </aside>
 
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane" @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
+    <section class="pane" :class="{review: ledgerMode && editMode === 'review'}"
+             @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
         <h2>{{ cfg?.label || '华星智能合同' }}</h2>
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
+        <template v-if="ledgerMode">
+          <span class="spacer"></span>
+          <button class="chip" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
+          <div class="mode-switch">
+            <button :class="{active: editMode === 'edit'}" @click="editMode = 'edit'">录入</button>
+            <button :class="{active: editMode === 'review'}" @click="editMode = 'review'">核对</button>
+          </div>
+        </template>
       </div>
       <transition name="pfade" mode="out-in">
       <div class="pane-body" :key="paneKey">
+        <div v-if="fxNotice" class="fx-warn"><span class="fx-warn-ic">⚠</span>{{ fxNotice }}</div>
 
         <!-- 智能录入 -->
         <div class="sec">
@@ -899,6 +981,140 @@ const app = createApp({
           </div>
         </div>
 
+        <!-- ================= 事实台账（ledger 布局 · 试点：高新现牌） ================= -->
+        <template v-if="ledgerMode">
+        <div class="ledger" :class="{'only-issue': onlyIssue}">
+          <div class="ledger-sheet">
+
+            <section class="led-sec" v-for="s in ledgerSections" :key="s.title">
+              <div class="led-sec-head">
+                <span class="led-no">{{ s.no }}</span><h3>{{ s.title }}</h3>
+                <span class="led-count" :class="s.done === s.total ? 'ok' : 'warn'">{{ s.done }}/{{ s.total }}</span>
+              </div>
+              <div class="led-body">
+                <div class="led-row" v-for="(r, ri) in s.rows" :key="ri"
+                     :class="rowIssue(r) ? 'has-' + rowIssue(r) : ''">
+                  <div class="led-row-label">{{ r.label }}</div>
+                  <div class="led-facts">
+                    <span class="led-fact" v-for="f in r.facts" :key="f.key"
+                          :class="fieldState(f)" :title="f.label">
+                      <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required && !f.auto">*</em></span>
+                      <span class="lf-auto" v-if="f.auto">{{ form[f.key] }}</span>
+                      <select v-else-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
+                              v-model="form[f.key]" @change="onFieldInput(f.key)">
+                        <option value="" disabled>请选择</option>
+                        <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                      </select>
+                      <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
+                             :size="inpSize(form[f.key])"
+                             :placeholder="fieldState(f) === 'miss' ? '必填 · 待填' : (f.hint || '待填')"
+                             @input="onFieldInput(f.key)"/>
+                      <button v-if="aiFilled[f.key] && !f.auto" class="lf-badge" title="AI 回填、尚未核对，点此确认"
+                              @click="confirmAI(f.key)">AI·未核</button>
+                    </span>
+                  </div>
+                  <i class="led-dot"></i>
+                </div>
+              </div>
+            </section>
+
+            <section class="led-sec">
+              <div class="led-sec-head">
+                <span class="led-no">{{ String(ledgerSections.length + 1).padStart(2, '0') }}</span><h3>价款与付款</h3>
+                <span class="led-count" :class="payDone === payment.rows.length ? 'ok' : 'warn'">{{ payDone }}/{{ payment.rows.length }}</span>
+              </div>
+
+              <!-- 价款条：总费用 + 币种 + 分配对账 -->
+              <div class="led-price" v-if="feeMain">
+                <div class="lp-main">
+                  <span class="lf-label">{{ shortLabel(feeMain.label) }}<em>*</em></span>
+                  <select v-if="!cfg.currency_locked" id="f-currency" class="lf-in lf-sel" v-model="form.currency"
+                          @change="onFieldInput('currency')" title="币种">
+                    <option v-for="c in currencies" :key="c.value" :value="c.value">{{ c.label }}</option>
+                  </select>
+                  <span v-else class="lf-auto">{{ currencyLabel(form.currency) }}</span>
+                  <input :id="'f-' + feeMain.key" class="lf-in lp-money" :class="{miss: !form[feeMain.key]}" type="number" min="0" step="1000"
+                         v-model.number="form[feeMain.key]" placeholder="待填" @input="onFieldInput(feeMain.key)"/>
+                  <span class="led-alloc" :class="allocState.cls">已分配 {{ commas(paySum) }} / {{ commas(total) }} · {{ allocState.text }}</span>
+                </div>
+                <div class="fee-cn lp-cn" v-if="form[feeMain.key] > 0">{{ currencyLabel(form.currency).split(' ')[0] }}{{ toCN(form[feeMain.key]) }}{{ fxAbout(form[feeMain.key]) }}</div>
+              </div>
+
+              <div class="led-body">
+                <div class="led-row" :class="rowIssue({ facts: feeRest }) ? 'has-' + rowIssue({ facts: feeRest }) : ''">
+                  <div class="led-row-label">其他费用</div>
+                  <div class="led-facts">
+                    <span class="led-fact" v-for="f in feeRest" :key="f.key"
+                          :class="fieldState({ key: f.key, required: f.required, auto: false })" :title="f.label">
+                      <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required">*</em></span>
+                      <select v-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
+                              v-model="form[f.key]" @change="onFieldInput(f.key)">
+                        <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                      </select>
+                      <input v-else :id="'f-' + f.key" class="lf-in lp-money" type="number" min="0" step="1000"
+                             v-model.number="form[f.key]" placeholder="待填" @input="onFieldInput(f.key)"/>
+                      <button v-if="aiFilled[f.key]" class="lf-badge" title="AI 回填、尚未核对，点此确认"
+                              @click="confirmAI(f.key)">AI·未核</button>
+                    </span>
+                  </div>
+                  <i class="led-dot"></i>
+                </div>
+              </div>
+
+              <div class="led-pay-hint">
+                <span>付款顺序＝实际履约顺序，点某一期展开编辑</span>
+                <span class="spacer"></span>
+                <button class="text-act edit-only" @click="addRow">＋ 加一期</button>
+                <button class="text-act edit-only" @click="resetPayRows">恢复模板预设</button>
+              </div>
+              <div class="led-timeline">
+                <div class="pay-card led-step" v-for="(it, idx) in payment.rows" :key="idx"
+                     :class="{open: openPay === idx, 'step-issue': stepIssue(it)}">
+                  <div class="led-step-main" @click="togglePay(idx)">
+                    <input class="led-step-name" v-model="it.label" maxlength="6" placeholder="款项名"
+                           data-pfield="label" @click.stop/>
+                    <input class="led-step-amount" type="number" min="0" step="1000" v-model.number="it.amount"
+                           placeholder="金额" data-pfield="amount" @input="onAmount(idx)" @click.stop/>
+                    <span class="led-step-cond" :title="condText(it)">{{ condText(it) }}</span>
+                    <span class="led-chev">⌄</span>
+                  </div>
+                  <div class="led-step-detail">
+                    <div class="lsd-row">
+                      <label>付款日期{{ it.lockDate ? '（锁定签约当日）' : '' }}</label>
+                      <input v-if="it.lockDate" type="date" :value="form.sign_date" disabled/>
+                      <input v-else type="date" v-model="it.date" data-pfield="date" @change="onHitDateChange"/>
+                    </div>
+                    <div class="lsd-row">
+                      <label>付款事件条件</label>
+                      <textarea v-model="it.event" placeholder="如：过户完成后 3 日内" data-pfield="event" rows="2"></textarea>
+                    </div>
+                    <div class="lsd-foot edit-only">
+                      <button class="pc-del" @click="delRow(idx)">删除这一期</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="total-line" :class="payOk ? 'ok' : (total > 0 ? 'bad' : '')">
+                <template v-if="total === 0">请先填写总{{ totalKey === 'total_price' ? '售价' : '费用' }}</template>
+                <template v-else-if="payOk">✓ 分期合计 {{ currencyLabel(form.currency) }} {{ commas(paySum) }} ＝ 总价 · 两讫（共 {{ payment.rows.length }} 期）</template>
+                <template v-else>各期需：金额＞0、有日期或事件、合计＝总价 ｜ 当前 {{ commas(paySum) }} / 需 {{ commas(total) }}</template>
+              </div>
+              <div class="note-strip" v-if="payNotes.length || extractNotes.length">
+                <div v-for="(n, i) in [...payNotes, ...extractNotes]" :key="i">{{ n }}</div>
+              </div>
+            </section>
+
+            <div class="sign-bar led-sign">
+              <span class="sb-label">签署日期</span>
+              <input id="f-sign_date" class="f-inp date" type="date" v-model="form.sign_date" @change="onHitDateChange"/>
+              <button class="chip edit-only" :class="{on: isToday}" @click="setSignToday">今日</button>
+              <span class="sb-hint">合同顶部、签署块双方日期、"签约当日"各期均以此为准</span>
+            </div>
+          </div>
+        </div>
+        </template>
+
+        <template v-else>
         <!-- 合同信息 -->
         <div class="sec" v-if="cfg">
           <div class="sec-head"><span class="dot"></span>合同信息
@@ -1048,6 +1264,7 @@ const app = createApp({
             </div>
           </div>
         </div>
+        </template>
 
       </div>
       </transition>

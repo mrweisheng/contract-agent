@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>华星 · 合同事实工作台高保真原型</title>
+<link rel="stylesheet" href="../web/style.css">
+<link rel="stylesheet" href="../web/fonts/noto-sans-sc/alias.css">
+<style>
+:root{
+  --ink:#173f35;--ink-2:#245748;--paper:#fbfaf6;--bg:#e9e6dd;--line:#d8d1c2;--line-soft:#e8e2d7;
+  --muted:#817a6d;--muted-2:#a49c8e;--accent:#b64a3b;--gold:#b47c1d;--gold-bg:#fff6df;
+  --green:#2e7955;--green-bg:#eaf4ed;--red:#b63e32;--red-bg:#fff0ed;
+  --sans:'Noto Sans SC',-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+  --serif:'Noto Serif SC','Songti SC','SimSun',serif;--shadow:0 18px 42px rgba(42,36,25,.11);
+}
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;overflow:hidden}
+body{font-family:var(--sans);background:var(--bg);color:#2d2a24;font-size:14px}
+button,input,textarea{font:inherit}button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,[contenteditable="true"]:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(23,63,53,.12)}
+.app{height:100vh;display:grid;grid-template-columns:172px minmax(570px,1fr) minmax(560px,46%)}
+.side{background:var(--ink);color:#e6eee9;display:flex;flex-direction:column;min-height:0}
+.brand{padding:20px 18px 17px;border-bottom:1px solid rgba(255,255,255,.09)}
+.brand h1{font-family:var(--serif);font-size:25px;letter-spacing:5px;color:#f0d79b;font-weight:700}
+.brand p{margin-top:4px;font-size:8px;letter-spacing:2.6px;color:rgba(255,255,255,.42)}
+.side-scroll{flex:1;overflow:auto;padding-top:10px}.side-label{padding:13px 18px 5px;font-size:10px;letter-spacing:1.8px;color:rgba(255,255,255,.35)}
+.side-item{display:flex;align-items:center;gap:10px;padding:9px 16px;border-left:3px solid transparent;color:rgba(255,255,255,.72);font-size:13px}
+.side-item .no{font-family:var(--serif);font-size:11px;opacity:.45}.side-item.active{background:rgba(255,255,255,.09);border-left-color:#efd28b;color:#fff}
+.side-foot{padding:14px 16px 17px;border-top:1px solid rgba(255,255,255,.09);font-size:11px;color:rgba(255,255,255,.48)}
+.editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:#f4f1e9;border-right:1px solid #d2cabc}
+.editor-head{display:flex;align-items:center;gap:12px;padding:14px 20px 11px}
+.editor-head h2{font-family:var(--serif);font-size:18px;letter-spacing:.6px;color:var(--ink)}
+.editor-head .sub{margin-top:3px;font-size:11px;color:var(--muted)}
+.mode-switch{margin-left:auto;display:flex;padding:3px;background:#e8e3d8;border:1px solid #d9d2c5;border-radius:7px}
+.mode-switch button{border:0;background:transparent;color:var(--muted);padding:5px 10px;border-radius:5px;font-size:12px}
+.mode-switch button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(50,42,28,.08)}
+.ai-bar{margin:0 20px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.42)}
+.ai-head{display:flex;align-items:center;gap:8px;padding:9px 10px 2px}.ai-head b{font-size:12px;color:var(--ink)}.ai-head span{font-size:11px;color:var(--muted)}
+.ai-head .beta{margin-left:auto;font-size:10px;color:var(--gold);background:var(--gold-bg);border:1px solid #efdcae;border-radius:9px;padding:2px 7px}
+.ai-compose{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;padding:7px 10px 10px}
+.ai-compose textarea{height:44px;min-height:44px;max-height:94px;resize:vertical;border:1px solid var(--line);border-radius:6px;background:#fff;padding:9px 10px;color:#49443b;font-size:12.5px;line-height:1.55;transition:height .18s,border-color .18s}
+.ai-compose textarea:focus{height:84px;border-color:var(--ink-2)}.ai-compose button{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;height:36px;padding:0 15px;font-size:12px;white-space:nowrap}
+.ai-compose button:disabled{opacity:.62;cursor:wait}.ai-pipeline{grid-column:1/-1;display:none;gap:8px;align-items:center;font-size:11px;color:var(--muted)}.ai-pipeline.show{display:flex}
+.pipe-node{display:flex;align-items:center;gap:5px}.pipe-node.done{color:var(--green)}.pipe-node.run{color:var(--gold)}.pipe-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.8}.pipe-arrow{color:#c6beb0}
+.ledger{min-height:0;overflow:auto;padding:0 20px 18px}.ledger-sheet{background:var(--paper);border:1px solid var(--line);box-shadow:0 10px 26px rgba(49,42,31,.05)}
+.section{border-bottom:1px solid var(--line-soft)}.section:last-child{border-bottom:0}.section-head{display:flex;align-items:center;gap:9px;padding:12px 14px 9px;background:#f8f6f0;border-bottom:1px solid var(--line-soft)}
+.section-no{width:22px;height:22px;border:1px solid #b9c7c0;color:var(--ink);display:grid;place-items:center;border-radius:50%;font-family:var(--serif);font-size:10px}
+.section-head h3{font-family:var(--serif);font-size:14px;color:var(--ink);letter-spacing:.4px}.section-count{margin-left:auto;font-size:11px;color:var(--muted)}.section-count.ok{color:var(--green)}.section-count.warn{color:var(--gold)}
+.section-body{padding:0 14px}.fact-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid #eee9df;transition:background .15s,box-shadow .15s}
+.fact-row:last-child{border-bottom:0}.fact-row:hover{background:#fffdf8}.fact-row:focus-within{background:#fff;box-shadow:inset 3px 0 0 var(--accent)}.fact-row.filtered-out,.payment-step.filtered-out{display:none}
+.row-label{padding-top:2px;color:var(--muted);font-size:11px;line-height:1.45}.fact-items{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;min-width:0;line-height:1.55}
+.fact{display:inline-flex;align-items:baseline;gap:4px;min-width:0;position:relative}.fact.wide{flex:1 1 100%}.fact-label{font-size:11px;color:#8a8275;white-space:nowrap}
+.fact-value{min-width:50px;max-width:100%;padding:1px 3px;border:1px solid transparent;border-bottom-color:#d8d0c1;border-radius:3px;font-family:var(--serif);font-size:14px;color:#2c2a25;white-space:pre-wrap;overflow-wrap:anywhere;transition:background .15s,border-color .15s,box-shadow .15s}
+.fact-value:hover{background:#f5f0e5;border-bottom-color:#aaa08e}.fact-value:focus{background:#fff;border-color:var(--ink-2);box-shadow:0 0 0 3px rgba(23,63,53,.1)}
+.fact.is-missing .fact-value{border-bottom-color:var(--red);background:#fffafa}.fact.is-missing .fact-value:empty::before{content:attr(data-placeholder);color:var(--red);font-family:var(--sans);font-size:12px}
+.fact.is-ai .fact-value{background:var(--gold-bg);border-color:#ecd9a7}.fact.is-ai .fact-value:focus{background:#fffaf0}
+.ai-flag{border:0;border-radius:8px;background:#f2dfb5;color:#7f5813;font-size:9.5px;padding:2px 5px;line-height:1.2;white-space:nowrap}.ai-flag:hover{background:#e8ce93}
+.flash{animation:valueFlash .75s ease}@keyframes valueFlash{0%{background:#fff4d3;box-shadow:0 0 0 4px rgba(180,124,29,.16)}100%{background:transparent}}
+.row-state{display:flex;align-items:center;gap:6px;padding-top:2px}.state-dot{width:6px;height:6px;border-radius:50%;background:#c8c1b3}.fact-row.has-ai .state-dot{background:var(--gold)}.fact-row.has-missing .state-dot{background:var(--red)}
+body.review-mode .fact-value{border-color:transparent;background:transparent!important}body.review-mode .fact-value:focus{box-shadow:none}body.review-mode .fact-row:focus-within{box-shadow:none;background:transparent}
+body.review-mode .fact-value:empty::before{content:attr(data-placeholder)}body.review-mode .ai-flag{opacity:.9}body.review-mode input,body.review-mode textarea{border-color:transparent!important;background:transparent!important;box-shadow:none!important}
+body.review-mode .edit-only{display:none!important}body.review-mode .ledger-sheet{box-shadow:0 8px 20px rgba(49,42,31,.035)}body.review-mode .pay-detail{display:none!important}body.review-mode .pay-tools .hint{visibility:hidden}body.review-mode .pay-main{cursor:default}
+.price-strip{display:grid;grid-template-columns:auto 138px 1fr;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line-soft);background:#fffdf8}
+.price-strip label{font-size:11px;color:var(--muted);white-space:nowrap}.money-input{width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;padding:7px 9px;text-align:right;font-family:var(--serif);font-size:15px;font-variant-numeric:tabular-nums}.money-input:focus{border-color:var(--ink-2)}
+.allocation{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;font-size:11px;color:var(--muted)}.allocation b{font-family:var(--serif);font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}.allocation.ok b{color:var(--green)}.allocation.bad b{color:var(--red)}
+.pay-tools{display:flex;align-items:center;gap:8px;padding:9px 14px 2px}.pay-tools .hint{font-size:11px;color:var(--muted)}.text-button{border:0;background:transparent;color:var(--ink-2);padding:4px 2px;font-size:11.5px;border-bottom:1px dashed #a8b6af}.text-button:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.timeline{position:relative;padding:2px 14px 12px 30px}.timeline::before{content:'';position:absolute;left:17px;top:18px;bottom:18px;width:1px;background:#c9c1b2}
+.payment-step{position:relative;border-bottom:1px solid #eee9df;background:transparent}.payment-step:last-child{border-bottom:0}.payment-step::before{content:'';position:absolute;left:-17px;top:17px;width:9px;height:9px;border-radius:50%;background:var(--paper);border:1.5px solid var(--ink-2);box-shadow:0 0 0 3px var(--paper);z-index:1}
+.payment-step.is-missing::before{border-color:var(--red);background:#fff0ed}.payment-step.open{background:#fffdf8;box-shadow:inset 3px 0 0 var(--accent)}
+.pay-main{display:grid;grid-template-columns:82px 126px minmax(0,1fr) 24px;gap:8px;align-items:center;padding:10px 8px 10px 0;cursor:pointer}.pay-name{font-family:var(--serif);color:var(--ink);font-size:13px}
+.pay-amount{width:100%;border:1px solid transparent;border-bottom-color:#d7cfbf;background:transparent;padding:3px 4px;text-align:right;font-family:var(--serif);font-size:15px;color:#282620;font-variant-numeric:tabular-nums}.pay-amount:focus{background:#fff;border-color:var(--ink-2);border-radius:4px}
+.pay-condition{font-size:11.5px;color:#665f54;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pay-chevron{color:#aaa190;text-align:center;transition:transform .18s}.payment-step.open .pay-chevron{transform:rotate(180deg)}
+.pay-detail{display:none;padding:0 8px 12px 0}.payment-step.open .pay-detail{display:block;animation:detailIn .18s ease}@keyframes detailIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.trigger-switch{display:flex;gap:5px;margin-bottom:8px}.trigger-switch button{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:5px;padding:4px 8px;font-size:10.5px}.trigger-switch button.active{border-color:var(--ink-2);color:var(--ink);background:#eef5f0}
+.trigger-editor{display:flex;gap:8px;align-items:center}.trigger-editor input,.trigger-editor textarea{width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;padding:7px 8px;font-size:12px;color:#403c35;resize:vertical}.trigger-editor textarea{min-height:48px;line-height:1.5}.trigger-note{font-size:10.5px;color:var(--muted);padding-top:5px}
+.quick-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.quick-row button{border:1px dashed #cfc5b2;background:#fffaf0;color:#755b26;border-radius:10px;padding:3px 7px;font-size:10px}
+.action-bar{display:flex;align-items:center;gap:10px;padding:11px 20px;border-top:1px solid var(--line);background:rgba(251,250,246,.96);backdrop-filter:blur(8px)}
+.action-status{display:flex;flex-wrap:wrap;gap:7px;min-width:0}.status-chip{border:1px solid var(--line);background:#fff;border-radius:12px;padding:4px 8px;font-size:10.5px;color:var(--muted);white-space:nowrap}.status-chip.bad{color:var(--red);border-color:#e4b9b2;background:#fff7f5}.status-chip.ai{color:var(--gold);border-color:#ead6a5;background:#fffaf0}.status-chip.ok{color:var(--green);border-color:#bed8c6;background:#f3faf5}
+.generate{margin-left:auto;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;padding:9px 16px;font-size:12.5px;white-space:nowrap}.generate:hover{background:var(--ink-2)}
+.preview{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);background:#e6e3db;border-left:1px solid #d2cabc}
+.preview-head{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#f0ede5;border-bottom:1px solid var(--line)}.preview-head b{font-family:var(--serif);font-size:14px;color:var(--ink)}.preview-head span{font-size:10.5px;color:var(--muted)}
+.preview-head .readonly{margin-left:auto;border:1px solid #d5cdbc;border-radius:10px;padding:3px 7px;color:var(--muted);background:#faf8f2}.preview-scroll{min-height:0;overflow:auto;padding:22px 26px 34px}
+.paper{width:min(830px,100%);margin:0 auto;background:#fff;box-shadow:var(--shadow);padding:44px 52px 58px;font-family:var(--sans);color:#30302d}.paper-top{display:flex;justify-content:space-between;font-size:9.5px;color:#686865;border-bottom:1px solid #bbb;padding-bottom:7px}
+.paper-title{margin:22px 0 18px;text-align:center}.paper-title h2{font-family:var(--serif);font-size:25px;letter-spacing:2px;color:#1f3537}.paper-title p{margin-top:5px;font-size:9px;letter-spacing:2px;color:#62625e}
+.doc-section{margin-top:18px}.doc-section h3{font-family:var(--serif);font-size:15px;color:#1f3537;padding-bottom:5px;border-bottom:1px solid #245748;margin-bottom:7px}
+.doc-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10.5px}.doc-table th,.doc-table td{border:1px solid #d2d2cf;padding:5px 7px;vertical-align:middle;word-break:break-word}.doc-table th{background:#fafafa;color:#5c5c58;font-weight:500;text-align:left}.doc-table td{font-family:var(--serif);color:#252525}.doc-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.doc-p{font-family:var(--serif);font-size:11px;line-height:1.8;color:#333;margin-top:6px}.pv-hit{background:#fff1bd!important;box-shadow:inset 0 0 0 2px #d7a52e;transition:background .2s,box-shadow .2s}
+.toast{position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-16px);background:#253b34;color:#fff;border-radius:18px;padding:8px 14px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:100}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width:1250px){.app{grid-template-columns:68px minmax(500px,1fr) minmax(500px,42%)}.brand h1{font-size:18px;letter-spacing:2px}.brand p,.side-label,.side-item span:last-child{display:none}.side-item{justify-content:center;padding:10px 0}.side-foot{font-size:0}.fact-row{grid-template-columns:62px minmax(0,1fr) auto}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><h1>華星</h1><p>CONTRACT · AGENT</p></div>
+    <div class="side-scroll">
+      <div class="side-label">车务</div>
+      <div class="side-item"><span class="no">01</span><span>车辆买卖</span></div>
+      <div class="side-label">现牌过户</div>
+      <div class="side-item active"><span class="no">02</span><span>高新现牌</span></div>
+      <div class="side-item"><span class="no">03</span><span>纳税现牌</span></div>
+      <div class="side-label">粤 Z 新办</div>
+      <div class="side-item"><span class="no">04</span><span>莲塘口岸</span></div>
+      <div class="side-item"><span class="no">05</span><span>深圳湾口岸</span></div>
+    </div>
+    <div class="side-foot">2026-10-10 · 今日</div>
+  </aside>
+
+  <main class="editor">
+    <header class="editor-head">
+      <div><h2>现牌过户 · 高新</h2><div class="sub">合同事实工作台 · 中间改事实，右边看成品</div></div>
+      <div class="mode-switch" aria-label="手工区模式">
+        <button id="modeEdit" class="active" onclick="setMode('edit')">录入</button>
+        <button id="modeReview" onclick="setMode('review')">核对</button>
+      </div>
+    </header>
+
+    <section class="ai-bar" aria-label="AI 导入">
+      <div class="ai-head"><b>AI 快速导入</b><span>粘贴客户原文，结果直接写入下面同一份合同事实</span><span class="beta">与手工编辑共用</span></div>
+      <div class="ai-compose">
+        <textarea id="aiText">客户鸿达投资有限公司（证件 91440000MA5F8K2L6X，联络人李四，电话 13800001234）委托高新过户车牌 粤Z1234港，目标香港公司 鸿达国际物流有限公司，通行 深圳湾口岸，服务总费用人民币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期股权转让文件完成后付，尾款交付铁牌资料时付。</textarea>
+        <button id="extractBtn" onclick="runExtract()">提取并回填</button>
+        <div class="ai-pipeline" id="aiPipeline">
+          <div class="pipe-node" id="pipe1"><i class="pipe-dot"></i>读取原文</div><span class="pipe-arrow">→</span>
+          <div class="pipe-node" id="pipe2"><i class="pipe-dot"></i>提取合同事实</div><span class="pipe-arrow">→</span>
+          <div class="pipe-node" id="pipe3"><i class="pipe-dot"></i>整理付款时间轴</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="ledger" id="ledger">
+      <div class="ledger-sheet">
+        <section class="section">
+          <div class="section-head"><span class="section-no">01</span><h3>委托方信息</h3><span class="section-count" id="countParty">0/5</span></div>
+          <div class="section-body" id="partyRows"></div>
+        </section>
+        <section class="section">
+          <div class="section-head"><span class="section-no">02</span><h3>车辆与指标</h3><span class="section-count" id="countVehicle">0/4</span></div>
+          <div class="section-body" id="vehicleRows"></div>
+        </section>
+        <section class="section">
+          <div class="section-head"><span class="section-no">03</span><h3>价款与付款</h3><span class="section-count" id="countPayment">1/3</span></div>
+          <div class="price-strip">
+            <label for="totalFee">服务总费用</label>
+            <input id="totalFee" class="money-input" type="number" step="1000" min="0" value="300000" oninput="onTotalInput(this.value)">
+            <div class="allocation bad" id="allocation"><span>已分配</span><b id="allocSum">¥100,000</b><span>/</span><b id="allocTotal">¥300,000</b><span id="allocDiff">差 ¥200,000</span></div>
+          </div>
+          <div class="pay-tools"><span class="hint">付款顺序就是实际履约顺序，点某一期展开编辑</span><button class="text-button edit-only" onclick="autoTail()">尾款自动补齐</button></div>
+          <div class="timeline" id="paymentList"></div>
+        </section>
+      </div>
+    </div>
+
+    <footer class="action-bar">
+      <div class="action-status" id="actionStatus"></div>
+      <button class="generate" onclick="generateToast()">生成合同</button>
+    </footer>
+  </main>
+
+  <section class="preview">
+    <header class="preview-head"><b>合同实时预览</b><span>与下载文件 1:1 同源</span><span class="readonly">只读</span></header>
+    <div class="preview-scroll" id="previewScroll">
+      <article class="paper" id="paper">
+        <div class="paper-top"><span>华星资源开发有限公司</span><span>VEHICLE TRANSFER DOCUMENT</span></div>
+        <div class="paper-title"><h2>车辆过户合约（高新）</h2><p>MOTOR VEHICLE TRANSFER AGREEMENT</p></div>
+        <div class="doc-section"><h3>一、合约双方</h3>
+          <table class="doc-table">
+            <tr><th style="width:18%">委托方</th><td data-pv="client_name">—</td><th style="width:18%">证件／注册编号</th><td data-pv="client_id">—</td></tr>
+            <tr><th>联络人</th><td data-pv="client_contact">—</td><th>联络电话</th><td data-pv="client_phone">—</td></tr>
+            <tr><th>联络地址</th><td colspan="3" data-pv="client_address">—</td></tr>
+          </table>
+        </div>
+        <div class="doc-section"><h3>二、车辆及指标信息</h3>
+          <table class="doc-table">
+            <tr><th style="width:18%">车牌号码</th><td data-pv="plate">—</td><th style="width:18%">通行口岸</th><td data-pv="port">—</td></tr>
+            <tr><th>指标类型</th><td data-pv="quota_type">高新</td><th>目标香港公司</th><td data-pv="target_hk_company">—</td></tr>
+          </table>
+        </div>
+        <div class="doc-section"><h3>三、服务费用与付款计划</h3>
+          <table class="doc-table">
+            <tr><th style="width:28%">项目</th><th>付款条件</th><th style="width:24%">金额</th></tr>
+            <tr><td>服务总费用</td><td>本合同约定之全部代办服务</td><td class="num" data-pv="total_fee">人民币 ¥300,000</td></tr>
+            <tr><td>定金</td><td data-pv="pay-condition-0">签约当日</td><td class="num" data-pv="pay-amount-0">人民币 ¥100,000</td></tr>
+            <tr><td>第二期款</td><td data-pv="pay-condition-1">—</td><td class="num" data-pv="pay-amount-1">—</td></tr>
+            <tr><td>尾款</td><td data-pv="pay-condition-2">—</td><td class="num" data-pv="pay-amount-2">—</td></tr>
+          </table>
+        </div>
+        <div class="doc-section"><h3>四、双方责任与办理说明</h3>
+          <p class="doc-p">甲方应按本合同约定及时支付各期服务费用并配合提供办理所需资料；乙方按约定推进目标公司股权转让、车辆过户及通关资料交付。付款节点以本合同付款计划表列明的事件为准。</p>
+        </div>
+      </article>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const groups = [
+  {id:'party',container:'partyRows',required:5,rows:[
+    {label:'主体',facts:[
+      {key:'client_name',label:'委托方',required:true,placeholder:'填写委托方名称',pv:'client_name'},
+      {key:'client_id',label:'证件',required:true,placeholder:'填写证件号',pv:'client_id'}]},
+    {label:'联络',facts:[
+      {key:'client_contact',label:'联络人',required:false,placeholder:'公司必填',pv:'client_contact'},
+      {key:'client_phone',label:'电话',required:true,placeholder:'填写电话',pv:'client_phone'}]},
+    {label:'地址',facts:[{key:'client_address',label:'地址',required:false,placeholder:'填写联络地址',pv:'client_address',wide:true}]}
+  ]},
+  {id:'vehicle',container:'vehicleRows',required:4,rows:[
+    {label:'车辆',facts:[
+      {key:'plate',label:'车牌',required:true,placeholder:'填写车牌',pv:'plate'},
+      {key:'port',label:'口岸',required:true,placeholder:'填写通行口岸',pv:'port'}]},
+    {label:'指标',facts:[
+      {key:'quota_type',label:'类型',required:false,placeholder:'高新',pv:'quota_type'},
+      {key:'target_hk_company',label:'目标香港公司',required:true,placeholder:'填写公司名称',pv:'target_hk_company',wide:true}]}
+  ]}
+];
+const state = {
+  mode:'edit',filterMissing:false,
+  values:{client_name:'鸿达投资有限公司',client_id:'91440000MA5F8K2L6X',client_contact:'',client_phone:'13800001234',client_address:'深圳市福田区深南大道 1006 号',plate:'粤Z1234港',port:'',quota_type:'高新',target_hk_company:'',total_fee:300000},
+  ai:{},
+  payments:[
+    {label:'定金',amount:100000,triggerType:'sign',date:'2026-10-10',event:'签订合约当日',ai:false},
+    {label:'第二期款',amount:null,triggerType:'event',date:'',event:'甲方完成目标公司股权转让法律文件并书面通知乙方当日支付',ai:false},
+    {label:'尾款',amount:null,triggerType:'event',date:'',event:'甲方向乙方交付新的车辆行驶证、新批文卡及铁牌资料时支付',ai:false}
+  ],
+  openPay:0
+};
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function money(v){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '—';return '¥'+n.toLocaleString('zh-CN')}
+function fullMoney(v){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '人民币 ¥0';return '人民币 ¥'+n.toLocaleString('zh-CN')}
+function isMissing(f){if(!f.required)return false;const v=state.values[f.key];return v===undefined||v===null||String(v).trim()===''}
+function renderFacts(){
+  groups.forEach(g=>{
+    const container=document.getElementById(g.container);
+    container.innerHTML=g.rows.map(row=>{
+      const facts=row.facts.map(f=>{
+        const missing=isMissing(f),ai=!!state.ai[f.key],editable=state.mode==='edit'?'true':'false';
+        return `<span class="fact ${missing?'is-missing':''} ${ai?'is-ai':''} ${f.wide?'wide':''}" data-key="${f.key}">
+          <span class="fact-label">${esc(f.label)}</span>
+          <span class="fact-value" contenteditable="${editable}" spellcheck="false" data-key="${f.key}" data-placeholder="${esc(f.placeholder)}" data-pv="${esc(f.pv)}">${esc(state.values[f.key]||'')}</span>
+          ${ai?`<button class="ai-flag edit-only" type="button" data-confirm-ai="${f.key}">AI · 待核</button>`:''}
+        </span>`;
+      }).join('');
+      const rowHasMissing=row.facts.some(isMissing),rowHasAi=row.facts.some(f=>state.ai[f.key]);
+      return `<div class="fact-row ${rowHasMissing?'has-missing':''} ${rowHasAi?'has-ai':''}"><div class="row-label">${esc(row.label)}</div><div class="fact-items">${facts}</div><div class="row-state"><i class="state-dot"></i></div></div>`;
+    }).join('');
+  });
+  applyFilter();updateCounts();syncPreview();
+}
+function renderPayments(){
+  const wrap=document.getElementById('paymentList');
+  wrap.innerHTML=state.payments.map((p,i)=>{
+    const missing=!(Number(p.amount)>0),condition=triggerText(p),open=state.openPay===i;
+    return `<div class="payment-step ${missing?'is-missing':''} ${open?'open':''}" data-index="${i}">
+      <div class="pay-main" data-pay-toggle="${i}">
+        <span class="pay-name">${esc(p.label)}</span>
+        <input class="pay-amount" type="number" min="0" step="1000" value="${p.amount??''}" placeholder="金额" data-pay-amount="${i}" ${state.mode==='review'?'readonly':''}>
+        <span class="pay-condition" title="${esc(condition)}">${esc(condition)}</span><span class="pay-chevron">⌄</span>
+      </div>
+      <div class="pay-detail"><div class="trigger-switch">
+        <button class="${p.triggerType==='sign'?'active':''}" data-trigger-type="sign" data-pay-index="${i}">签约当日</button>
+        <button class="${p.triggerType==='date'?'active':''}" data-trigger-type="date" data-pay-index="${i}">固定日期</button>
+        <button class="${p.triggerType==='event'?'active':''}" data-trigger-type="event" data-pay-index="${i}">事件条件</button>
+      </div>${renderTriggerEditor(p,i)}</div>
+    </div>`;
+  }).join('');
+  applyFilter();updateMoney();
+}
+function triggerText(p){if(p.triggerType==='sign')return '签约当日';if(p.triggerType==='date')return p.date||'选择付款日期';return p.event||'填写付款条件'}
+function renderTriggerEditor(p,i){
+  if(p.triggerType==='sign')return `<div class="trigger-editor"><div class="trigger-note">按顶部签署日期自动填写，无需重复输入。</div></div>`;
+  if(p.triggerType==='date')return `<div class="trigger-editor"><input type="date" value="${esc(p.date)}" data-pay-date="${i}" ${state.mode==='review'?'readonly':''}></div>`;
+  return `<div class="trigger-editor"><textarea data-pay-event="${i}" ${state.mode==='review'?'readonly':''} placeholder="填写付款事件条件">${esc(p.event)}</textarea></div>
+    <div class="quick-row edit-only"><button data-suggest-event="过户完成后 3 日内" data-pay-index="${i}">过户完成后 3 日内</button><button data-suggest-event="交付资料当日" data-pay-index="${i}">交付资料当日</button><button data-suggest-event="书面通知当日支付" data-pay-index="${i}">书面通知当日支付</button></div>`;
+}
+function updateCounts(){
+  groups.forEach(g=>{
+    const keys=g.rows.flatMap(r=>r.facts.filter(f=>f.required).map(f=>f.key)),done=keys.filter(k=>String(state.values[k]||'').trim()).length;
+    const el=document.getElementById(g.id==='party'?'countParty':'countVehicle');el.textContent=`${done}/${g.required}`;el.className='section-count '+(done===g.required?'ok':'warn');
+  });
+  const payDone=state.payments.filter(p=>Number(p.amount)>0).length,payEl=document.getElementById('countPayment');
+  payEl.textContent=`${payDone}/${state.payments.length}`;payEl.className='section-count '+(payDone===state.payments.length?'ok':'warn');updateActionStatus();
+}
+function updateActionStatus(){
+  const missingFacts=groups.flatMap(g=>g.rows.flatMap(r=>r.facts)).filter(isMissing).length;
+  const aiCount=Object.values(state.ai).filter(Boolean).length,missingPay=state.payments.filter(p=>!(Number(p.amount)>0)).length;
+  const sum=state.payments.reduce((a,p)=>a+(Number(p.amount)||0),0),total=Number(state.values.total_fee)||0,diff=total-sum;
+  const chips=[];
+  chips.push(missingFacts||missingPay?`<span class="status-chip bad">还差 ${missingFacts+missingPay} 项</span>`:'<span class="status-chip ok">必填已齐全</span>');
+  if(aiCount)chips.push(`<span class="status-chip ai">${aiCount} 处 AI 待确认</span>`);
+  chips.push(diff===0&&total>0?'<span class="status-chip ok">付款合计已对齐</span>':`<span class="status-chip bad">付款差额 ${money(Math.abs(diff))}</span>`);
+  chips.push(`<button class="status-chip" onclick="toggleMissing()">${state.filterMissing?'显示全部':'只看待补'}</button>`);
+  document.getElementById('actionStatus').innerHTML=chips.join('');
+}
+function updateMoney(){
+  const sum=state.payments.reduce((a,p)=>a+(Number(p.amount)||0),0),total=Number(state.values.total_fee)||0,diff=total-sum;
+  const alloc=document.getElementById('allocation');document.getElementById('allocSum').textContent=money(sum);document.getElementById('allocTotal').textContent=money(total);
+  document.getElementById('allocDiff').textContent=diff===0?'已对齐':`差 ${money(Math.abs(diff))}`;alloc.className='allocation '+(diff===0&&total>0?'ok':'bad');updateCounts();syncPreview();
+}
+function onTotalInput(v){state.values.total_fee=Number(v)||0;updateMoney();highlightPreview('total_fee')}
+function applyFilter(){
+  const only=state.filterMissing;
+  document.querySelectorAll('.fact-row').forEach(row=>row.classList.toggle('filtered-out',only&&!row.classList.contains('has-missing')&&!row.classList.contains('has-ai')));
+  document.querySelectorAll('.payment-step').forEach(step=>step.classList.toggle('filtered-out',only&&!step.classList.contains('is-missing')));
+}
+function toggleMissing(){state.filterMissing=!state.filterMissing;applyFilter();updateActionStatus()}
+function setMode(mode){
+  state.mode=mode;document.body.classList.toggle('review-mode',mode==='review');document.getElementById('modeEdit').classList.toggle('active',mode==='edit');document.getElementById('modeReview').classList.toggle('active',mode==='review');renderFacts();renderPayments();
+}
+function confirmAi(key,btn){state.ai[key]=false;const el=btn.closest('.fact');if(el){el.classList.remove('is-ai');btn.remove()}updateCounts();toast('已确认该字段')}
+function focusNextFact(current){const all=[...document.querySelectorAll('.fact-value[contenteditable="true"]')],i=all.indexOf(current);if(i>=0&&i<all.length-1)all[i+1].focus()}
+function highlightPreview(key){
+  document.querySelectorAll('.pv-hit').forEach(el=>el.classList.remove('pv-hit'));
+  const el=document.querySelector(`#paper [data-pv="${CSS.escape(key)}"]`);if(!el)return;el.classList.add('pv-hit');el.scrollIntoView({block:'center',behavior:'smooth'});
+  clearTimeout(window.__pvTimer);window.__pvTimer=setTimeout(()=>el.classList.remove('pv-hit'),1400);
+}
+function syncPreview(){
+  Object.entries(state.values).forEach(([k,v])=>{const el=document.querySelector(`#paper [data-pv="${CSS.escape(k)}"]`);if(el)el.textContent=k==='total_fee'?fullMoney(v):(String(v||'').trim()||'—')});
+  state.payments.forEach((p,i)=>{const c=document.querySelector(`#paper [data-pv="pay-condition-${i}"]`),a=document.querySelector(`#paper [data-pv="pay-amount-${i}"]`);if(c)c.textContent=triggerText(p);if(a)a.textContent=fullMoney(p.amount)});
+}
+function autoTail(){
+  const tail=state.payments.length-1;if(tail<1)return;
+  const other=state.payments.slice(0,tail).reduce((a,p)=>a+(Number(p.amount)||0),0);
+  state.payments[tail].amount=Math.max(0,(Number(state.values.total_fee)||0)-other);renderPayments();toast('尾款已按总费用自动补齐');highlightPreview('pay-amount-'+tail);
+}
+function runExtract(){
+  const btn=document.getElementById('extractBtn');if(btn.disabled)return;btn.disabled=true;btn.textContent='解析中…';
+  const nodes=[document.getElementById('pipe1'),document.getElementById('pipe2'),document.getElementById('pipe3')],pipe=document.getElementById('aiPipeline');pipe.classList.add('show');nodes.forEach(n=>n.className='pipe-node');nodes[0].className='pipe-node run';
+  setTimeout(()=>{nodes[0].className='pipe-node done';nodes[1].className='pipe-node run'},260);
+  setTimeout(()=>{nodes[1].className='pipe-node done';nodes[2].className='pipe-node run'},560);
+  setTimeout(()=>{
+    const incoming={client_contact:'李四',port:'深圳湾口岸',target_hk_company:'鸿达国际物流有限公司'};
+    Object.entries(incoming).forEach(([k,v])=>{if(!String(state.values[k]||'').trim()){state.values[k]=v;state.ai[k]=true}});
+    state.payments[1].amount=state.payments[1].amount||100000;state.payments[2].amount=state.payments[2].amount||100000;
+    nodes[2].className='pipe-node done';btn.disabled=false;btn.textContent='重新提取';renderFacts();renderPayments();
+    setTimeout(()=>document.querySelectorAll('.fact.is-ai .fact-value').forEach(el=>el.classList.add('flash')),20);
+    toast('已回填 5 项，付款时间轴已整理为 3 期');
+  },920);
+}
+function generateToast(){
+  const missingFacts=groups.flatMap(g=>g.rows.flatMap(r=>r.facts)).filter(isMissing).length,missingPay=state.payments.filter(p=>!(Number(p.amount)>0)).length;
+  if(missingFacts+missingPay>0){toast(`还有 ${missingFacts+missingPay} 项需要补齐`);return}toast('核对通过，合同已进入生成队列');
+}
+let toastTimer;function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2200)}
+document.addEventListener('focusin',e=>{const el=e.target.closest('.fact-value');if(el)highlightPreview(el.dataset.pv||el.dataset.key)});
+document.addEventListener('keydown',e=>{const el=e.target.closest('.fact-value');if(el&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();el.blur();focusNextFact(el)}});
+document.addEventListener('blur',e=>{
+  const el=e.target.closest('.fact-value');if(!el)return;const key=el.dataset.key,val=(el.textContent||'').trim();state.values[key]=val;if(state.ai[key]&&val)state.ai[key]=false;
+  const fact=el.closest('.fact');fact.classList.toggle('is-missing',!!fact.dataset.key&&isMissingByKey(key));fact.classList.toggle('is-ai',!!state.ai[key]);
+  const btn=fact.querySelector('.ai-flag');if(btn&&!state.ai[key])btn.remove();updateCounts();syncPreview();
+},true);
+function isMissingByKey(key){
+  const f=groups.flatMap(g=>g.rows.flatMap(r=>r.facts)).find(x=>x.key===key);return f?isMissing(f):false;
+}
+document.addEventListener('input',e=>{const el=e.target.closest('.fact-value');if(el){state.values[el.dataset.key]=(el.textContent||'').trim();syncPreview()}});
+document.addEventListener('click',e=>{
+  const ai=e.target.closest('[data-confirm-ai]');if(ai){confirmAi(ai.dataset.confirmAi,ai);return}
+  const amountInput=e.target.closest('[data-pay-amount]');if(amountInput){e.stopPropagation();return}
+  const toggle=e.target.closest('[data-pay-toggle]');if(toggle){const i=Number(toggle.dataset.payToggle);state.openPay=state.openPay===i?-1:i;renderPayments();return}
+  const trigger=e.target.closest('[data-trigger-type]');if(trigger){const i=Number(trigger.dataset.payIndex);state.payments[i].triggerType=trigger.dataset.triggerType;state.openPay=i;renderPayments();return}
+  const suggest=e.target.closest('[data-suggest-event]');if(suggest){const i=Number(suggest.dataset.payIndex);state.payments[i].event=suggest.dataset.suggestEvent;renderPayments();highlightPreview('pay-condition-'+i);return}
+});
+document.addEventListener('input',e=>{
+  const amount=e.target.closest('[data-pay-amount]');if(amount){const i=Number(amount.dataset.payAmount);state.payments[i].amount=amount.value===''?null:Number(amount.value);updateMoney()}
+  const date=e.target.closest('[data-pay-date]');if(date){state.payments[Number(date.dataset.payDate)].date=date.value;syncPreview()}
+  const event=e.target.closest('[data-pay-event]');if(event){state.payments[Number(event.dataset.payEvent)].event=event.value;syncPreview()}
+});
+document.addEventListener('blur',e=>{const event=e.target.closest('[data-pay-event]');if(event){const i=Number(event.dataset.payEvent);state.payments[i].event=(event.value||'').trim();renderPayments();highlightPreview('pay-condition-'+i)}},true);
+renderFacts();renderPayments();updateMoney();
+</script>
+</body>
+</html>
+
+
