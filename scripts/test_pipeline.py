@@ -753,7 +753,7 @@ def run_exchange_alias():
 
 
 def run_immigration():
-    """高才移民：总费用行对调后（C1大写|C2双币数字）+分期散文表三模式（行含约合港币）、
+    """高才移民：总费用行对调后（C1大写|C2双币数字）+分期散文表三模式（行含双币数字对）、
     「分N期支付」格、申请人信息表、编号行、签署日期（年份预填变体）。固定汇率保证断言。"""
     from engine.writer import find_table
     from engine.money import convert_amount, with_commas as wc, to_cn_upper as up
@@ -763,8 +763,7 @@ def run_immigration():
         return f"HK${wc(convert_amount(amt, 'CNY', FX))}"
 
     def imm_row(label, verb, amt):
-        return (f"{label}  {verb}人民币{amt}元整"
-                f"(大写：人民币{up(amt)}，约合港币{hk(amt)})。")
+        return f"{label}  {verb}人民币（大写）{up(amt)}（¥{wc(amt)} / {hk(amt)}）。"
 
     ok = True
     out = os.path.join(OUT, "_imm.docx")
@@ -779,7 +778,7 @@ def run_immigration():
 
     def fee_texts(doc):
         total_tbl = find_table(doc, "甲方需支付乙方服务费")
-        inst_tbl = find_table(doc, "元整(大写：")
+        inst_tbl = find_table(doc, "元整（")
         return (" | ".join(c.text.strip() for c in total_tbl.rows[0].cells),
                 [r.cells[1].text.strip() for r in inst_tbl.rows])
 

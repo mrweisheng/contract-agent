@@ -14,8 +14,8 @@ from engine import writer as W
 from engine.types_config import get_type, template_path, TEMPLATES_DIR
 from engine import fx
 from engine.money import (to_cn_upper, with_commas, currency_label, currency_symbol,
-                          amount_phrase, amount_phrase_dual, dual_numeric, convert_amount,
-                          other_currency, clean_amount, clean_currency)
+                          amount_phrase, amount_phrase_dual, dual_numeric,
+                          clean_amount, clean_currency)
 
 PARTY_LABEL_MAP = [
     ("证件", "client_id"),
@@ -697,12 +697,10 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
 # ---------------- 移民式费用区（总费用行表 + 分期散文表） ----------------
 
 def _imm_set_row(row, label, verb, amt, cur, rate):
-    """分期散文行整句改写（沿用模板散文句式），主币金额+大写+约合他币与其他业务同款双币逻辑。"""
-    oc = other_currency(cur)
-    about = f"约合{currency_label(oc)}{currency_symbol(oc)}{with_commas(convert_amount(amt, cur, rate))}"
+    """分期散文行整句改写（沿用模板散文句式）：主币大写 + 双币数字对，与两地牌
+    amount_phrase_dual 同款，如「人民币（大写）壹拾万元整（¥100,000 / HK$117,716）」。"""
     W.set_paragraph_text(row.cells[1].paragraphs[0],
-                         f"{label}  {verb}{currency_label(cur)}{amt}元整"
-                         f"(大写：{currency_label(cur)}{to_cn_upper(amt)}，{about})。")
+                         f"{label}  {verb}{amount_phrase_dual(amt, cur, rate)}。")
 
 
 def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, rate, mode):

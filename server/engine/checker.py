@@ -118,15 +118,15 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
         if amounts and report.get("mode") in ("default", "custom"):
             if sum(amounts) != report["total"]:
                 errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
-    # 移民式分期散文表：金额写在行内散文里，同样校验合计
+    # 移民式分期散文表：金额写在行内散文里（主币大写 + 双币数字对），同样校验合计
     if cfg.get("installment_table"):
-        inst_tbl = W.find_table(doc, cfg["installment_table"])
+        inst_tbl = W.find_table(doc, cfg.get("installment_table_out") or cfg["installment_table"])
         if inst_tbl:
             amounts = []
             for row in inst_tbl.rows:
-                m = re.search(rf"{currency_label(cur)}[:：]?\s*(\d[\d,]*)\s*元整", row.cells[1].text)
-                if m and int(m.group(1).replace(",", "")) > 0:
-                    amounts.append(int(m.group(1).replace(",", "")))
+                n, _ = _parse_amount_cells(row, cfg)
+                if n is not None and n > 0:
+                    amounts.append(n)
             if amounts and report.get("mode") in ("default", "custom"):
                 if sum(amounts) != report["total"]:
                     errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
