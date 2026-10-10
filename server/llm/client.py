@@ -72,6 +72,8 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
                            # except 分支读它会抛 UnboundLocalError（不属于任何已知异常，会直接冒泡）
     use_json_mode = True   # 强制 JSON 输出，避免围栏/解释文字导致的解析重试
     use_fast_mode = not thinking
+    extra_tokens = 0       # 思考截断（输出为空）时逐次加余量：fast 模式下模型仍可能自行 <think>，
+                           # 与答案共享 max_tokens，不扩容的话重试多少次都是同一个死法
     for attempt in range(retries):
         # 末次重试强制关思考：保证一定产出答案、时间有界（思考模式下思考与答案共享 max_tokens，
         # 思考过长会截断输出，宁可要一个无思考的完整复核也不要一个超时的空结果）
@@ -80,7 +82,7 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
             "model": MODEL,
             "messages": msgs,
             "temperature": temperature,
-            "max_tokens": max_tokens + (THINKING_HEADROOM if not fast_attempt else 0),
+            "max_tokens": max_tokens + extra_tokens + (THINKING_HEADROOM if not fast_attempt else 0),
         }
         if use_json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -115,6 +117,8 @@ def chat_json(messages: list, max_tokens: int = 2000, retries: int = 3,
                 continue
             if isinstance(content, str):
                 last_content = content   # 留住 LLM 上次的真实输出（无论是否解析失败），下次重试用
+            if "模型输出为空" in err:
+                extra_tokens += THINKING_HEADROOM   # 下次重试给思考留足配额，避免同一姿势再死一次
             content_len = f"{len(last_content)} 字符" if isinstance(last_content, str) else "无内容"
             print(f"[LLM] 第{attempt + 1}次失败（{time.time() - t0:.1f} 秒，模型输出 {content_len}）："
                   f"{str(ex)[:150]}", flush=True)

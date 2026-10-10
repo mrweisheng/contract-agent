@@ -593,12 +593,11 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
             issues.append(msg)
     rows = fee_tbl.rows
     _fill_amount_cell(rows[0], cfg, cur, total, rate)
-    n = len(installments)
     # 统一行样式：以模板第1数据行为源，删除原有分期行后克隆 n 份
     src_tr = copy.deepcopy(rows[1]._tr)
     while len(fee_tbl.rows) > 1:
         W.delete_row(fee_tbl, 1)
-    for _ in range(n):
+    for _ in range(len(installments)):
         fee_tbl._tbl.append(copy.deepcopy(src_tr))
     rows = fee_tbl.rows
     for i, ins in enumerate(installments):
@@ -608,9 +607,11 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
     report["fee_rows"] = [W.row_label(r) for r in rows]
     report["amounts"] = [total] + amounts
 
-    # 付款时间节点列：有绝对日期（LLM 基于签署日推算）或事件触发描述即进表，
-    # 日期金额都在表里后，条款区无需逐期复述
-    def _node(ins) -> str:
+    # 付款时间/事件逐期写入条款区文字（表格保持模板形态只列名称+金额，不加日期列），
+    # 行名与费用表行名一致，一一对应；预设节点的专业文案由解析层回填进 trigger
+    SIGN_DAY_RE = re.compile(r"^(本合约|本协议|合同)?签订(当日|当天|之日)$|^签约(当日|当天|之日|时)$")
+
+    def _when(ins) -> str:
         iso = None
         td = (ins.get("trigger_date") or "").strip()
         if W.is_valid_iso_date(td):
@@ -622,33 +623,19 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
                 cand = f"{int(m.group(1))}-{int(m.group(2))}-{int(m.group(3))}"
                 if W.is_valid_iso_date(cand):
                     iso = cand
-        if iso:
+        ev = (ins.get("trigger") or "").strip()
+        if iso and ev:
+            # 「签约当日」类短语与日期同源（都源于签署日），并列会出现「X日或签约当日」，只保留日期
+            if not SIGN_DAY_RE.match(re.sub(r"(支付|付清|付款|支付完毕)$", "", ev)):
+                return f"{W.date_cn(iso)}或{ev}"
             return W.date_cn(iso)
-        return (ins.get("trigger") or "").strip()
+        return W.date_cn(iso) if iso else ev
 
-    nodes = [_node(ins) for ins in installments]
-    if draft:
-        nodes = [n or PLACEHOLDER_DATE for n in nodes]
-    if any(nodes):
-        date_cells = W.append_column(fee_tbl, 2000)
-        header = "付款日期 PAYMENT DATE" if cfg.get("car_default") else "付款日期"
-        W.set_cell_text(date_cells[0], header)
-        for cell, node in zip(date_cells[1:], nodes):
-            W.set_cell_text(cell, node)
-        report["date_column"] = True
-
-    # 条款区改写：一句话总括（总价、期数、付款方），日期与各期金额以表为准
-    payer, payee = cfg["payer"], cfg["payee"]
-    total_label = cfg.get("fee_total_label", "总价款")
-    if n == 1:
-        how, by = "一次性支付", "足额"
-    elif n == 2:
-        how, by = "分两期支付", "按期足额"
-    else:
-        how, by = f"分{W.seq_cn(n)}期支付", "按期足额"
-    scope = "付款日期及各期金额" if any(nodes) else "各期金额"
-    texts = [
-        f"{total_label}{amount_phrase(total, cur)}，{how}，"
-        f"{scope}以上表所列为准，由{payer}{by}支付予{payee}。"
-    ]
+    texts = []
+    for i, ins in enumerate(installments):
+        when = _when(ins) or PLACEHOLDER_DATE   # 占位仅 draft 可达，非 draft 已被 derive 拦截
+        line = f"{_row_name(installments, i)}：于{when}"
+        if not when.endswith("付"):   # 支付/付清/付款/…付 均不再补「支付」
+            line += "支付"
+        texts.append(line + "。")
     _rewrite_payment(doc, cfg, report, sec_no, next_no, texts)

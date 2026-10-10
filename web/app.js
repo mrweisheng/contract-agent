@@ -322,7 +322,16 @@ const app = createApp({
       }
     }
     function addRow() {
-      payment.rows.push({ seq: payment.rows.length + 1, label: "", amount: null, date: "", event: "", lockDate: false });
+      const row = { seq: 1, label: "", amount: null, date: "", event: "", lockDate: false };
+      // 「尾款」语义上永远是最后一期：新加的一期插到它前面（倒数第二）
+      const last = payment.rows[payment.rows.length - 1];
+      if (last && (last.label || "").trim() === "尾款") {
+        payment.rows.splice(payment.rows.length - 1, 0, row);
+      } else {
+        payment.rows.push(row);
+      }
+      payment.rows.forEach((r, j) => r.seq = j + 1);
+      schedulePreview();
     }
     function delRow(i) {
       payment.rows.splice(i, 1);
@@ -786,8 +795,8 @@ const app = createApp({
           <div class="sec-body">
             <textarea class="nl" v-model="nlText" rows="3" :placeholder="nlPlaceholder()"></textarea>
             <div class="extract-row">
-              <button class="btn primary" :disabled="extracting" @click="runExtract">
-                <span v-if="extracting" class="spin"></span>{{ extracting ? '提取中…' : 'AI 提取' }}
+              <button class="btn primary" :disabled="extracting || parsing" @click="runExtract">
+                <span v-if="extracting || parsing" class="spin"></span>{{ extracting ? '提取中…' : parsing ? '解析付款中…' : 'AI 提取' }}
               </button>
               <div class="pipeline" :class="{show: extracting || parsing || pipe.extract || pipe.pay}">
                 <div class="stage" :class="pipe.extract">{{ {run:'提取字段中…',done:'✓ 字段提取',fail:'✗ 提取失败'}[pipe.extract] || '待提取' }}</div>
@@ -925,10 +934,10 @@ const app = createApp({
                     <input v-if="it.lockDate" type="date" :value="form.sign_date" disabled/>
                     <input v-else type="date" v-model="it.date" data-pfield="date" @change="onHitDateChange"/>
                   </div>
-                  <div class="pc-cell wide">
-                    <label>付款事件条件</label>
-                    <input v-model="it.event" placeholder="如：过户完成后 3 日内" data-pfield="event"/>
-                  </div>
+                </div>
+                <div class="pc-cell wide pc-event">
+                  <label>付款事件条件</label>
+                  <textarea v-model="it.event" placeholder="如：过户完成后 3 日内" data-pfield="event" rows="2"></textarea>
                 </div>
               </div>
             </div>
@@ -986,7 +995,7 @@ const app = createApp({
         <span class="spacer"></span>
         <span v-if="generating" class="gb-timer">AI 复核中 {{ elapsed.gen }}s（通常 10~60 秒）</span>
         <button v-if="result && result.ok" class="btn gold" @click="download()">✓ 下载合同</button>
-        <button v-else class="btn accent" :disabled="!canGenerate || generating" @click="generate">
+        <button v-else class="btn accent" :disabled="!canGenerate || generating || extracting || parsing" @click="generate">
           <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
         </button>
       </div>

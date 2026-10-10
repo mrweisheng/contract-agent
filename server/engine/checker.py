@@ -199,11 +199,13 @@ def _body_run_sig(p):
     return _fmt_of(max(runs, key=lambda r: len(r.text)))
 
 
-def _fmt_multiset(row):
-    """一行内所有非空 run 的格式计数（比对生成行是否出现模板没有的格式）。"""
+def _fmt_multiset(row, trim: int = 0):
+    """一行内所有非空 run 的格式计数（比对生成行是否出现模板没有的格式）。
+    trim：扣除表尾设计内新增的列数，不计入比对（与 _row_sig 的 trim 同口径）。"""
     from collections import Counter
+    cells = row.cells[: len(row.cells) - trim] if trim else row.cells
     c = Counter()
-    for cell in row.cells:
+    for cell in cells:
         for p in cell.paragraphs:
             for r in p.runs:
                 if r.text:
@@ -409,17 +411,18 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         if rw:
             a, b = rw
             seg = op[os_ + a:os_ + b]
-            base_sig = _run_sig(tp[ts])
-            for p in seg:
-                if _run_sig(p) != base_sig:
+            # 改写段逐段与模板分期块同位置段比对（克隆扩展的超额段以模板块末段为样式源）
+            labels = [p["label"] for p in (cfg.get("pay_preset") or [])]
+            ta, tb = W._shrink_to_payment_block(tpl, (ts, te), labels or None)
+            tpl_block = tp[ta:tb]
+            for j, p in enumerate(seg):
+                src = tpl_block[min(j, len(tpl_block) - 1)]
+                if _run_sig(p) != _run_sig(src):
                     issues.append("付款条款段落样式与模板不一致")
                     break
-            body = _body_run_sig(tp[ts])
-            if body:
-                for p in seg:
-                    if p.text.strip() and _body_run_sig(p) != body:
-                        issues.append("付款条款正文格式与模板不一致（文字落到了特殊格式 run）")
-                        break
+                if p.text.strip() and _body_run_sig(p) != _body_run_sig(src):
+                    issues.append("付款条款正文格式与模板不一致（文字落到了特殊格式 run）")
+                    break
         else:
             for p, q in zip(tp[ts:te], op[os_:oe]):
                 if _run_sig(p) != _run_sig(q):
@@ -500,7 +503,7 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
     for row in out_fee.rows:
         label = row.cells[0].text.strip()
         expect_ms = ms_by_label.get(label, fb_ms)
-        got_ms = _fmt_multiset(row)
+        got_ms = _fmt_multiset(row, extra_cols)
         if got_ms and got_ms - expect_ms:
             extra = sorted(got_ms - expect_ms)
             issues.append(f"费用表出现模板中没有的格式：{label[:15]} {extra}")

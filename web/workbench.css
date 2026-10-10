@@ -145,9 +145,14 @@ select.f-inp { appearance: auto; }
 .pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .pc-cell { display: flex; flex-direction: column; gap: 3px; }
 .pc-cell.wide { grid-column: 1 / -1; }
+.pay-card > .pc-cell.wide { margin-top: 2px; }   /* 付款事件条件：跨卡片整行，靠左铺满 */
 .pc-cell label { font-size: 11px; color: #6b655c; }
 .pc-cell input { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
                  font-size: 13px; font-family: var(--sans); width: 100%; }
+.pc-cell textarea { border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+                    font-size: 13px; font-family: var(--sans); width: 100%; resize: vertical;
+                    min-height: 52px; line-height: 1.5; background: #fff; }
+.pc-cell textarea:focus { outline: none; border-color: var(--ink-2); }
 .pc-cell input:focus { outline: none; border-color: var(--ink-2); }
 .pc-cell input:disabled { background: #f4f2ec; color: var(--muted); }
 .pc-cn { font-size: 10.5px; color: var(--muted); font-family: var(--serif); }

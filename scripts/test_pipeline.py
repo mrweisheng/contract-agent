@@ -162,6 +162,20 @@ CASES = [
         "target_hk_company": "香港example有限公司",
         "total_fee": 300000, "exchange_fee": 20000,
     }, {"mode": "default", "pay1": 100000, "pay2": 150000, "pay3": 50000}),
+    # ---- 高新过户：自定义三期（用户真实场景：表不加日期列，时点进条款文字，尾款关联预设原文）----
+    ("gx_custom", "transfer_gx", {
+        "agreement_no": "", "sign_date": "2026-10-09", "currency": "CNY",
+        "client_name": "鸿达投资有限公司", "client_id": "统一社会信用代码 91110000MA0000000X",
+        "client_contact": "李四", "client_phone": "13800001234",
+        "plate": "LN1234", "port": "莲塘口岸", "quota_type": "高新",
+        "target_hk_company": "XX物流有限公司",
+        "total_fee": 300000, "exchange_fee": 0,
+    }, {"mode": "custom", "installments": [
+        {"seq": 1, "amount": 100000, "label": "第一期", "trigger": "签约当日支付", "trigger_date": "2026-10-09"},
+        {"seq": 2, "amount": 100000, "label": "第二期", "trigger": "提交资料后3日内付", "trigger_date": None},
+        {"seq": 3, "amount": 100000, "label": "尾款",
+         "trigger": "甲方向乙方交付新的车辆行驶证、新批文卡及铁牌资料时支付", "trigger_date": None},
+    ]}),
     # ---- 纳税过户：自定义四期 ----
     ("ns_custom", "transfer_ns", {
         "agreement_no": "", "sign_date": "2026-08-31", "currency": "CNY",
@@ -181,7 +195,7 @@ CASES = [
         "client_name": "钱七", "client_id": "4415**********1234", "client_phone": "13800138000",
         "total_fee": 200000,
     }, {"mode": "default", "pay1": 50000, "pay2": 100000, "pay3": 50000}),
-    # ---- 新办：自定义两期（一期有日期、一期事件触发，验 single_rmb 表加日期列）----
+    # ---- 新办：自定义两期（一期有日期、一期事件触发；付款时点进条款文字，表格不加列）----
     ("new_custom", "new_port", {
         "agreement_no": "", "sign_date": "2026-09-01", "currency": "CNY", "port": "港珠澳大桥口岸",
         "client_name": "吴十", "client_id": "4415**********5678", "client_phone": "13900139000",
@@ -254,7 +268,19 @@ def run_negative():
 EXPECT_LABELS = {
     "car_custom": ["车辆总售价", "定金", "第二期", "第三期", "第四期", "第五期"],
     "car_label_fallback": ["车辆总售价", "第一期", "第二期", "第三期"],
+    "gx_custom": ["服务总费用", "第一期", "第二期", "尾款"],
     "new_custom": ["服务总费用", "定金", "尾款"],
+}
+
+# 用例 → 逐期付款条款行预期文字（custom：时点进条款、行名与费用表一一对应）
+EXPECT_CLAUSE = {
+    "gx_custom": [
+        "第一期：于2026年10月9日支付。",
+        "第二期：于提交资料后3日内付。",   # 客户原话以「付」结尾，不得产出「付支付」
+        "尾款：于甲方向乙方交付新的车辆行驶证、新批文卡及铁牌资料时支付。",
+    ],
+    "car_custom": ["定金：于2026年8月31日", "第五期：于2027年1月10日"],
+    "new_custom": ["定金：于2026年9月1日", "尾款：于省厅批复后3个工作日内支付。"],
 }
 
 # 用例 → 默认三期定金条款应展开的绝对日期（生成日=签约日）
@@ -602,6 +628,68 @@ def run_dual_currency():
     return ok
 
 
+def run_newport_matrix():
+    """四大口岸 × 付款模式全组合（深圳湾正路径此前无用例）：custom 不加日期列，
+    付款时点进条款文字且与表行一一对应；超过预设期数的克隆行/克隆段也须过指纹。"""
+    ok = True
+    out = os.path.join(OUT, "_np_matrix.docx")
+    base = {"agreement_no": "", "sign_date": "2026-10-09", "currency": "CNY",
+            "client_name": "口岸矩阵", "client_id": "4415**********1234",
+            "client_phone": "13800138000", "total_fee": 200000}
+    modes = {
+        "default": {"mode": "default", "pay1": 50000, "pay2": 100000, "pay3": 50000},
+        "one_time": {"mode": "one_time", "pay_date": "2026-10-20", "pay_event": ""},
+        "custom2": {"mode": "custom", "installments": [
+            {"seq": 1, "amount": 100000, "label": "定金", "trigger": "签约当日支付", "trigger_date": "2026-10-09"},
+            {"seq": 2, "amount": 100000, "label": "尾款", "trigger": "省厅批复后3个工作日内支付", "trigger_date": None},
+        ]},
+        "custom4": {"mode": "custom", "installments": [
+            {"seq": 1, "amount": 50000, "label": "定金", "trigger": "签约当日支付", "trigger_date": "2026-10-09"},
+            {"seq": 2, "amount": 50000, "label": "",
+             "trigger": "甲方香港公司成功入股大陆高新企业，完成省厅系统提交并获得提交编号后，于1个工作日内支付",
+             "trigger_date": None},
+            {"seq": 3, "amount": 50000, "label": "第三期", "trigger": "递交资料后10日内", "trigger_date": None},
+            {"seq": 4, "amount": 50000, "label": "尾款",
+             "trigger": "乙方完成两地牌代办申请并取得车辆行驶证、批文卡及禁区纸后，甲方在乙方处领取车辆铁牌等通关资料时现场支付",
+             "trigger_date": None},
+        ]},
+    }
+    for port in ALL_PORTS:
+        for mname, pay in modes.items():
+            try:
+                form = dict(base, port=port)
+                report = build_contract("new_port", form, pay, "20260831999", out, fx_rate=0.88)
+                report["agreement_no"] = "20260831999"
+                doc = Document(out)
+                errs = check_rules("new_port", form, pay, report, doc)
+                errs += check_fingerprint(report["template"], out, "new_port", report, form)
+                if pay["mode"] == "custom":
+                    if "付款日期" in "\n".join(p.text for p in doc.paragraphs):
+                        errs.append("custom 出现「付款日期」字样")
+                    fee = W_find(doc, "服务总费用")
+                    for lab in [r.cells[0].text.strip() for r in fee.rows][1:]:
+                        if f"{lab}：于" not in "\n".join(p.text for p in doc.paragraphs):
+                            errs.append(f"条款缺少分期说明：{lab}")
+                if errs:
+                    ok = False
+                    print(f"[FAIL] 口岸矩阵 {port}×{mname}")
+                    for e in errs:
+                        print(f"   - {e}")
+                else:
+                    print(f"[PASS] 口岸矩阵 {port}×{mname}")
+            except Exception as ex:
+                ok = False
+                print(f"[ERROR] 口岸矩阵 {port}×{mname}: {ex}")
+    if os.path.exists(out):
+        os.remove(out)
+    return ok
+
+
+def W_find(doc, anchor):
+    from engine.writer import find_table
+    return find_table(doc, anchor)
+
+
 def run_exchange_alias():
     """换车费用行名跟随客户用词：默认「换车费用」，exchange_label=上车费用 时行名改写；
     checker 按别名仍能找到该表；非法名目回退默认（防幻觉）。"""
@@ -673,6 +761,16 @@ def main():
                 fails = []
                 if name in EXPECT_LABELS and got_labels != EXPECT_LABELS[name]:
                     fails.append(f"行名 {got_labels} ≠ 预期 {EXPECT_LABELS[name]}")
+                # custom：费用表不加日期列，逐期条款行与表行名一一对应
+                if payment.get("mode") == "custom":
+                    if "付款日期" in body:
+                        fails.append("custom 模式出现「付款日期」（时点应写进条款文字而非表格列）")
+                    for lab in got_labels[1:]:
+                        if f"{lab}：于" not in body:
+                            fails.append(f"条款缺少与费用行对应的分期说明：{lab}")
+                for s in EXPECT_CLAUSE.get(name, []):
+                    if s not in body:
+                        fails.append(f"逐期付款条款缺失/不符：{s}")
                 if name in EXPECT_DEPOSIT_DATE and f"（{EXPECT_DEPOSIT_DATE[name]}）支付" not in body:
                     fails.append(f"定金条款未展开绝对日期 {EXPECT_DEPOSIT_DATE[name]}")
                 if name in EXPECT_BALANCE_CLAUSE and EXPECT_BALANCE_CLAUSE[name] not in body:
@@ -720,7 +818,7 @@ def main():
             import traceback
             traceback.print_exc()
     all_ok = (all_ok and run_negative() and run_derive() and run_draft()
-              and run_dual_currency() and run_exchange_alias())
+              and run_dual_currency() and run_exchange_alias() and run_newport_matrix())
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 
