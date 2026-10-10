@@ -374,7 +374,8 @@ TYPES = {
             ]},
         ],
         "fee_fields": [
-            {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True},
+            # 模板默认 40 万人民币：表单预填（币种默认 CNY，均可手动更改）
+            {"key": "total_fee", "label": "服务总费用", "type": "number", "required": True, "default": 400000},
         ],
     },
 }

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 
 from engine.types_config import TYPES, CURRENCY_OPTIONS, PORTS, get_type, template_path
+from engine import fx
 from engine.builder import build_contract, derive_payment
 from engine.checker import check_rules, check_fingerprint, extract_contract_text
 from engine import writer as W
@@ -69,6 +70,13 @@ NOTE_NOISE_RE = re.compile(
 
 def _filter_notes(notes: list) -> list:
     return [n for n in (notes or []) if not NOTE_NOISE_RE.search(str(n))]
+
+
+@router.get("/fx")
+def get_fx():
+    """前端费用输入行的实时约合提示：与合同落盘同一汇率源、同一加成口径。"""
+    info = fx.get_hkd_cny()
+    return {"rate": info["rate"], "source": info["source"]}
 
 
 @router.get("/types")

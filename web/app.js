@@ -124,6 +124,21 @@ const app = createApp({
     const total = computed(() => parseInt(form[totalKey.value]) || 0);
     const paneKey = computed(() => selected.type + "|" + selected.port);  // 切换业务时录入栏淡出淡入
 
+    /* ---------- 实时约合提示（费用输入行） ----------
+     * 汇率与落盘同源（/api/fx → fx.get_hkd_cny，含 1.01 加成），换算口径与
+     * builder.convert_amount 一致；拉取失败静默降级为不显示约合。 */
+    const fxRate = ref(null);
+    fetch("/api/fx").then(r => r.json()).then(d => { fxRate.value = d.rate; }).catch(() => {});
+    function fxAbout(v) {
+      const n = parseInt(v);
+      if (!fxRate.value || isNaN(n) || n <= 0) return "";
+      const other = form.currency === "HKD" ? "CNY" : "HKD";
+      const amt = other === "HKD" ? Math.floor(n / fxRate.value * 1.01 + 0.5)
+                                  : Math.floor(n * fxRate.value * 1.01 + 0.5);
+      const lab = currencyLabel(other).split(" ")[0];
+      return `（约合${lab}${other === "HKD" ? "HK$" : "¥"}${commas(amt)}）`;
+    }
+
     /* ---------- 侧栏导航 ---------- */
     const menu = computed(() => {
       const get = k => types.value.find(t => t.key === k);
@@ -795,7 +810,7 @@ const app = createApp({
       onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
-      toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName,
+      toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout,
     };
   },
 
@@ -959,7 +974,7 @@ const app = createApp({
                 <input v-else :id="'f-' + f.key" class="f-inp" type="number" min="0" step="1000"
                        v-model.number="form[f.key]" placeholder="待填" @input="onFieldInput(f.key)"/>
                 <button v-if="aiFilled[f.key]" class="badge ai" @click="confirmAI(f.key)">AI · 未核</button>
-                <div class="fee-cn" v-if="form[f.key] > 0">{{ currencyLabel(form.currency).split(' ')[0] }}{{ toCN(form[f.key]) }}</div>
+                <div class="fee-cn" v-if="form[f.key] > 0">{{ currencyLabel(form.currency).split(' ')[0] }}{{ toCN(form[f.key]) }}{{ fxAbout(form[f.key]) }}</div>
               </div>
             </div>
 
