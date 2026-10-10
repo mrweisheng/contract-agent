@@ -27,28 +27,42 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[contenteditable
 .side-item{display:flex;align-items:center;gap:10px;padding:9px 16px;border-left:3px solid transparent;color:rgba(255,255,255,.72);font-size:13px}
 .side-item .no{font-family:var(--serif);font-size:11px;opacity:.45}.side-item.active{background:rgba(255,255,255,.09);border-left-color:#efd28b;color:#fff}
 .side-foot{padding:14px 16px 17px;border-top:1px solid rgba(255,255,255,.09);font-size:11px;color:rgba(255,255,255,.48)}
-.editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;background:#f4f1e9;border-right:1px solid #d2cabc}
-.editor-head{display:flex;align-items:center;gap:12px;padding:14px 20px 11px}
-.editor-head h2{font-family:var(--serif);font-size:18px;letter-spacing:.6px;color:var(--ink)}
+.editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;background:#f4f1e9;border-right:1px solid #d2cabc}
+.editor-head{display:flex;align-items:center;gap:12px;padding:16px 20px 10px}
+.editor-head h2{font-family:var(--serif);font-size:19px;letter-spacing:.6px;color:var(--ink)}
 .editor-head .sub{margin-top:3px;font-size:11px;color:var(--muted)}
+.overall{display:flex;align-items:center;gap:10px;padding:0 20px 12px}
+.overall-bar{flex:1;height:5px;border-radius:3px;background:#e4ddcb;overflow:hidden}
+.overall-bar i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,#c9a24b,#2e6e53);transition:width .35s ease}
+.overall span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .mode-switch{margin-left:auto;display:flex;padding:3px;background:#e8e3d8;border:1px solid #d9d2c5;border-radius:7px}
 .mode-switch button{border:0;background:transparent;color:var(--muted);padding:5px 10px;border-radius:5px;font-size:12px}
 .mode-switch button.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(50,42,28,.08)}
-.ai-bar{margin:0 20px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.42)}
-.ai-head{display:flex;align-items:center;gap:8px;padding:9px 10px 2px}.ai-head b{font-size:12px;color:var(--ink)}.ai-head span{font-size:11px;color:var(--muted)}
-.ai-head .beta{margin-left:auto;font-size:10px;color:var(--gold);background:var(--gold-bg);border:1px solid #efdcae;border-radius:9px;padding:2px 7px}
-.ai-compose{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;padding:7px 10px 10px}
-.ai-compose textarea{height:44px;min-height:44px;max-height:94px;resize:vertical;border:1px solid var(--line);border-radius:6px;background:#fff;padding:9px 10px;color:#49443b;font-size:12.5px;line-height:1.55;transition:height .18s,border-color .18s}
-.ai-compose textarea:focus{height:84px;border-color:var(--ink-2)}.ai-compose button{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;height:36px;padding:0 15px;font-size:12px;white-space:nowrap}
+.ai-bar{margin:0 20px 14px;border:1px solid #ecdfbd;border-left:3px solid var(--gold);border-radius:11px;background:linear-gradient(180deg,#fffdf4,#fbf6e9)}
+.ai-compose{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px}
+.ai-compose textarea{height:40px;min-height:40px;max-height:94px;resize:vertical;border:1px solid var(--line);border-radius:6px;background:#fff;padding:9px 10px;color:#49443b;font-size:12.5px;line-height:1.55;transition:height .18s,border-color .18s}
+.ai-compose textarea:focus{height:84px;border-color:var(--ink-2);outline:none}.ai-compose button{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;height:36px;padding:0 15px;font-size:12px;white-space:nowrap}
 .ai-compose button:disabled{opacity:.62;cursor:wait}.ai-pipeline{grid-column:1/-1;display:none;gap:8px;align-items:center;font-size:11px;color:var(--muted)}.ai-pipeline.show{display:flex}
 .pipe-node{display:flex;align-items:center;gap:5px}.pipe-node.done{color:var(--green)}.pipe-node.run{color:var(--gold)}.pipe-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.8}.pipe-arrow{color:#c6beb0}
-.ledger{min-height:0;overflow:auto;padding:0 20px 18px}.ledger-sheet{background:var(--paper);border:1px solid var(--line);box-shadow:0 10px 26px rgba(49,42,31,.05)}
-.section{border-bottom:1px solid var(--line-soft)}.section:last-child{border-bottom:0}.section-head{display:flex;align-items:center;gap:9px;padding:12px 14px 9px;background:#f8f6f0;border-bottom:1px solid var(--line-soft)}
-.section-no{width:22px;height:22px;border:1px solid #b9c7c0;color:var(--ink);display:grid;place-items:center;border-radius:50%;font-family:var(--serif);font-size:10px}
-.section-head h3{font-family:var(--serif);font-size:14px;color:var(--ink);letter-spacing:.4px}.section-count{margin-left:auto;font-size:11px;color:var(--muted)}.section-count.ok{color:var(--green)}.section-count.warn{color:var(--gold)}
-.section-body{padding:0 14px}.fact-row{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid #eee9df;transition:background .15s,box-shadow .15s}
-.fact-row:last-child{border-bottom:0}.fact-row:hover{background:#fffdf8}.fact-row:focus-within{background:#fff;box-shadow:inset 3px 0 0 var(--accent)}.fact-row.filtered-out,.payment-step.filtered-out{display:none}
-.row-label{padding-top:2px;color:var(--muted);font-size:11px;line-height:1.45}.fact-items{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;min-width:0;line-height:1.55}
+.ledger{min-height:0;overflow:auto;padding:0 20px 20px}.ledger-sheet{background:var(--paper);border:1px solid var(--line);box-shadow:0 10px 26px rgba(49,42,31,.05);padding:4px 14px 14px}
+.section{--acc:#2e6e53;margin:12px 0 0}
+.section-2{--acc:#a5741c}.section-3{--acc:#a8493a}
+.section-head{display:flex;align-items:center;gap:10px;padding:11px 15px;background:linear-gradient(180deg,#f7f4ea,#f3efe3);border:1px solid var(--line-soft);border-bottom:0;border-radius:12px 12px 0 0}
+.section-no{width:27px;height:27px;background:var(--acc);color:#fdf8ea;display:grid;place-items:center;border-radius:50%;font-family:var(--serif);font-size:11px;box-shadow:inset 0 -7px 10px rgba(0,0,0,.16)}
+.section-head h3{font-family:var(--serif);font-size:15.5px;color:var(--ink);letter-spacing:.6px}
+.section-en{font-size:8.5px;letter-spacing:2.4px;color:var(--muted-2);text-transform:uppercase;margin-top:1px}
+.section-count{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.section-count .track{width:54px;height:5px;border-radius:3px;background:#e5ddca;overflow:hidden}
+.section-count .track i{display:block;height:100%;width:0;border-radius:3px;background:var(--acc);transition:width .3s ease}
+.section-count .cnt{font-weight:600}
+.section-count.ok{color:var(--green)}.section-count.ok .track i{background:var(--green)}
+.section-count.warn{color:var(--gold)}.section-count.warn .track i{background:var(--gold)}
+.section-body{padding:10px 14px 10px;background:#fffdf8;border:1px solid var(--line-soft);border-top:0;border-radius:0 0 12px 12px}
+.fact-row{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:start;padding:11px 14px;margin:0 0 8px;border:1px solid #eee6d6;border-radius:11px;background:#fffefb;transition:border-color .15s,box-shadow .15s}
+.fact-row:hover{border-color:#dcd1ba;box-shadow:0 3px 12px rgba(70,58,32,.07)}
+.fact-row:focus-within{border-color:#b5c6bd;box-shadow:0 0 0 3px rgba(23,63,53,.06)}
+.fact-row.filtered-out,.payment-step.filtered-out{display:none}
+.row-label{padding-top:4px;color:#6d675a;font-size:11.5px;line-height:1.5;letter-spacing:.5px}.fact-items{display:flex;flex-wrap:wrap;gap:5px 14px;align-items:baseline;min-width:0;line-height:1.7}
 .fact{display:inline-flex;align-items:baseline;gap:4px;min-width:0;position:relative}.fact.wide{flex:1 1 100%}.fact-label{font-size:11px;color:#8a8275;white-space:nowrap}
 .fact-value{min-width:50px;max-width:100%;padding:1px 3px;border:1px solid transparent;border-bottom-color:#d8d0c1;border-radius:3px;font-family:var(--serif);font-size:14px;color:#2c2a25;white-space:pre-wrap;overflow-wrap:anywhere;transition:background .15s,border-color .15s,box-shadow .15s}
 .fact-value:hover{background:#f5f0e5;border-bottom-color:#aaa08e}.fact-value:focus{background:#fff;border-color:var(--ink-2);box-shadow:0 0 0 3px rgba(23,63,53,.1)}
@@ -56,21 +70,33 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,[contenteditable
 .fact.is-ai .fact-value{background:var(--gold-bg);border-color:#ecd9a7}.fact.is-ai .fact-value:focus{background:#fffaf0}
 .ai-flag{border:0;border-radius:8px;background:#f2dfb5;color:#7f5813;font-size:9.5px;padding:2px 5px;line-height:1.2;white-space:nowrap}.ai-flag:hover{background:#e8ce93}
 .flash{animation:valueFlash .75s ease}@keyframes valueFlash{0%{background:#fff4d3;box-shadow:0 0 0 4px rgba(180,124,29,.16)}100%{background:transparent}}
-.row-state{display:flex;align-items:center;gap:6px;padding-top:2px}.state-dot{width:6px;height:6px;border-radius:50%;background:#c8c1b3}.fact-row.has-ai .state-dot{background:var(--gold)}.fact-row.has-missing .state-dot{background:var(--red)}
+.row-state{display:flex;align-items:center;padding-top:2px}
+.row-badge{width:23px;height:23px;border-radius:50%;display:grid;place-items:center;font-style:normal;background:#edf2ec;color:#87a291;font-size:12px}
+.row-badge::after{content:'✓'}
+.fact-row.has-missing .row-badge{background:var(--red-bg);color:var(--red)}
+.fact-row.has-missing .row-badge::after{content:'!';font-family:var(--serif);font-weight:700}
+.fact-row.has-ai .row-badge{background:var(--gold-bg);color:var(--gold)}
+.fact-row.has-ai .row-badge::after{content:'AI';font-size:8.5px;letter-spacing:.5px}
 body.review-mode .fact-value{border-color:transparent;background:transparent!important}body.review-mode .fact-value:focus{box-shadow:none}body.review-mode .fact-row:focus-within{box-shadow:none;background:transparent}
 body.review-mode .fact-value:empty::before{content:attr(data-placeholder)}body.review-mode .ai-flag{opacity:.9}body.review-mode input,body.review-mode textarea{border-color:transparent!important;background:transparent!important;box-shadow:none!important}
 body.review-mode .edit-only{display:none!important}body.review-mode .ledger-sheet{box-shadow:0 8px 20px rgba(49,42,31,.035)}body.review-mode .pay-detail{display:none!important}body.review-mode .pay-tools .hint{visibility:hidden}body.review-mode .pay-main{cursor:default}
-.price-strip{display:grid;grid-template-columns:auto 138px 1fr;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line-soft);background:#fffdf8}
-.price-strip label{font-size:11px;color:var(--muted);white-space:nowrap}.money-input{width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;padding:7px 9px;text-align:right;font-family:var(--serif);font-size:15px;font-variant-numeric:tabular-nums}.money-input:focus{border-color:var(--ink-2)}
-.allocation{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;font-size:11px;color:var(--muted)}.allocation b{font-family:var(--serif);font-size:13px;color:var(--ink);font-variant-numeric:tabular-nums}.allocation.ok b{color:var(--green)}.allocation.bad b{color:var(--red)}
-.pay-tools{display:flex;align-items:center;gap:8px;padding:9px 14px 2px}.pay-tools .hint{font-size:11px;color:var(--muted)}.text-button{border:0;background:transparent;color:var(--ink-2);padding:4px 2px;font-size:11.5px;border-bottom:1px dashed #a8b6af}.text-button:hover{color:var(--accent);border-bottom-color:var(--accent)}
-.timeline{position:relative;padding:2px 14px 12px 30px}.timeline::before{content:'';position:absolute;left:17px;top:18px;bottom:18px;width:1px;background:#c9c1b2}
-.payment-step{position:relative;border-bottom:1px solid #eee9df;background:transparent}.payment-step:last-child{border-bottom:0}.payment-step::before{content:'';position:absolute;left:-17px;top:17px;width:9px;height:9px;border-radius:50%;background:var(--paper);border:1.5px solid var(--ink-2);box-shadow:0 0 0 3px var(--paper);z-index:1}
-.payment-step.is-missing::before{border-color:var(--red);background:#fff0ed}.payment-step.open{background:#fffdf8;box-shadow:inset 3px 0 0 var(--accent)}
-.pay-main{display:grid;grid-template-columns:82px 126px minmax(0,1fr) 24px;gap:8px;align-items:center;padding:10px 8px 10px 0;cursor:pointer}.pay-name{font-family:var(--serif);color:var(--ink);font-size:13px}
-.pay-amount{width:100%;border:1px solid transparent;border-bottom-color:#d7cfbf;background:transparent;padding:3px 4px;text-align:right;font-family:var(--serif);font-size:15px;color:#282620;font-variant-numeric:tabular-nums}.pay-amount:focus{background:#fff;border-color:var(--ink-2);border-radius:4px}
-.pay-condition{font-size:11.5px;color:#665f54;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pay-chevron{color:#aaa190;text-align:center;transition:transform .18s}.payment-step.open .pay-chevron{transform:rotate(180deg)}
-.pay-detail{display:none;padding:0 8px 12px 0}.payment-step.open .pay-detail{display:block;animation:detailIn .18s ease}@keyframes detailIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.price-strip{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:12px;align-items:center;padding:13px 16px;margin:2px 0 10px;border:1px solid #e9d8ae;border-radius:11px;background:linear-gradient(180deg,#fffaf0,#fffdf6);box-shadow:inset 0 1px 0 #fff}
+.price-strip label{font-size:12px;color:#7c5c18;letter-spacing:.5px;white-space:nowrap}
+.currency-select{border:1px solid #e2cf9d;border-radius:7px;background:#fff;padding:8px 8px;font-size:13px;color:#3a3122;cursor:pointer}
+.money-input{width:100%;border:1px solid #e2cf9d;border-radius:7px;background:#fff;padding:8px 10px;text-align:right;font-family:var(--serif);font-size:17px;font-weight:700;color:#3a3122;font-variant-numeric:tabular-nums}.money-input:focus{border-color:var(--gold);outline:none;box-shadow:0 0 0 3px rgba(180,124,29,.12)}
+.pay-tools{display:flex;align-items:center;gap:8px;padding:2px 16px 8px}.pay-tools .hint{font-size:11px;color:var(--muted)}.text-button{border:0;background:transparent;color:var(--ink-2);padding:4px 2px;font-size:11.5px;border-bottom:1px dashed #a8b6af}.text-button:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.timeline{position:relative;padding:6px 14px 14px 48px;display:flex;flex-direction:column;gap:10px}.timeline::before{content:'';position:absolute;left:24px;top:20px;bottom:20px;width:2px;background:linear-gradient(180deg,#d8cfba,#c9bfa8)}
+.payment-step{position:relative;background:#fff;border:1px solid #eee6d6;border-radius:13px;padding:11px 14px;box-shadow:0 2px 8px rgba(70,58,32,.05);transition:border-color .15s,box-shadow .15s}
+.payment-step:hover{border-color:#dcd1ba;box-shadow:0 4px 14px rgba(70,58,32,.09)}
+.payment-step::before{content:attr(data-n);position:absolute;left:-36px;top:15px;width:26px;height:26px;border-radius:50%;background:var(--ink-2);color:#f5eeda;font-family:var(--serif);font-size:12px;display:grid;place-items:center;box-shadow:0 0 0 3px var(--paper);z-index:1}
+.payment-step.is-missing::before{background:var(--red);color:#fff}
+.payment-step.is-missing{border-color:#f0d3cd}
+.payment-step.open{border-color:#d5c9a8;box-shadow:0 6px 18px rgba(70,58,32,.10)}
+.pay-main{display:grid;grid-template-columns:minmax(64px,auto) minmax(120px,150px) minmax(0,1fr) 26px 18px;gap:10px;align-items:center;cursor:pointer}.pay-name{font-family:var(--serif);color:var(--ink);font-size:14px;letter-spacing:.3px}
+.pay-amount{width:100%;border:1px solid transparent;border-bottom-color:#d7cfbf;background:transparent;padding:3px 5px;text-align:right;font-family:var(--serif);font-size:16px;font-weight:600;color:#282620;font-variant-numeric:tabular-nums}.pay-amount:focus{background:#fff;border-color:var(--ink-2);border-radius:4px;outline:none}
+.pay-x{width:25px;height:25px;border-radius:50%;border:1px solid var(--red);background:var(--red);color:#fff;display:grid;place-items:center;font-size:12px;line-height:1;cursor:pointer;justify-self:center;font-family:var(--sans)}
+.pay-condition{font-size:11px;color:#665f54;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#f6f1e4;border-radius:9px;padding:3px 10px;justify-self:start;max-width:100%}.payment-step.is-missing .pay-condition{background:var(--red-bg);color:var(--red)}.pay-chevron{color:#aaa190;text-align:center;transition:transform .18s}.payment-step.open .pay-chevron{transform:rotate(180deg)}
+.pay-detail{display:none;padding:10px 12px 12px;margin:0 8px 10px 0;background:#fbf7ec;border:1px dashed #e0d6bd;border-radius:10px}.payment-step.open .pay-detail{display:block;animation:detailIn .18s ease}@keyframes detailIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 .trigger-switch{display:flex;gap:5px;margin-bottom:8px}.trigger-switch button{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:5px;padding:4px 8px;font-size:10.5px}.trigger-switch button.active{border-color:var(--ink-2);color:var(--ink);background:#eef5f0}
 .trigger-editor{display:flex;gap:8px;align-items:center}.trigger-editor input,.trigger-editor textarea{width:100%;border:1px solid var(--line);border-radius:5px;background:#fff;padding:7px 8px;font-size:12px;color:#403c35;resize:vertical}.trigger-editor textarea{min-height:48px;line-height:1.5}.trigger-note{font-size:10.5px;color:var(--muted);padding-top:5px}
 .quick-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.quick-row button{border:1px dashed #cfc5b2;background:#fffaf0;color:#755b26;border-radius:10px;padding:3px 7px;font-size:10px}
@@ -115,12 +141,12 @@ body.review-mode .edit-only{display:none!important}body.review-mode .ledger-shee
         <button id="modeReview" onclick="setMode('review')">核对</button>
       </div>
     </header>
+    <div class="overall"><div class="overall-bar"><i id="overallBar"></i></div><span id="overallText">合同完成度 0/11</span></div>
 
     <section class="ai-bar" aria-label="AI 导入">
-      <div class="ai-head"><b>AI 快速导入</b><span>粘贴客户原文，结果直接写入下面同一份合同事实</span><span class="beta">与手工编辑共用</span></div>
       <div class="ai-compose">
-        <textarea id="aiText">客户鸿达投资有限公司（证件 91440000MA5F8K2L6X，联络人李四，电话 13800001234）委托高新过户车牌 粤Z1234港，目标香港公司 鸿达国际物流有限公司，通行 深圳湾口岸，服务总费用人民币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期股权转让文件完成后付，尾款交付铁牌资料时付。</textarea>
-        <button id="extractBtn" onclick="runExtract()">提取并回填</button>
+        <textarea id="aiText" placeholder="粘贴客户原文，AI 提取写入下方合同事实">客户鸿达投资有限公司（证件 91440000MA5F8K2L6X，联络人李四，电话 13800001234）委托高新过户车牌 粤Z1234港，目标香港公司 鸿达国际物流有限公司，通行 深圳湾口岸，服务总费用人民币 30 万；分三期支付，每期 10 万，第一期签约当日付，第二期股权转让文件完成后付，尾款交付铁牌资料时付。</textarea>
+        <button id="extractBtn" onclick="runExtract()">提取</button>
         <div class="ai-pipeline" id="aiPipeline">
           <div class="pipe-node" id="pipe1"><i class="pipe-dot"></i>读取原文</div><span class="pipe-arrow">→</span>
           <div class="pipe-node" id="pipe2"><i class="pipe-dot"></i>提取合同事实</div><span class="pipe-arrow">→</span>
@@ -131,20 +157,23 @@ body.review-mode .edit-only{display:none!important}body.review-mode .ledger-shee
 
     <div class="ledger" id="ledger">
       <div class="ledger-sheet">
-        <section class="section">
-          <div class="section-head"><span class="section-no">01</span><h3>委托方信息</h3><span class="section-count" id="countParty">0/5</span></div>
+        <section class="section section-1">
+          <div class="section-head"><span class="section-no">01</span><div><h3>委托方信息</h3><div class="section-en">Client</div></div><span class="section-count" id="countParty"><span class="track"><i></i></span><b class="cnt">0/5</b></span></div>
           <div class="section-body" id="partyRows"></div>
         </section>
-        <section class="section">
-          <div class="section-head"><span class="section-no">02</span><h3>车辆与指标</h3><span class="section-count" id="countVehicle">0/4</span></div>
+        <section class="section section-2">
+          <div class="section-head"><span class="section-no">02</span><div><h3>高新指标</h3><div class="section-en">Quota</div></div><span class="section-count" id="countVehicle"><span class="track"><i></i></span><b class="cnt">0/3</b></span></div>
           <div class="section-body" id="vehicleRows"></div>
         </section>
-        <section class="section">
-          <div class="section-head"><span class="section-no">03</span><h3>价款与付款</h3><span class="section-count" id="countPayment">1/3</span></div>
+        <section class="section section-3">
+          <div class="section-head"><span class="section-no">03</span><div><h3>价款与付款</h3><div class="section-en">Fees &amp; Payment</div></div><span class="section-count" id="countPayment"><span class="track"><i></i></span><b class="cnt">1/3</b></span></div>
           <div class="price-strip">
             <label for="totalFee">服务总费用</label>
+            <select class="currency-select" aria-label="币种" onchange="onCurrencyChange(this.value)">
+              <option value="CNY">人民币 ¥</option>
+              <option value="HKD">港币 HK$</option>
+            </select>
             <input id="totalFee" class="money-input" type="number" step="1000" min="0" value="300000" oninput="onTotalInput(this.value)">
-            <div class="allocation bad" id="allocation"><span>已分配</span><b id="allocSum">¥100,000</b><span>/</span><b id="allocTotal">¥300,000</b><span id="allocDiff">差 ¥200,000</span></div>
           </div>
           <div class="pay-tools"><span class="hint">付款顺序就是实际履约顺序，点某一期展开编辑</span><button class="text-button edit-only" onclick="autoTail()">尾款自动补齐</button></div>
           <div class="timeline" id="paymentList"></div>
@@ -205,17 +234,16 @@ const groups = [
       {key:'client_phone',label:'电话',required:true,placeholder:'填写电话',pv:'client_phone'}]},
     {label:'地址',facts:[{key:'client_address',label:'地址',required:false,placeholder:'填写联络地址',pv:'client_address',wide:true}]}
   ]},
-  {id:'vehicle',container:'vehicleRows',required:4,rows:[
-    {label:'车辆',facts:[
+  {id:'vehicle',container:'vehicleRows',required:3,rows:[
+    {label:'车牌',facts:[
       {key:'plate',label:'车牌',required:true,placeholder:'填写车牌',pv:'plate'},
       {key:'port',label:'口岸',required:true,placeholder:'填写通行口岸',pv:'port'}]},
-    {label:'指标',facts:[
-      {key:'quota_type',label:'类型',required:false,placeholder:'高新',pv:'quota_type'},
+    {label:'受让公司',facts:[
       {key:'target_hk_company',label:'目标香港公司',required:true,placeholder:'填写公司名称',pv:'target_hk_company',wide:true}]}
   ]}
 ];
 const state = {
-  mode:'edit',filterMissing:false,
+  mode:'edit',filterMissing:false,currency:'CNY',
   values:{client_name:'鸿达投资有限公司',client_id:'91440000MA5F8K2L6X',client_contact:'',client_phone:'13800001234',client_address:'深圳市福田区深南大道 1006 号',plate:'粤Z1234港',port:'',quota_type:'高新',target_hk_company:'',total_fee:300000},
   ai:{},
   payments:[
@@ -226,8 +254,9 @@ const state = {
   openPay:0
 };
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function money(v){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '—';return '¥'+n.toLocaleString('zh-CN')}
-function fullMoney(v){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '人民币 ¥0';return '人民币 ¥'+n.toLocaleString('zh-CN')}
+function money(v){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '—';return (state.currency==='HKD'?'HK$':'¥')+n.toLocaleString('zh-CN')}
+function fullMoney(v){const n=Number(v);const pre=state.currency==='HKD'?'港币 HK$':'人民币 ¥';if(!Number.isFinite(n)||n<=0)return pre+'0';return pre+n.toLocaleString('zh-CN')}
+function onCurrencyChange(v){state.currency=v;syncPreview();updateActionStatus()}
 function isMissing(f){if(!f.required)return false;const v=state.values[f.key];return v===undefined||v===null||String(v).trim()===''}
 function renderFacts(){
   groups.forEach(g=>{
@@ -242,7 +271,7 @@ function renderFacts(){
         </span>`;
       }).join('');
       const rowHasMissing=row.facts.some(isMissing),rowHasAi=row.facts.some(f=>state.ai[f.key]);
-      return `<div class="fact-row ${rowHasMissing?'has-missing':''} ${rowHasAi?'has-ai':''}"><div class="row-label">${esc(row.label)}</div><div class="fact-items">${facts}</div><div class="row-state"><i class="state-dot"></i></div></div>`;
+      return `<div class="fact-row ${rowHasMissing?'has-missing':''} ${rowHasAi?'has-ai':''}"><div class="row-label">${esc(row.label)}</div><div class="fact-items">${facts}</div><div class="row-state"><i class="row-badge"></i></div></div>`;
     }).join('');
   });
   applyFilter();updateCounts();syncPreview();
@@ -251,11 +280,11 @@ function renderPayments(){
   const wrap=document.getElementById('paymentList');
   wrap.innerHTML=state.payments.map((p,i)=>{
     const missing=!(Number(p.amount)>0),condition=triggerText(p),open=state.openPay===i;
-    return `<div class="payment-step ${missing?'is-missing':''} ${open?'open':''}" data-index="${i}">
+    return `<div class="payment-step ${missing?'is-missing':''} ${open?'open':''}" data-index="${i}" data-n="${i+1}">
       <div class="pay-main" data-pay-toggle="${i}">
         <span class="pay-name">${esc(p.label)}</span>
         <input class="pay-amount" type="number" min="0" step="1000" value="${p.amount??''}" placeholder="金额" data-pay-amount="${i}" ${state.mode==='review'?'readonly':''}>
-        <span class="pay-condition" title="${esc(condition)}">${esc(condition)}</span><span class="pay-chevron">⌄</span>
+        <span class="pay-condition" title="${esc(condition)}">${esc(condition)}</span><button class="pay-x edit-only" title="删除这一期" data-pay-del="${i}">✕</button><span class="pay-chevron">⌄</span>
       </div>
       <div class="pay-detail"><div class="trigger-switch">
         <button class="${p.triggerType==='sign'?'active':''}" data-trigger-type="sign" data-pay-index="${i}">签约当日</button>
@@ -274,12 +303,23 @@ function renderTriggerEditor(p,i){
     <div class="quick-row edit-only"><button data-suggest-event="过户完成后 3 日内" data-pay-index="${i}">过户完成后 3 日内</button><button data-suggest-event="交付资料当日" data-pay-index="${i}">交付资料当日</button><button data-suggest-event="书面通知当日支付" data-pay-index="${i}">书面通知当日支付</button></div>`;
 }
 function updateCounts(){
+  let factsDone=0,factsTotal=0;
   groups.forEach(g=>{
     const keys=g.rows.flatMap(r=>r.facts.filter(f=>f.required).map(f=>f.key)),done=keys.filter(k=>String(state.values[k]||'').trim()).length;
-    const el=document.getElementById(g.id==='party'?'countParty':'countVehicle');el.textContent=`${done}/${g.required}`;el.className='section-count '+(done===g.required?'ok':'warn');
+    factsDone+=done;factsTotal+=g.required;
+    const el=document.getElementById(g.id==='party'?'countParty':'countVehicle');
+    el.querySelector('.cnt').textContent=`${done}/${g.required}`;
+    el.querySelector('.track i').style.width=`${done/g.required*100}%`;
+    el.classList.toggle('ok',done===g.required);el.classList.toggle('warn',done<g.required);
   });
   const payDone=state.payments.filter(p=>Number(p.amount)>0).length,payEl=document.getElementById('countPayment');
-  payEl.textContent=`${payDone}/${state.payments.length}`;payEl.className='section-count '+(payDone===state.payments.length?'ok':'warn');updateActionStatus();
+  payEl.querySelector('.cnt').textContent=`${payDone}/${state.payments.length}`;
+  payEl.querySelector('.track i').style.width=`${payDone/state.payments.length*100}%`;
+  payEl.classList.toggle('ok',payDone===state.payments.length);payEl.classList.toggle('warn',payDone<state.payments.length);
+  const total=factsTotal+state.payments.length,done=factsDone+payDone;
+  document.getElementById('overallBar').style.width=`${done/total*100}%`;
+  document.getElementById('overallText').textContent=`合同完成度 ${done}/${total}`;
+  updateActionStatus();
 }
 function updateActionStatus(){
   const missingFacts=groups.flatMap(g=>g.rows.flatMap(r=>r.facts)).filter(isMissing).length;
@@ -293,9 +333,7 @@ function updateActionStatus(){
   document.getElementById('actionStatus').innerHTML=chips.join('');
 }
 function updateMoney(){
-  const sum=state.payments.reduce((a,p)=>a+(Number(p.amount)||0),0),total=Number(state.values.total_fee)||0,diff=total-sum;
-  const alloc=document.getElementById('allocation');document.getElementById('allocSum').textContent=money(sum);document.getElementById('allocTotal').textContent=money(total);
-  document.getElementById('allocDiff').textContent=diff===0?'已对齐':`差 ${money(Math.abs(diff))}`;alloc.className='allocation '+(diff===0&&total>0?'ok':'bad');updateCounts();syncPreview();
+  updateCounts();syncPreview();
 }
 function onTotalInput(v){state.values.total_fee=Number(v)||0;updateMoney();highlightPreview('total_fee')}
 function applyFilter(){
@@ -355,6 +393,7 @@ function isMissingByKey(key){
 document.addEventListener('input',e=>{const el=e.target.closest('.fact-value');if(el){state.values[el.dataset.key]=(el.textContent||'').trim();syncPreview()}});
 document.addEventListener('click',e=>{
   const ai=e.target.closest('[data-confirm-ai]');if(ai){confirmAi(ai.dataset.confirmAi,ai);return}
+  const del=e.target.closest('[data-pay-del]');if(del){state.payments.splice(Number(del.dataset.payDel),1);renderPayments();return}
   const amountInput=e.target.closest('[data-pay-amount]');if(amountInput){e.stopPropagation();return}
   const toggle=e.target.closest('[data-pay-toggle]');if(toggle){const i=Number(toggle.dataset.payToggle);state.openPay=state.openPay===i?-1:i;renderPayments();return}
   const trigger=e.target.closest('[data-trigger-type]');if(trigger){const i=Number(trigger.dataset.payIndex);state.payments[i].triggerType=trigger.dataset.triggerType;state.openPay=i;renderPayments();return}

@@ -162,16 +162,17 @@ TYPES = {
         },
         # 前端布局：ledger＝事实台账（分节/行内编辑/付款时间轴，原型 06）；缺省为常规表单
         "ui_mode": "ledger",
-        # 台账行组织：按组标题匹配；未匹配到的组整组平铺（一行一个字段）
+        # 台账行组织：按组标题匹配；未匹配到的组整组平铺（一行一个字段）；en＝分节英文小标
         "ledger_rows": [
-            {"title": "委托方信息（乙方）", "rows": [
+            {"title": "委托方信息（乙方）", "en": "Client", "rows": [
                 {"label": "主体", "fields": ["client_name", "client_id"]},
                 {"label": "联络", "fields": ["client_contact", "client_phone"]},
                 {"label": "地址", "fields": ["client_address"]},
             ]},
-            {"title": "指标与车辆数据", "rows": [
-                {"label": "车辆", "fields": ["plate", "port"]},
-                {"label": "指标", "fields": ["quota_type", "target_hk_company"]},
+            {"title": "高新指标", "en": "Quota", "rows": [
+                {"label": "车牌", "fields": ["plate", "port"]},
+                # quota_type（高新）由分节标题承载，不再单列展示；值仍在表单数据里随合同落盘
+                {"label": "受让公司", "fields": ["target_hk_company"]},
             ]},
         ],
         "groups": [
@@ -182,7 +183,7 @@ TYPES = {
                 {"key": "client_phone", "label": "联络电话", "type": "text", "required": True},
                 {"key": "client_address", "label": "联络地址", "type": "text", "required": False},
             ]},
-            {"title": "指标与车辆数据", "fields": [
+            {"title": "高新指标", "fields": [
                 {"key": "plate", "label": "车牌号码", "type": "text", "required": True},
                 {"key": "port", "label": "通行口岸", "type": "select", "options": PORTS, "required": True},
                 {"key": "quota_type", "label": "两地牌类型（自动带入）", "type": "text", "required": False, "auto": "高新"},
