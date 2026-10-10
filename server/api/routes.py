@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """API 路由。"""
 import base64
+import json
 import os
 import re
 import tempfile
 import traceback
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -205,8 +206,73 @@ class GenerateReq(BaseModel):
     payment: Payment
 
 
+def _review_context(doc, cfg) -> str:
+    """复核输入节选：双方信息表 + 费用表（含移民分期散文表）+ 付款条款区，
+    舍去模板固定段落（指纹已逐一比对，无需占用复核注意力）。"""
+    parts = []
+    t = W.find_table(doc, cfg["party_table_anchor"])
+    if t is not None:
+        parts.append("【合约双方】\n" + "\n".join(
+            " | ".join(c.text.strip() for c in row.cells) for row in t.rows))
+    t = W.find_table(doc, cfg["fee_table_anchor"])
+    if t is not None:
+        parts.append("【服务费用】\n" + "\n".join(
+            " | ".join(c.text.strip() for c in row.cells) for row in t.rows))
+    if isinstance(cfg.get("installment_table"), str):
+        # 落盘件用落盘态锚点（分期行改写后模板态锚点会失配）
+        t = W.find_table(doc, cfg.get("installment_table_out") or cfg["installment_table"])
+        if t is not None:
+            parts.append("【付款计划】\n" + "\n".join(
+                " | ".join(c.text.strip() for c in row.cells) for row in t.rows))
+    try:
+        s, e = W.section_range(doc, *cfg["payment_section"])
+        body = "\n".join(p.text.strip() for p in doc.paragraphs[s:e] if p.text.strip())
+        if body:
+            parts.append("【付款条款】\n" + body)
+    except ValueError:
+        pass
+    return "\n\n".join(parts)
+
+
+def _run_review(no: str, type_key: str, form: dict, payment: dict, out_path: str):
+    """后台 LLM 语义复核（软校验）：不阻塞生成主流程，结论写库供历史/轮询查询。
+    thinking=False + 节选输入：MiniMax-M3 思考与答案共享 max_tokens，思考长度
+    随机且耗尽即空输出重试，是原先耗时不可控的主因；复核属对照清单任务，
+    无思考模式的结论质量足够（原末次重试兜底即为无思考）。"""
+    try:
+        from docx import Document
+        cfg = get_type(type_key)
+        doc = Document(out_path)
+        text = _review_context(doc, cfg)
+        rv = llm.chat_json(review_messages(text, build_summary(type_key, form, payment)),
+                           max_tokens=1200, timeout=45, thinking=False)
+        issues = [f"LLM复核：{i}" for i in (rv.get("issues") or []) if not _is_confirmation(i)]
+        store.set_review(no, "pass" if not issues else "warn",
+                         json.dumps(issues, ensure_ascii=False))
+    except llm.LLMError as ex:
+        store.set_review(no, "skip", json.dumps([f"LLM复核未完成（不影响合同使用）：{ex}"],
+                                                ensure_ascii=False))
+    except Exception as ex:
+        traceback.print_exc()
+        store.set_review(no, "skip", json.dumps([f"复核异常（不影响合同使用）：{ex}"],
+                                                ensure_ascii=False))
+
+
+@router.get("/review/{no}")
+def get_review(no: str):
+    """前端轮询后台复核结论。review_status：''=排队中 pass/warn=有结论 skip=未复核。"""
+    rec = store.get_gen(no)
+    if not rec:
+        raise HTTPException(404, "记录不存在")
+    try:
+        issues = json.loads(rec.get("review_issues") or "[]")
+    except Exception:
+        issues = []
+    return {"no": no, "review_status": rec.get("review_status") or "", "issues": issues}
+
+
 @router.post("/generate")
-def generate(req: GenerateReq):
+def generate(req: GenerateReq, background_tasks: BackgroundTasks):
     cfg = get_type(req.type)
     form = req.form
     # 统一分期表 → 生成器付款 dict（服务端判定 模板预设/一次性/自定义，并校验分期合计=总费用）
@@ -231,21 +297,10 @@ def generate(req: GenerateReq):
         fp_issues = check_fingerprint(report["template"], out_path, req.type, report, form)
         errors.extend(fp_issues)
 
-        # LLM 语义复核（软校验：失败不拦截，标注警告）
         warnings = []
         if report.get("fx_source") == "fallback":
             warnings.append(f"汇率源不可用，第二币种换算按兜底汇率 {report.get('fx_rate')} 计算")
         text = extract_contract_text(doc)
-        try:
-            rv = llm.chat_json(review_messages(text, build_summary(req.type, form, payment)),
-                               max_tokens=1200, timeout=60, thinking=True)
-            if not rv.get("pass"):
-                for iss in rv.get("issues") or []:
-                    if _is_confirmation(iss):
-                        continue
-                    warnings.append(f"LLM复核：{iss}")
-        except llm.LLMError as ex:
-            warnings.append(f"LLM复核未完成（{ex}），规则校验已通过")
     except ValueError as ex:
         store.release_no(no)
         raise HTTPException(422, str(ex))
@@ -257,6 +312,10 @@ def generate(req: GenerateReq):
     status = "ok" if not errors else "failed"
     store.confirm_no(no, req.type, form.get("client_name") or "", payment.get("mode", ""),
                      form.get("currency", ""), filename, status)
+    # LLM 语义复核改后台异步：不阻塞生成主流程（原先同步等待 20~60 秒、最坏数分钟），
+    # 结论写 gens 表供历史与 /api/review/{no} 轮询查询；failed 单已被拦截下载，无需复核
+    if status == "ok":
+        background_tasks.add_task(_run_review, no, req.type, form, payment, out_path)
 
     return {
         "ok": not errors,

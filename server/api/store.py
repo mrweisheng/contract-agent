@@ -56,6 +56,12 @@ def init():
             status TEXT,
             created_at TEXT
         )""")
+        # LLM 语义复核改为后台异步后，结果落库供历史/轮询查询（旧库增量迁移）
+        for col in ("review_status", "review_issues"):
+            try:
+                c.execute(f"ALTER TABLE gens ADD COLUMN {col} TEXT DEFAULT ''")
+            except Exception:
+                pass  # 列已存在
         c.execute("""CREATE TABLE IF NOT EXISTS fx_rate (
             base TEXT,
             quote TEXT,
@@ -148,11 +154,19 @@ def get_gen(no: str):
 
 
 def history(limit: int = 50):
-    """最近生成记录；pending 占位不对外展示。"""
+    """最近生成记录；pending 占位不对外展示。含后台复核结论（未出为空）。"""
     with _conn() as c:
         rows = c.execute(
-            "SELECT no,type,client,mode,currency,filename,status,created_at FROM gens "
+            "SELECT no,type,client,mode,currency,filename,status,created_at,"
+            "review_status,review_issues FROM gens "
             "WHERE status IN ('ok','failed') ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def set_review(no: str, review_status: str, review_issues: str):
+    """后台复核完成：落库结论（pass/warn/skip），供历史与前端轮询查询。"""
+    with _lock, _conn() as c:
+        c.execute("UPDATE gens SET review_status=?, review_issues=? WHERE no=?",
+                  (review_status, review_issues, no))

@@ -94,6 +94,7 @@ const app = createApp({
       reqGen += 1;
       pendingCtrls.forEach(c => c.abort());
       pendingCtrls.clear();
+      stopReviewPoll();   // 切换类型：旧单的后台复核轮询作废（结论仍在历史里可查）
       extracting.value = false;
       parsing.value = false;
       generating.value = false;  // 切换类型作废在途生成：被 abort 的 generate 走 AbortError 提前 return，不会自复位，必须在这里复位
@@ -726,19 +727,53 @@ const app = createApp({
         });
         if (myGen !== reqGen) return;
         result.value = data;
-        // ok 仅代表规则校验通过；LLM 软复核提示存于 warnings，有提示就强制过眼一次弹窗
-        if (data.ok && !(data.warnings || []).length) {
-          toast(`合同 ${data.no} 生成并核对通过`, "ok", 3500);
+        // AI 语义复核已改后台异步：硬校验通过即返回可下载；复核结论轮询补显（见 pollReview）
+        if (data.ok) {
+          toast(`合同 ${data.no} 生成完成，AI 复核后台进行中`, "ok", 3500);
+          pollReview(myGen, data.no);
         } else {
-          toast(data.ok ? `合同 ${data.no} 已生成，但有 ${data.warnings.length} 条复核提示`
-                        : "生成完成，但核对未通过，请查看问题清单",
-                data.ok ? "warn" : "error", 4000);
+          toast("生成完成，但核对未通过，请查看问题清单", "error", 4000);
           resultModal.value = true;
         }
       } catch (e) {
         if (e.name === "AbortError") return;
         toast(String(e.message || e), "error");
       } finally { if (myGen === reqGen) generating.value = false; }
+    }
+    /* 后台复核轮询：结论写库后补显（通过→安静提醒；有提示→过眼弹窗；跳过→不挡人） */
+    const reviewPending = ref(false);
+    let reviewTimer = null;
+    function stopReviewPoll() {
+      reviewPending.value = false;
+      clearTimeout(reviewTimer);
+    }
+    function pollReview(myGen, no, tries = 0) {
+      reviewPending.value = true;
+      clearTimeout(reviewTimer);
+      const tick = async () => {
+        if (myGen !== reqGen) return stopReviewPoll();   // 切换业务/重新生成：旧单轮询作废
+        try {
+          const r = await fetch(`/api/review/${no}`);
+          const d = await r.json();
+          if (d.review_status) {
+            reviewPending.value = false;
+            const issues = d.issues || [];
+            if (result.value?.no === no) result.value.warnings = issues;
+            if (d.review_status === "warn") {
+              toast(`AI 复核完成：${issues.length} 条提示`, "warn", 5000);
+              resultModal.value = true;
+            } else if (d.review_status === "pass") {
+              toast("AI 复核通过，未发现问题", "ok", 3000);
+            } else {
+              toast(issues[0] || "AI 复核未完成（不影响合同使用）", "warn", 4500);
+            }
+            return;
+          }
+        } catch { /* 网络抖动：下一轮再询 */ }
+        if (tries < 24) reviewTimer = setTimeout(() => pollReview(myGen, no, tries + 1), 5000);
+        else reviewPending.value = false;   // ~2 分钟无结论：放弃轮询，历史里仍可查
+      };
+      tick();
     }
     function saveAs(url, name) {
       const a = document.createElement("a");
@@ -801,7 +836,7 @@ const app = createApp({
       toasts,
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
       extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold,
-      extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe,
+      extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe, reviewPending,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
@@ -1055,7 +1090,8 @@ const app = createApp({
         <span class="gb-list" v-if="missing.length">{{ missing.slice(0,4).map(m => m.label).join('、') }}{{ missing.length > 4 ? ' 等' : '' }}</span>
         <span class="gb-list" v-else-if="!payOk">分期待对齐</span>
         <span class="spacer"></span>
-        <span v-if="generating" class="gb-timer">AI 复核中 {{ elapsed.gen }}s（通常 10~60 秒）</span>
+        <span v-if="generating" class="gb-timer">生成中 {{ elapsed.gen }}s</span>
+        <span v-else-if="reviewPending" class="gb-timer">AI 复核中…（不挡下载）</span>
         <button v-if="result && result.ok" class="btn gold" @click="download()">✓ 下载合同</button>
         <button v-else class="btn accent" :disabled="!canGenerate || generating || extracting || parsing" @click="generate">
           <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
@@ -1080,7 +1116,9 @@ const app = createApp({
                 <td>{{ h.type }}</td>
                 <td>{{ h.client || '—' }}</td>
                 <td class="dim">{{ h.created_at }}</td>
-                <td><span class="tag" :class="h.status === 'ok' ? 'ok' : 'bad'">{{ h.status === 'ok' ? '通过' : '失败' }}</span></td>
+                <td><span class="tag" :class="h.status === 'ok' ? 'ok' : 'bad'">{{ h.status === 'ok' ? '通过' : '失败' }}</span>
+                    <span v-if="h.review_status === 'warn'" class="tag warn" title="AI 复核有提示">复核提醒</span>
+                    <span v-else-if="h.review_status === 'pass'" class="tag ok" title="AI 复核通过">复核过</span></td>
                 <td><button v-if="h.status==='ok'" class="btn sm" @click="viewHistoryResult(h)">下载</button></td>
               </tr>
             </tbody>
@@ -1106,13 +1144,15 @@ const app = createApp({
       <div class="modal-card wide">
         <div class="modal-head">
           <h3>合同 {{ result.no }}</h3>
-          <span class="tag" :class="!result.ok ? 'bad' : (result.warnings || []).length ? 'warn' : 'ok'">
-            {{ !result.ok ? '核对未通过' : (result.warnings || []).length ? '核对通过 · ' + result.warnings.length + ' 条提示' : '核对通过' }}</span>
+          <span class="tag" :class="!result.ok ? 'bad' : (result.warnings || []).length ? 'warn' : (reviewPending ? 'warn' : 'ok')">
+            {{ !result.ok ? '核对未通过'
+              : (result.warnings || []).length ? 'AI 复核 · ' + result.warnings.length + ' 条提示'
+              : reviewPending ? '生成完成 · AI 复核中' : '核对与 AI 复核均通过' }}</span>
         </div>
         <div class="modal-body">
           <div v-for="(e, i) in result.errors || []" :key="'e'+i" class="note error">⚠ {{ e }}</div>
           <div v-for="(w, i) in result.warnings || []" :key="'w'+i" class="note">⚠ {{ w }}</div>
-          <div v-if="result.ok && !(result.warnings||[]).length" class="note good">全部规则与指纹核对通过</div>
+          <div v-if="result.ok && !(result.warnings||[]).length && !reviewPending" class="note good">全部规则与指纹核对通过，AI 复核亦未发现问题</div>
         </div>
         <div class="modal-foot">
           <button v-if="result.ok" class="btn primary" @click="download">下载合同 (.docx)</button>
