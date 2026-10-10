@@ -80,6 +80,22 @@ TYPES = {
             "warranty_km": {"para": "保修范围"},
         },
         # 表单结构
+        "ui_mode": "ledger",
+        "ledger_rows": [
+            {"title": "买方信息（乙方）", "en": "Buyer", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_contact", "client_phone"]},
+                {"label": "地址", "fields": ["client_address"]},
+            ]},
+            {"title": "车辆数据", "en": "Vehicle", "rows": [
+                {"label": "车辆", "fields": ["plate", "vin"]},
+                {"label": "规格", "fields": ["model", "year"]},
+            ]},
+            {"title": "附赠与售后（选填，客户提到才填）", "en": "Extras", "rows": [
+                {"label": "附赠", "fields": ["gift_transfer", "gift_plate", "gift_insurance", "gift_other"]},
+                {"label": "质保", "fields": ["accident_free", "warranty_enabled", "warranty_period", "warranty_km"]},
+            ]},
+        ],
         "groups": [
             {"title": "买方信息（乙方）", "fields": [
                 {"key": "client_name", "label": "买方名称（个人/公司）", "type": "text", "required": True},
@@ -243,6 +259,20 @@ TYPES = {
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
+        # 前端布局：ledger＝事实台账；行标遵循指标业务语义（两地牌过户非车辆买卖）
+        "ui_mode": "ledger",
+        "ledger_rows": [
+            {"title": "委托方信息（乙方）", "en": "Client", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_contact", "client_phone"]},
+                {"label": "地址", "fields": ["client_address"]},
+            ]},
+            {"title": "纳税指标", "en": "Quota", "rows": [
+                {"label": "车牌", "fields": ["plate", "port"]},
+                # quota_type（纳税）由分节标题承载，不再单列展示；值仍在表单数据里随合同落盘
+                {"label": "受让公司", "fields": ["target_hk_company", "target_ml_company"]},
+            ]},
+        ],
         "groups": [
             {"title": "委托方信息（乙方）", "fields": [
                 {"key": "client_name", "label": "委托方名称（个人/公司）", "type": "text", "required": True},
@@ -251,7 +281,7 @@ TYPES = {
                 {"key": "client_phone", "label": "联络电话", "type": "text", "required": True},
                 {"key": "client_address", "label": "联络地址", "type": "text", "required": False},
             ]},
-            {"title": "指标与车辆数据", "fields": [
+            {"title": "纳税指标", "fields": [
                 {"key": "plate", "label": "车牌号码", "type": "text", "required": True},
                 {"key": "port", "label": "通行口岸", "type": "select", "options": PORTS, "required": True},
                 {"key": "quota_type", "label": "两地牌类型（自动带入）", "type": "text", "required": False, "auto": "纳税"},
@@ -303,6 +333,14 @@ TYPES = {
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
         },
+        # 前端布局：ledger＝事实台账
+        "ui_mode": "ledger",
+        "ledger_rows": [
+            {"title": "委托方信息（甲方 · 个人）", "en": "Client", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_phone", "client_address"]},
+            ]},
+        ],
         "port_required": True,
         "groups": [
             {"title": "委托方信息（甲方 · 个人）", "fields": [
@@ -376,6 +414,19 @@ TYPES = {
             # 分期散文表：行即条款（时点+金额都在行内），各子字段统一高亮对应行
             "installment": {"table": "元整（"},
         },
+        # 前端布局：ledger＝事实台账
+        "ui_mode": "ledger",
+        "ledger_rows": [
+            {"title": "委托方信息（甲方）", "en": "Client", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_contact", "client_phone"]},
+                {"label": "地址", "fields": ["client_address"]},
+            ]},
+            {"title": "申请人信息（主申请人及随行家属）", "en": "Applicants", "rows": [
+                {"label": "申请人", "fields": ["lead_applicant", "spouse_name"]},
+                {"label": "随行家属", "fields": ["minor_children", "total_applicants"]},
+            ]},
+        ],
         "groups": [
             {"title": "委托方信息（甲方）", "fields": [
                 {"key": "client_name", "label": "委托方名称", "type": "text", "required": True},

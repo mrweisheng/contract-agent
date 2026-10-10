@@ -409,6 +409,10 @@ const app = createApp({
       "地址": '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
       "车牌": '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H8c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 3 14v2c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
       "受让公司": '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>',
+      "申请人": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+      "随行家属": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>',
+      "附赠": '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/>',
+      "质保": '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
       "其他费用": '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8M8 11h8M8 15h5"/>',
       "_default": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
     };
@@ -429,6 +433,19 @@ const app = createApp({
         const req = g.fields.filter(f => f.required && !f.auto);
         const done = req.filter(f => String(form[f.key] ?? "").trim()).length;
         return { no: String(i + 1).padStart(2, "0"), en: def?.en || "", title: shortLabel(g.title), rows, done, total: req.length, pct: req.length ? Math.round(done / req.length * 100) : 100 };
+      });
+    });
+    // 「提到才显示」组的台账分节：行组织同上，但字段是否渲染由 extraShown 决定（模板层过滤）
+    const revealLedgerSections = computed(() => {
+      const c = cfg.value;
+      if (!c) return [];
+      return (c.groups || []).filter(g => g.reveal === "on_fill").map(g => {
+        const def = (c.ledger_rows || []).find(r => r.title === g.title);
+        const byKey = Object.fromEntries(g.fields.map(f => [f.key, f]));
+        const rows = def
+          ? def.rows.map(r => ({ label: r.label, facts: r.fields.map(k => byKey[k]).filter(Boolean) }))
+          : g.fields.map(f => ({ label: "", facts: [f] }));
+        return { title: shortLabel(g.title), en: def?.en || "", rows, total: 0, done: 0, pct: 0 };
       });
     });
     // 行问题态：miss 优先于 ai（红点压金点）；「只看待补」据此过滤
@@ -978,7 +995,7 @@ const app = createApp({
     return {
       toasts,
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
-      extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold,
+      extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold, extraShown, revealLedgerSections,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe, reviewPending,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
@@ -1108,6 +1125,63 @@ const app = createApp({
                   </div>
                   <i class="led-badge"></i>
                 </div>
+              </div>
+            </section>
+
+            <!-- 提到才显示组（如卖车附赠与售后）：没提到的字段不渲染，隐私优先；折叠区点开才见 -->
+            <section class="led-sec sec-2" v-for="g in revealLedgerSections" :key="'rv-' + g.title">
+              <div class="led-sec-head">
+                <span class="led-no">+</span>
+                <div class="led-sec-title"><h3>{{ g.title }}</h3><div class="led-en" v-if="g.en">{{ g.en }}</div></div>
+              </div>
+              <div class="led-body">
+                <template v-for="r in g.rows" :key="r.label">
+                  <div class="led-row" v-show="r.facts.some(f => extraShown[f.key])"
+                       :class="rowIssue(r) ? 'has-' + rowIssue(r) : ''">
+                    <div class="led-row-label"><span class="led-ico" v-html="rowIcon(r.label)"></span></div>
+                    <div class="led-facts">
+                      <span class="led-fact" v-for="f in r.facts" :key="f.key" v-show="extraShown[f.key]"
+                            :class="fieldState(f)" :title="f.label">
+                        <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required && !f.auto">*</em></span>
+                        <select v-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
+                                v-model="form[f.key]" @change="onFieldInput(f.key)">
+                          <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                        </select>
+                        <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
+                               :size="inpSize(form[f.key])"
+                               :placeholder="fieldState(f) === 'miss' ? '必填 · 待填' : (f.hint || '待填')"
+                               @input="onFieldInput(f.key)"/>
+                        <button v-if="aiFilled[f.key] && !f.auto" class="lf-badge" title="AI 回填、尚未核对，点此确认"
+                                @click="confirmAI(f.key)">AI·未核</button>
+                      </span>
+                    </div>
+                    <i class="led-badge"></i>
+                  </div>
+                </template>
+                <template v-if="extraFoldOpen">
+                  <template v-for="r in g.rows" :key="'fold-' + r.label">
+                    <div class="led-row" v-show="r.facts.some(f => extraFoldList.some(x => x.key === f.key))">
+                      <div class="led-row-label"><span class="led-ico" v-html="rowIcon(r.label)"></span></div>
+                      <div class="led-facts">
+                        <span class="led-fact" v-for="f in r.facts" :key="f.key" v-show="extraFoldList.some(x => x.key === f.key)"
+                              :class="fieldState(f)" :title="f.label">
+                          <span class="lf-label">{{ shortLabel(f.label) }}</span>
+                          <select v-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
+                                  v-model="form[f.key]" @change="onFieldInput(f.key)">
+                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                          </select>
+                          <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
+                                 :size="inpSize(form[f.key])"
+                                 :placeholder="f.hint || '待填'" @input="onFieldInput(f.key)"/>
+                          <button v-if="aiFilled[f.key] && !f.auto" class="lf-badge" title="AI 回填、尚未核对，点此确认"
+                                  @click="confirmAI(f.key)">AI·未核</button>
+                        </span>
+                      </div>
+                      <i class="led-badge"></i>
+                    </div>
+                  </template>
+                </template>
+                <button class="extra-fold-bar edit-only" v-if="extraFoldList.length" @click="toggleExtraFold">{{ extraFoldOpen ? '▾ 收起' : '＋ ' + g.title + '（客户提到才填）' }}</button>
               </div>
             </section>
 

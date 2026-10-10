@@ -403,6 +403,7 @@ select.f-inp { appearance: auto; }
 .led-count.warn .track i { background: var(--ai); }
 .led-body { padding: 10px 14px 10px; background: #fffdf8; border: 1px solid var(--line-soft);
             border-top: 0; border-radius: 0 0 12px 12px; }
+.led-body .extra-fold-bar { margin: 2px 0 8px; grid-column: auto; justify-self: start; }
 
 /* 事实行卡片：图标牌 | 行内事实… | 状态徽章 */
 .led-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px;
