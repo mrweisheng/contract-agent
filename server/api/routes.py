@@ -21,10 +21,21 @@ from api import store
 
 router = APIRouter(prefix="/api")
 
-TYPE_LABEL_FILE = {  # 下载文件名用
-    "car": "车辆买卖合约", "transfer_gx": "高新两地牌过户", "transfer_ns": "纳税两地牌过户", "new_port": "粤Z新办协议",
-    "immigration": "高才移民服务合约",
+FILE_BIZ = {  # 生成文件名「日期+客户名+业务」里的业务段
+    "car": "卖车", "transfer_gx": "高新过户", "transfer_ns": "纳税过户", "immigration": "高才移民",
 }
+
+
+def _gen_filename(req_type: str, form: dict) -> str:
+    """生成文件名：日期+客户名+业务（如 20261010张三新办莲塘），比纯编号可读。
+    编号仍单独分配并贯穿历史库/下载接口，文件名只影响落盘与展示。"""
+    import datetime
+    ymd = datetime.date.today().strftime("%Y%m%d")
+    client = re.sub(r'[\\/:*?"<>|\s]+', "", str(form.get("client_name") or "")) or "客户"
+    biz = FILE_BIZ.get(req_type, req_type)
+    if req_type == "new_port":
+        biz = "新办" + str(form.get("port") or "").replace("口岸", "").replace("大桥", "")
+    return f"{ymd}{client}{biz}.docx"
 
 # LLM 复核确认项过滤：结论为「检查通过」的条目不作为警告展示（提示词已禁，此处兜底）
 NO_ISSUE_RE = re.compile(r"未发现.{0,8}(问题|异常|重复|缺失)")
@@ -191,7 +202,7 @@ def generate(req: GenerateReq):
 
     # 编号一律服务端自动分配（预约制：分配即落库占位，失败自动释放，无并发重复窗口）
     no = store.reserve_no()
-    filename = f"{no}-{TYPE_LABEL_FILE.get(req.type, req.type)}.docx"
+    filename = _gen_filename(req.type, form)
     out_path = os.path.join(store.OUT_DIR, filename)
 
     try:

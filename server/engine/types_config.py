@@ -307,8 +307,7 @@ TYPES = {
         "label": "高才移民（香港高端人才通行证计划）",
         "short": "高才移民",
         "template": "高才移民合同.docx",
-        "currency_default": "CNY",
-        "currency_locked": True,   # 模板散文多处写死「人民币」，不提供币种选择
+        "currency_default": "CNY",   # 默认人民币；与其他业务一致，可切换港币（AI 按描述提取）
         "client_side": "甲方（委托方）",
         "payer": "甲方", "payee": "乙方",   # 客户付华星，与两地牌方向相反
         "party_table_anchor": "甲方（委托方）",
@@ -323,13 +322,16 @@ TYPES = {
             "lead_line": "甲方以{name}为主申请人，",
             "family_line": "配偶{spouse}随行，包括未成年子女：（{minors}）人，共计（{total}）人。",
         },
-        # 费用区 = 总费用行表 + 分期散文表（模板形态与车牌类「行名|大写|数字」不同）：
-        # 分期时点写在散文行内，总费用表末格「分三期支付：」随实际期数改写。
-        # 分期表锚点用散文行独有子串「元整(大写：人民币」（金额句跨模式必在，
-        # 总费用表的大写句在独立格不含此相邻子串），改写后仍能定位
+        # 费用区 = 总费用行表 + 分期散文表（模板形态与车牌类「行名|大写|数字」不同）。
+        # 落盘与其他业务同款双币：总费用行对调为 C1=主币大写、C2=双币数字；
+        # 分期行三模式统一整句改写（主币金额+大写+约合他币）；末格「分三期支付：」随期数改写。
+        # 分期表锚点用散文行独有子串「元整(大写：」（半角括号相邻子串跨币种/模式恒在，
+        # 总费用表的大写是全角括号独立格不含），改写后仍能定位
         "fee_table_anchor": "甲方需支付乙方服务费",
-        "installment_table": "元整(大写：人民币",
+        "installment_table": "元整(大写：",
         "phase_cell": 3,
+        # 总费用行 C1/C2 落盘内容性质变化（散文句→标准格式），指纹免检行样式/格式
+        "fee_row_style_free": True,
         # 付款计划预设（模板固定三期；金额为模板原文，前端预填可改）
         "pay_preset": [
             {"label": "第一期", "event": "签订合约后三个工作日内支付定金", "amount": 100000},
@@ -339,9 +341,6 @@ TYPES = {
         "payment_section": ("三", "四"),
         "fee_rows_default": ["服务费"],
         "exchange_fee": False,
-        # 金额解析正则（checker 用）：模板散文写法「人民币：400000元整.」「(大写：人民币肆拾万元整）」
-        "amount_num_re": r"人民币[:：]\s*([\d,]+)\s*元整",
-        "amount_cn_re": r"大写[:：]\s*人民币(.+?元整)",
         "signature_anchor": "代表签名",
         "field_anchors": {
             "client_name": {"table": "@party", "row": "甲方（委托方）", "col": 1},
@@ -357,7 +356,7 @@ TYPES = {
             "currency": {"table": "@fee", "row": "甲方需支付乙方服务费", "col": 1},
             "sign_date": {"table": "代表签名"},
             # 分期散文表：行即条款（时点+金额都在行内），各子字段统一高亮对应行
-            "installment": {"table": "支付定金"},
+            "installment": {"table": "元整(大写："},
         },
         "groups": [
             {"title": "委托方信息（甲方）", "fields": [

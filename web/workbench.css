@@ -133,15 +133,17 @@ select.f-inp { appearance: auto; }
 
 /* 付款卡片 */
 .pay-cards { display: flex; flex-direction: column; gap: 10px; }
-.pay-card { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
+.pay-card { position: relative; border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
             display: grid; grid-template-columns: 96px 1fr; gap: 12px; background: #fff; }
 .pc-seq { display: flex; flex-direction: column; gap: 6px; }
 .pc-seq b { font-family: var(--serif); color: var(--ink); font-size: 14px; }
 .pc-name { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 12px;
            width: 90px; font-family: var(--sans); }
-.pc-del { border: none; background: none; color: var(--muted); font-size: 11px; cursor: pointer;
-          text-align: left; width: fit-content; padding: 0; font-family: var(--sans); }
-.pc-del:hover { color: var(--bad); }
+/* 删除按钮：卡片右上角带边框的幽灵按钮（此前是左列灰色小字，用户半天找不到） */
+.pc-del { position: absolute; top: 10px; right: 10px; border: 1px solid var(--line);
+          border-radius: 6px; background: #fff; color: var(--muted); font-size: 11px; line-height: 1;
+          padding: 4px 9px; cursor: pointer; font-family: var(--sans); }
+.pc-del:hover { color: var(--bad); border-color: var(--bad); background: #fdf2f2; }
 .pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .pc-cell { display: flex; flex-direction: column; gap: 3px; }
 .pc-cell.wide { grid-column: 1 / -1; }

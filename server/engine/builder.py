@@ -14,8 +14,8 @@ from engine import writer as W
 from engine.types_config import get_type, template_path, TEMPLATES_DIR
 from engine import fx
 from engine.money import (to_cn_upper, with_commas, currency_label, currency_symbol,
-                          amount_phrase, amount_phrase_dual, dual_numeric,
-                          clean_amount, clean_currency)
+                          amount_phrase, amount_phrase_dual, dual_numeric, convert_amount,
+                          other_currency, clean_amount, clean_currency)
 
 PARTY_LABEL_MAP = [
     ("证件", "client_id"),
@@ -248,7 +248,7 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     sec_no, next_no = cfg["payment_section"]
 
     if cfg.get("installment_table"):
-        _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, mode)
+        _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, rate, mode)
     elif mode == "default":
         _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate)
     elif mode == "one_time":
@@ -696,25 +696,24 @@ def _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no
 
 # ---------------- 移民式费用区（总费用行表 + 分期散文表） ----------------
 
-def _imm_set_row(row, label, verb, amt):
-    """分期散文行改写，保留模板句式「{label}  {verb}人民币{n}元整(大写：人民币{upper})」。"""
+def _imm_set_row(row, label, verb, amt, cur, rate):
+    """分期散文行整句改写（沿用模板散文句式），主币金额+大写+约合他币与其他业务同款双币逻辑。"""
+    oc = other_currency(cur)
+    about = f"约合{currency_label(oc)}{currency_symbol(oc)}{with_commas(convert_amount(amt, cur, rate))}"
     W.set_paragraph_text(row.cells[1].paragraphs[0],
-                         f"{label}  {verb}人民币{amt}元整(大写：人民币{to_cn_upper(amt)})。")
+                         f"{label}  {verb}{currency_label(cur)}{amt}元整"
+                         f"(大写：{currency_label(cur)}{to_cn_upper(amt)}，{about})。")
 
 
-def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, mode):
-    """高才移民模板费用区：总费用行（数字句+大写句正则原位替换保格式）
-    + 分期散文表（default 只换金额；one_time/custom 克隆首行改写整句）
-    + 总费用表「分N期支付」格随期数改写。"""
+def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, rate, mode):
+    """高才移民模板费用区，与其他业务同款双币逻辑：
+    总费用行（模板 4 列，对调后 C1=主币大写、C2=双币数字）+ 分期散文表（三模式统一
+    整句改写，行内含主币金额/大写/约合他币）+「分N期支付」格随期数改写。"""
     if fee_tbl is None:
         raise ValueError("找不到费用表")
     row0 = fee_tbl.rows[0]
-    if not W.re_replace_in_paragraph(row0.cells[1].paragraphs[0],
-                                     r"人民币[:：]\s*[\d,]+\s*元整\.?", f"人民币：{total}元整."):
-        raise ValueError("总费用行金额句与模板不符，请检查模板")
-    if not W.re_replace_in_paragraph(row0.cells[2].paragraphs[0],
-                                     r"大写[:：]\s*人民币[^）)]+", f"大写：人民币{to_cn_upper(total)}"):
-        raise ValueError("总费用行大写句与模板不符，请检查模板")
+    W.set_cell_text(row0.cells[1], f"{currency_label(cur)}（大写）{to_cn_upper(total)}")
+    W.set_cell_text(row0.cells[2], dual_numeric(total, cur, rate))
 
     inst_tbl = W.find_table(doc, cfg["installment_table"])
     if inst_tbl is None:
@@ -722,21 +721,18 @@ def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issu
     amounts = []
 
     if mode == "default":
-        if len(inst_tbl.rows) != 3:
-            raise ValueError("分期付款表行数与预设三期不符，请检查模板")
+        preset = cfg.get("pay_preset") or []
+        if len(inst_tbl.rows) != len(preset):
+            raise ValueError("分期付款表行数与预设不符，请检查模板")
         amounts = [_lenient_amount(payment.get(k) or 0, f"第{i + 1}期金额", draft, issues)
                    for i, k in enumerate(("pay1", "pay2", "pay3"))]
-        for row, amt in zip(inst_tbl.rows, amounts):
-            p = row.cells[1].paragraphs[0]
-            if not (W.re_replace_in_paragraph(p, r"人民币\d+元整", f"人民币{amt}元整")
-                    and W.re_replace_in_paragraph(p, r"(大写[:：]\s*人民币)[^）)]+",
-                                                  rf"\g<1>{to_cn_upper(amt)}")):
-                raise ValueError("分期付款表金额句与模板不符，请检查模板")
-        n = 3
+        for i, (row, amt) in enumerate(zip(inst_tbl.rows, amounts)):
+            _imm_set_row(row, preset[i]["label"], f"于{preset[i]['event']}", amt, cur, rate)
+        n = len(preset)
     elif mode == "one_time":
         desc = _ot_desc(payment, draft, issues) or PLACEHOLDER_DATE
         amounts = [total]
-        _imm_set_row(inst_tbl.rows[0], "第一期", f"于{desc}一次性支付", total)
+        _imm_set_row(inst_tbl.rows[0], "第一期", f"于{desc}一次性支付", total, cur, rate)
         for idx in range(len(inst_tbl.rows) - 1, 0, -1):
             W.delete_row(inst_tbl, idx)
         n = 1
@@ -772,13 +768,13 @@ def _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issu
         for i, ins in enumerate(installments):
             when = payment_when(ins) or PLACEHOLDER_DATE
             _imm_set_row(inst_tbl.rows[i], _row_name(installments, i),
-                         f"于{pay_when_phrase(when)}", amounts[i])
+                         f"于{pay_when_phrase(when)}", amounts[i], cur, rate)
         n = len(installments)
 
     phase = fee_tbl.rows[0].cells[cfg.get("phase_cell", 3)]
     # 中文量词习惯：两期（不是「二期」）
     want = "一次性支付：" if mode == "one_time" else f"分{'两' if n == 2 else W.seq_cn(n)}期支付："
-    if phase.text.strip() != want:   # 模板已是对的（默认三期）就不动，指纹零变化
+    if phase.text.strip() != want:
         W.set_cell_text(phase, want)
     # fee_rows 语义=费用表（总费用行表）行标签，供 checker 指纹比对；分期散文行由
     # check_rules 的移民分支直接从表格解析金额校验合计

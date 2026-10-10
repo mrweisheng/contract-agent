@@ -753,9 +753,19 @@ def run_exchange_alias():
 
 
 def run_immigration():
-    """高才移民：总费用行+分期散文表三模式（default 换金额/one_time/custom 克隆重写）、
-    「分N期支付」格、申请人信息表、编号行、签署日期（年份预填变体）。"""
+    """高才移民：总费用行对调后（C1大写|C2双币数字）+分期散文表三模式（行含约合港币）、
+    「分N期支付」格、申请人信息表、编号行、签署日期（年份预填变体）。固定汇率保证断言。"""
     from engine.writer import find_table
+    from engine.money import convert_amount, with_commas as wc, to_cn_upper as up
+    FX = 0.88   # 与全套件同款固定测试汇率（仅断言用；生产走 fx.get_hkd_cny 实时汇率）
+
+    def hk(amt):
+        return f"HK${wc(convert_amount(amt, 'CNY', FX))}"
+
+    def imm_row(label, verb, amt):
+        return (f"{label}  {verb}人民币{amt}元整"
+                f"(大写：人民币{up(amt)}，约合港币{hk(amt)})。")
+
     ok = True
     out = os.path.join(OUT, "_imm.docx")
     base = {
@@ -769,26 +779,31 @@ def run_immigration():
 
     def fee_texts(doc):
         total_tbl = find_table(doc, "甲方需支付乙方服务费")
-        inst_tbl = find_table(doc, "元整(大写：人民币")
+        inst_tbl = find_table(doc, "元整(大写：")
         return (" | ".join(c.text.strip() for c in total_tbl.rows[0].cells),
                 [r.cells[1].text.strip() for r in inst_tbl.rows])
+
+    def total_cell(phase):
+        return (f"1.甲方需支付乙方服务费： | 人民币（大写）{up(400000)} "
+                f"| ¥400,000 / {hk(400000)} | {phase}")
 
     def build_and_check(tag, form, pay, expect_total_cell=None, expect_rows=None,
                         expect_phase=None, draft=False):
         nonlocal ok
         try:
-            report = build_contract("immigration", form, pay, "20261010001", out, draft=draft)
+            report = build_contract("immigration", form, pay, "20261010001", out,
+                                    draft=draft, fx_rate=FX)
             report["agreement_no"] = "20261010001"
             doc = Document(out)
             errs = [] if draft else check_rules("immigration", form, pay, report, doc)
             if not draft:
                 errs += check_fingerprint(report["template"], out, "immigration", report, form)
             if expect_total_cell is not None:
-                total_cell, rows = fee_texts(doc)
-                if expect_total_cell not in total_cell:
-                    errs.append(f"总费用行不符：{total_cell}")
-                if expect_phase is not None and f"分{expect_phase}期支付：" not in total_cell:
-                    errs.append(f"期数格不符：{total_cell}")
+                total_cell_txt, rows = fee_texts(doc)
+                if expect_total_cell not in total_cell_txt:
+                    errs.append(f"总费用行不符：{total_cell_txt}")
+                if expect_phase is not None and f"分{expect_phase}期支付：" not in total_cell_txt:
+                    errs.append(f"期数格不符：{total_cell_txt}")
                 if expect_rows is not None and rows != expect_rows:
                     errs.append(f"分期行不符：{rows}")
             if errs:
@@ -804,15 +819,15 @@ def run_immigration():
             traceback.print_exc()
             print(f"[ERROR] 移民·{tag}: {ex}")
 
-    # 1) default：预设三期只换金额（金额=模板值时行文字零变化）；主申请人缺省同委托方
+    # 1) default：预设三期整句改写（模板措辞+约合港币）；主申请人缺省同委托方
     form = dict(base)
     build_and_check(
         "default", form, {"mode": "default", "pay1": 100000, "pay2": 200000, "pay3": 100000},
-        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 分三期支付：",
+        expect_total_cell=total_cell("分三期"),
         expect_rows=[
-            "第一期  于签订合约后三个工作日内支付定金人民币100000元整(大写：人民币壹拾万元整)。",
-            "第二期  于甲方提供乙方所需个人资料清单成功办理公司过户后三个工作日内支付乙方：人民币200000元整(大写：人民币贰拾万元整)。",
-            "第三期   获得香港入境事务处对甲方的申请发出批准函后的三个工作日内支付乙方：人民币100000元整(大写：人民币壹拾万元整)。",
+            imm_row("第一期", "于签订合约后三个工作日内支付定金", 100000),
+            imm_row("第二期", "于甲方提供乙方所需个人资料清单成功办理公司过户后三个工作日内", 200000),
+            imm_row("第三期", "于获得香港入境事务处对甲方的申请发出批准函后的三个工作日内", 100000),
         ])
     doc = Document(out)
     app_tbl = find_table(doc, "为主申请人")
@@ -838,19 +853,18 @@ def run_immigration():
             {"seq": 1, "amount": 150000, "label": "定金", "trigger": "签约当日支付", "trigger_date": "2026-10-10"},
             {"seq": 2, "amount": 250000, "label": "尾款", "trigger": "获得入境处批准函后3个工作日内", "trigger_date": None},
         ]},
-        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 分两期支付：",
+        expect_total_cell=total_cell("分两期"),
         expect_rows=[
-            "定金  于2026年10月10日支付人民币150000元整(大写：人民币壹拾伍万元整)。",
-            "尾款  于获得入境处批准函后3个工作日内支付人民币250000元整(大写：人民币贰拾伍万元整)。",
+            imm_row("定金", "于2026年10月10日支付", 150000),
+            imm_row("尾款", "于获得入境处批准函后3个工作日内支付", 250000),
         ])
 
     # 3) one_time：单行一次性支付 + 「一次性支付」格
     build_and_check(
         "one_time", dict(base), {"mode": "one_time", "pay_date": "2026-11-01", "pay_event": ""},
-        expect_total_cell="人民币：400000元整. | (大写：人民币肆拾万元整） | 一次性支付：",
-        expect_rows=[
-            "第一期  于2026年11月1日一次性支付人民币400000元整(大写：人民币肆拾万元整)。",
-        ])
+        expect_total_cell=(f"1.甲方需支付乙方服务费： | 人民币（大写）{up(400000)} "
+                           f"| ¥400,000 / {hk(400000)} | 一次性支付："),
+        expect_rows=[imm_row("第一期", "于2026年11月1日一次性支付", 400000)])
 
     # 4) draft 空表单：占位渲染不中断
     build_and_check("draft空表单", {

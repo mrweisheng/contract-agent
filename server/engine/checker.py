@@ -124,7 +124,7 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
         if inst_tbl:
             amounts = []
             for row in inst_tbl.rows:
-                m = re.search(r"人民币[:：]?\s*(\d[\d,]*)\s*元整", row.cells[1].text)
+                m = re.search(rf"{currency_label(cur)}[:：]?\s*(\d[\d,]*)\s*元整", row.cells[1].text)
                 if m and int(m.group(1).replace(",", "")) > 0:
                     amounts.append(int(m.group(1).replace(",", "")))
             if amounts and report.get("mode") in ("default", "custom"):
@@ -132,9 +132,13 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
                     errors.append(f"分期合计 {sum(amounts)} ≠ 总费用 {report['total']}")
 
     # 4. 币种唯一。费用表数字写法带设计内第二币种换算后缀（「 / ¥X」或「 / HK$X」，
-    #    固定汇率、方向与主币种相反），扫描前剥掉；只剥预期方向——方向写反仍算违规
-    other_sym = currency_symbol("CNY" if cur == "HKD" else "HKD")
-    conv_suffix_re = re.compile(r"\s*/\s*" + re.escape(other_sym) + r"[\d,]+")
+    #    固定汇率、方向与主币种相反），扫描前剥掉；移民散文行的「约合港币HK$X」同属
+    #    设计内换算一并剥掉；只剥预期方向——方向写反仍算违规
+    other_cur = "CNY" if cur == "HKD" else "HKD"
+    other_sym = currency_symbol(other_cur)
+    conv_suffix_re = re.compile(
+        r"\s*/\s*" + re.escape(other_sym) + r"[\d,]+"
+        + rf"|约合{currency_label(other_cur)}{re.escape(other_sym)}[\d,]+")
     tokens = set()
     if fee_tbl:
         for row in fee_tbl.rows:
@@ -510,10 +514,12 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
 
     sig_by_label = {r.cells[0].text.strip(): _row_sig(r) for r in tpl_fee.rows}
     fallback_sig = _row_sig(tpl_fee.rows[1] if len(tpl_fee.rows) > 1 else tpl_fee.rows[0])
+    # fee_row_style_free（移民）：总费用行 C1/C2 落盘内容性质变化，行样式/格式免检
+    style_free = bool(cfg.get("fee_row_style_free"))
     for row in out_fee.rows:
         label = row.cells[0].text.strip()
         expect = sig_by_label.get(label, fallback_sig)
-        if _row_sig(row, extra_cols) != expect:
+        if not style_free and _row_sig(row, extra_cols) != expect:
             issues.append(f"费用表行样式与模板不一致：{label[:15]}")
             break
     expect_labels = report.get("fee_rows") or []
@@ -528,7 +534,7 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         label = row.cells[0].text.strip()
         expect_ms = ms_by_label.get(label, fb_ms)
         got_ms = _fmt_multiset(row, extra_cols)
-        if got_ms and got_ms - expect_ms:
+        if not style_free and got_ms and got_ms - expect_ms:
             extra = sorted(got_ms - expect_ms)
             issues.append(f"费用表出现模板中没有的格式：{label[:15]} {extra}")
             break

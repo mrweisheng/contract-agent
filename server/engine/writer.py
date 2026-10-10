@@ -40,18 +40,6 @@ def replace_in_paragraph(p, old: str, new: str) -> bool:
     return True
 
 
-def re_replace_in_paragraph(p, pattern: str, repl) -> bool:
-    """正则版 replace_in_paragraph：repl 为字符串（支持 \\g<1> 反引用）或接收 match 的 callable。
-    同样只动命中片段、继承原 run 格式——模板金额句原位换数用。"""
-    full = "".join(r.text for r in p.runs)
-    m = re.search(pattern, full)
-    if not m:
-        return False
-    new = repl(m) if callable(repl) else m.expand(repl)
-    _splice(p, m.start(), m.end(), new)
-    return True
-
-
 def fill_blanks_in_paragraph(p, values) -> int:
     """按顺序把段落中连续下划线空位替换为 values（日期空「____年__月__日」即三空）。"""
     n = 0

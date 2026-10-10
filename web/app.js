@@ -325,15 +325,15 @@ const app = createApp({
       }
     }
     function addRow() {
+      const rows = payment.rows;
       const row = { seq: 1, label: "", amount: null, date: "", event: "", lockDate: false };
-      // 「尾款」语义上永远是最后一期：新加的一期插到它前面（倒数第二）
-      const last = payment.rows[payment.rows.length - 1];
-      if (last && (last.label || "").trim() === "尾款") {
-        payment.rows.splice(payment.rows.length - 1, 0, row);
-      } else {
-        payment.rows.push(row);
-      }
-      payment.rows.forEach((r, j) => r.seq = j + 1);
+      // 「尾款」永远最后一期：新行插到它前面，否则追加到末尾；按落位自动命名「第N期」
+      // （前面已有第一/二/三期时，插在尾款前的新行自动叫「第三期」，以此类推）
+      const last = rows[rows.length - 1];
+      const at = last && (last.label || "").trim() === "尾款" ? rows.length - 1 : rows.length;
+      row.label = `第${SEQ_CN(at + 1)}期`;
+      rows.splice(at, 0, row);
+      rows.forEach((r, j) => r.seq = j + 1);
       schedulePreview();
     }
     function delRow(i) {
