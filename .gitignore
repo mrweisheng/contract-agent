@@ -60,3 +60,8 @@ build/
 # ============ 系统意外产物 ============
 # Windows 保留设备名，会让 git 无法读取
 server/nul
+# 结算单运行数据（存底 JSON/成品 PDF/PNG，含客户隐私）
+server/data/settlements/
+# 源包参照目录里的客户档案与历史成单（含隐私，不入库）
+server/templates/settlement-statement/data/
+server/templates/settlement-statement/output/

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原型 08 · 结算单成品 v2——赠送标识 · 合同内推导 · 减免独立区</title>
+<link rel="stylesheet" href="../web/fonts/noto-sans-sc/alias.css">
+<style>
+:root{
+  --navy:#1e3a5f;--navy-deep:#17335c;--band:#e8eef7;--line:#c9d4e4;--ink:#1c2b3a;
+  --red:#c0392b;--green:#2e7d54;--green-bg:#e6f4ea;--gold-bg:#fdf3c6;
+  --sans:'Noto Sans SC',-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:#e9e6dd;color:var(--ink);font-size:14px;padding:26px 0 60px}
+.sheet{width:860px;margin:0 auto;background:#fff;box-shadow:0 6px 24px rgba(30,42,60,.14);padding:40px 46px 34px}
+
+/* ---------- 抬头 ---------- */
+.head{display:flex;align-items:flex-start;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:58px;height:58px;border-radius:10px;background:var(--navy-deep);color:#f0d79b;display:grid;place-items:center;font-weight:800;font-size:24px;letter-spacing:1px}
+.brand .bt b{font-size:26px;letter-spacing:3px;color:var(--navy-deep)}
+.brand .bt span{display:block;font-size:11px;letter-spacing:4px;color:#8a94a6;margin-top:2px}
+.head-right{text-align:right}
+.head-right .en{font-size:15px;letter-spacing:2px;color:#9aa4b5;font-weight:600}
+.head-right h1{font-size:34px;letter-spacing:6px;color:var(--navy-deep);margin-top:2px}
+.date{margin-top:14px;text-align:right;font-size:15px;color:#5c677a}
+.date b{color:var(--ink);margin-left:8px;font-weight:600}
+
+/* ---------- 抬头信息表 ---------- */
+table{border-collapse:collapse;width:100%}
+.info{margin-top:22px}
+.info td{border:1px solid var(--line);padding:10px 14px;font-size:15px}
+.info td.k{width:130px;background:var(--navy-deep);color:#fff;font-weight:600;letter-spacing:2px;text-align:justify;text-align-last:justify}
+
+/* ---------- 收款明细表 ---------- */
+.bill{margin-top:26px}
+.bill thead th{background:var(--navy-deep);color:#fff;font-weight:600;padding:9px 10px;font-size:14.5px;border:1px solid var(--navy-deep)}
+.bill thead .digits-h{padding:5px 0}
+.bill thead .digits-h table{border-collapse:collapse}
+.bill thead .digits-h td{border:1px solid rgba(255,255,255,.45)!important;font-size:12.5px;padding:3px 0;width:44px;text-align:center;background:transparent}
+.bill td{border:1px solid var(--line);padding:9px 10px;font-size:15px}
+.bill .band td{background:var(--band);color:var(--navy-deep);font-weight:600;font-size:14px;letter-spacing:1px;padding:7px 12px}
+.bill .no{width:52px;text-align:center;color:#5c677a}
+.bill .item{width:280px}
+.bill .amt{width:170px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bill .dg{width:44px;text-align:center;font-variant-numeric:tabular-nums;font-weight:600;color:var(--navy-deep)}
+.bill tr.ded .amt,.bill tr.ded .dg,.bill tr.ded .item{color:var(--red)}
+.bill tr.gift .amt,.bill tr.gift .dg,.bill tr.gift .item{color:var(--green)}
+.bill .sub1 .item{padding-left:34px}
+.bill .net td{background:#f2f6fb}
+.bill .net .item,.bill .net .amt{font-weight:700;color:var(--navy-deep)}
+.bill .net .dg{font-weight:700}
+.bill .net td{border-top:2px solid var(--navy-deep)}
+.formula{font-size:11.5px;color:#8a94a6;font-weight:400;margin-left:8px}
+
+/* 赠送标签 */
+.tag{display:inline-block;margin-left:8px;padding:1px 8px;border:1px solid var(--green);border-radius:20px;background:var(--green-bg);color:var(--green);font-size:11px;font-weight:600;letter-spacing:2px;vertical-align:1px}
+/* 减免标签 */
+.tag.red{border-color:var(--red);background:#fdeeec;color:var(--red)}
+
+/* ---------- 今日需付 ---------- */
+.pay{margin-top:0}
+.pay td{background:var(--gold-bg);border:1px solid #e8d99a;padding:13px 16px;font-size:17px}
+.pay .lbl{font-weight:700;color:var(--ink);letter-spacing:2px;width:220px}
+.pay .val{font-weight:700;color:var(--navy-deep);font-variant-numeric:tabular-nums}
+.pay .sep{text-align:center;color:#8a94a6;width:40px}
+
+/* ---------- 备注 ---------- */
+.note{margin-top:14px;font-size:12.5px;line-height:1.9;color:#8a94a6}
+.note b{color:#6b7688}
+
+/* ---------- 银行账户 ---------- */
+.banks{margin-top:26px}
+.banks td{border:1px solid var(--line);padding:8px 12px;font-size:13.5px}
+.banks td.k{width:120px;background:#f4f7fb;color:var(--navy-deep);font-weight:600}
+.foot{margin-top:30px;text-align:center;font-size:13px;letter-spacing:3px;color:#9aa4b5}
+
+/* ============ 编辑区 mock：减免独立区 ============ */
+.divider{width:860px;margin:34px auto 6px;display:flex;align-items:center;gap:12px;color:#8a8276;font-size:12px;letter-spacing:2px}
+.divider::before,.divider::after{content:"";flex:1;border-top:1px dashed #b9b2a2}
+.editor{width:860px;margin:14px auto 0;background:#fdfcf8;border:1px solid #d8d1c2;border-radius:12px;box-shadow:0 6px 18px rgba(49,42,31,.05);padding:0 0 14px;overflow:hidden}
+.ec-head{display:flex;align-items:center;gap:9px;padding:11px 15px;background:linear-gradient(180deg,#f7f4ea,#f3efe3);border-bottom:1px solid #e8e2d7}
+.ec-head .dot{width:7px;height:7px;border-radius:50%;background:#4a6e8f}
+.ec-head h3{font-size:14.5px;color:#173f35;letter-spacing:.5px}
+.ec-body{padding:12px 14px}
+.frow{display:grid;grid-template-columns:minmax(110px,1.2fr) 1fr 1fr 34px 24px;gap:4px 6px;align-items:center;padding:4px 6px;border-radius:9px}
+.frow .name{border:1px solid #ddd6c8;border-radius:7px;padding:8px 10px;font-size:12.5px;background:#fff}
+.frow .amt{display:flex;align-items:center;border:1px solid #ddd6c8;border-radius:7px;background:#fff}
+.frow .amt .pfx{padding:0 5px 0 9px;font-size:11px;font-weight:600;color:#817a6d;white-space:nowrap}
+.frow .amt input{border:0;outline:none;background:transparent;text-align:right;font-size:14px;font-weight:700;width:100%;min-width:0;padding:8px 9px 8px 2px;font-family:inherit}
+.frow.gifted{background:#dcecdf;box-shadow:inset 3px 0 0 #2e7955}
+.frow.gifted .name{border-color:#7fb892;color:#2e7955;font-weight:600}
+.frow.gifted .amt{border-color:#7fb892;background:#f3faf5}
+.frow.gifted .amt .pfx,.frow.gifted .amt input{color:#2e7955}
+.gbtn{height:28px;border:1px solid #ddd6c8;border-radius:7px;background:#2e7955;border-color:#2e7955;color:#fff;display:grid;place-items:center}
+.gbtn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.xbtn{border:0;background:none;color:#b63e32;opacity:.45;padding:0}
+.xbtn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+.addrow{margin-top:9px;border:0;background:none;color:#31503f;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;border-bottom:1px dashed #a49c8e;padding:0 0 1px}
+.addrow svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+.subhead{display:flex;align-items:center;gap:7px;margin-top:13px;padding:6px 2px 7px;font-size:12px;font-weight:600}
+.subhead .sdot{width:6px;height:6px;border-radius:50%}
+.subhead .hint{font-weight:400;color:#a49c8e;font-size:10.5px}
+.ded-sec{border-top:1px dashed #e8e2d7}
+</style>
+</head>
+<body>
+
+<!-- ==================== 成品单据 v2 ==================== -->
+<div class="sheet">
+  <div class="head">
+    <div class="brand">
+      <div class="logo">MG</div>
+      <div class="bt"><b>明哥中港牌</b><span>MING GE CROSS BORDER</span></div>
+    </div>
+    <div class="head-right">
+      <div class="en">SETTLEMENT STATEMENT</div>
+      <h1>收款結算單</h1>
+    </div>
+  </div>
+  <div class="date">日期<b>2026年10月9日</b></div>
+
+  <table class="info">
+    <tr><td class="k">客戶名稱</td><td>许兰坛</td><td class="k">群名</td><td>0908许兰坛深圳湾现牌粤ZLT27港</td></tr>
+    <tr><td class="k">申請口岸</td><td>深圳湾口岸</td><td class="k">結算類型</td><td>收尾款</td></tr>
+  </table>
+
+  <table class="bill">
+    <thead>
+      <tr>
+        <th class="no">序號</th>
+        <th>收款項目</th>
+        <th style="width:170px">應收金額</th>
+        <th class="digits-h" colspan="8">
+          <table><tr><td>十萬</td><td>萬</td><td>千</td><td>百</td><td>十</td><td>元</td><td>角</td><td>分</td></tr></table>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="band"><td colspan="11">合同內款項 · 人民幣 CNY</td></tr>
+      <tr>
+        <td class="no">1</td><td class="item">合同總價</td><td class="amt">¥ 228,000.00</td>
+        <td class="dg">2</td><td class="dg">2</td><td class="dg">8</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+      <tr class="ded sub1">
+        <td class="no"></td><td class="item">減：已收定金</td><td class="amt">-¥ 50,000.00</td>
+        <td class="dg"></td><td class="dg">5</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+      <tr class="net">
+        <td class="no">2</td><td class="item">車牌尾款<span class="formula">＝ 總價 − 已收定金</span></td><td class="amt">¥ 178,000.00</td>
+        <td class="dg">1</td><td class="dg">7</td><td class="dg">8</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+
+      <tr class="band"><td colspan="11">合同外雜費 · 人民幣 CNY</td></tr>
+      <tr class="gift">
+        <td class="no">3</td><td class="item">換車費<span class="tag">贈送</span></td><td class="amt">¥ 5,000.00</td>
+        <td class="dg"></td><td class="dg"></td><td class="dg">5</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+
+      <tr class="band"><td colspan="11">合同外雜費 · 港幣 HKD</td></tr>
+      <tr class="gift">
+        <td class="no">4</td><td class="item">批文卡<span class="tag">贈送</span></td><td class="amt">$ 260.00</td>
+        <td class="dg"></td><td class="dg"></td><td class="dg"></td><td class="dg">2</td><td class="dg">6</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+      <tr class="gift">
+        <td class="no">5</td><td class="item">禁區紙<span class="tag">贈送</span></td><td class="amt">$ 744.00</td>
+        <td class="dg"></td><td class="dg"></td><td class="dg"></td><td class="dg">7</td><td class="dg">4</td><td class="dg">4</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+      <tr class="gift">
+        <td class="no">6</td><td class="item">核証本<span class="tag">贈送</span></td><td class="amt">$ 300.00</td>
+        <td class="dg"></td><td class="dg"></td><td class="dg"></td><td class="dg">3</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+      <tr class="ded sub1">
+        <td class="no"></td><td class="item">減：港幣現金<span class="tag red">減免</span></td><td class="amt">-$ 5,000.00</td>
+        <td class="dg"></td><td class="dg"></td><td class="dg">5</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td><td class="dg">0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="pay">
+    <tr>
+      <td class="lbl">您今日需付：</td>
+      <td class="val">¥ 173,692.00</td>
+      <td class="sep">/</td>
+      <td class="val">$ 205,044.00</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <b>備註：</b>標〔贈送〕的項目由本公司承擔，僅列示價值、不計入應收；負數為已付款或減免抵扣。
+    人民幣與港幣分開核算，車牌尾款為 ¥178,000.00 / $210,044.00。匯率 1 CNY = 1.17224 HKD（2026-10-13實時匯率）。
+  </div>
+
+  <table class="banks">
+    <tr><td class="k">大陸收款賬戶</td><td>陈振耀</td><td class="k">香港收款帳戶</td><td>華星資源開發有限公司</td></tr>
+    <tr><td class="k">收款賬號</td><td>2009020501023937427</td><td class="k">收款帳號</td><td>035-802-129-690-051</td></tr>
+    <tr><td class="k">開戶銀行</td><td>工商银行 汕尾海丰东门头支行</td><td class="k">開戶銀行</td><td>華僑銀行（轉數快 131-831-406）</td></tr>
+  </table>
+
+  <div class="foot">明哥中港牌 MING GE CROSS BORDER</div>
+</div>
+
+<!-- ==================== 编辑区 mock：减免独立区 ==================== -->
+<div class="divider">编辑区 · 合同外杂费卡片（减免独立、动态显隐）</div>
+<div class="editor">
+  <div class="ec-head"><span class="dot"></span><h3>合同外杂费</h3></div>
+  <div class="ec-body">
+    <div class="frow gifted">
+      <input class="name" value="换车费">
+      <span class="amt"><span class="pfx">¥</span><input value="5000"></span>
+      <span class="amt"><span class="pfx">HK$</span><input placeholder="—"></span>
+      <button class="gbtn" title="赠送"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+      <button class="xbtn"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="frow gifted">
+      <input class="name" value="批文卡">
+      <span class="amt"><span class="pfx">¥</span><input placeholder="—"></span>
+      <span class="amt"><span class="pfx">HK$</span><input value="260"></span>
+      <button class="gbtn" title="赠送"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+      <button class="xbtn"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+
+    <div class="ded-sec">
+      <div class="subhead"><span class="sdot" style="background:#b63e32"></span>减免<span class="hint">解析到减免才显示，可加可删</span></div>
+      <div class="frow">
+        <input class="name" value="港币现金">
+        <span class="amt"><span class="pfx" title="点此切换币种">HK$</span><input value="5000"></span>
+        <span></span>
+        <span></span>
+        <button class="xbtn"><svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <button class="addrow"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>加一项减免</button>
+    </div>
+
+    <div class="ded-sec">
+      <div class="subhead"><span class="sdot" style="background:#2e7955"></span>杂费实收<span class="hint">只记总收，本单为 0 故列表为空</span></div>
+      <button class="addrow"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>加一笔实收</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

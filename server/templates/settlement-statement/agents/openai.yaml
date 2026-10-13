@@ -1,0 +1,6 @@
+interface:
+  display_name: "收款结算单"
+  short_description: "按三款固定模板制作两地牌及港车业务收款结算单"
+  default_prompt: "使用 $settlement-statement 打开收款结算单录入看板。"
+policy:
+  allow_implicit_invocation: true

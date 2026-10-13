@@ -19,6 +19,11 @@
   --bad: #c0392b;
   --bad-bg: #fdeeec;
   --accent: #b04a3e;
+  /* 结算单 st-* 样式引用的原型 07 变量：缺了会让整条声明失效（如赠牌 on 态变白字透明底） */
+  --green: #2e7955;
+  --red: #b63e32;
+  --muted-2: #a49c8e;
+  --line-soft: #e8e2d7;
   --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
   --sans: 'Noto Sans SC', -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   --hit: 225 29 72;   /* 预览联动高亮色（玫红）：与页面绿金体系对冲，见 .pv-hit/.pv-beacon */
@@ -566,3 +571,129 @@ select.f-inp { appearance: auto; }
   .led-step-main { grid-template-columns: 76px 104px minmax(0, 1fr) 16px 14px; }
   .led-fact input.lp-money { width: 120px; }
 }
+
+/* ================= 收款结算单（st- 前缀 · 账单式 v6） ================= */
+.st-pane .nl { width: 100%; min-height: 34vh; overflow: hidden; resize: vertical; line-height: 1.75; }
+.st-pane .st-ic { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 2.2;
+                  stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.st-pane .st-ic.sm { width: 14px; height: 14px; }
+
+/* 抬头：紧凑行 + 图标标签 */
+.st-head-compact { display: flex; flex-direction: column; gap: 9px; }
+.st-head-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.st-head-row .hl { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); white-space: nowrap; cursor: help; }
+.st-head-row .hl .st-ic { width: 20px; height: 20px; }
+.st-head-row input { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px;
+                     background: #fff; color: inherit; font-size: 13px; min-width: 0; }
+.st-head-row input:focus { outline: none; border-color: var(--ink-2); }
+.st-head-row .st-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.st-chip { position: relative; }
+.st-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.st-chip label { display: inline-block; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px;
+                 background: #fff; color: #6b6459; font-size: 12px; cursor: pointer; user-select: none; }
+.st-chip input:checked + label { background: #eef3ec; border-color: var(--ink-2); color: var(--ink); font-weight: 500; }
+.st-head-row .st-rate { margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+                        font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.st-head-row .st-rate b { color: var(--ink); font-weight: 600; font-size: 13px; }
+
+/* 金额输入：固定币种前缀 */
+.st-amt { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 7px;
+          background: #fff; min-width: 0; }
+.st-amt:focus-within { border-color: var(--ink-2); box-shadow: 0 0 0 3px rgba(23,63,53,.08); }
+.st-amt .pfx { flex: 0 0 auto; padding: 0 5px 0 9px; font-size: 11px; font-weight: 600;
+               color: var(--muted); white-space: nowrap; }
+.st-amt input { border: 0; outline: none; background: transparent; text-align: right; font-size: 15.5px;
+                font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink);
+                width: 100%; min-width: 0; padding: 8px 9px 8px 2px; }
+.st-amt input::placeholder { color: var(--muted-2); font-weight: 400; font-size: 12px; }
+
+/* 合同内款项：三行 × 双币矩阵 */
+.st-ct { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 5px 8px; align-items: center; }
+.st-ct .col-h { font-size: 11px; color: var(--muted); padding: 0 2px 2px; text-align: right; }
+.st-ct .col-h:first-child { text-align: left; }
+.st-ct .row-label { display: flex; align-items: center; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.st-ct .row-label input { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 5px 6px;
+                          background: transparent; font-size: 12.5px; color: inherit; }
+.st-ct .row-label input:hover { border-color: var(--line-soft); background: #fff; }
+.st-ct .row-label input:focus { border-color: var(--ink-2); background: #fff; outline: none; }
+.st-ct .row-label.in { color: var(--green); font-weight: 600; }
+.st-ct .row-label.in input { color: var(--green); }
+.st-ct .row-label.out { color: var(--red); font-weight: 600; }
+.st-ct .row-label.out input { color: var(--red); }
+.st-ct .sdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-right: 6px; }
+.st-row-x { border: 0; background: none; color: var(--red); opacity: .45; display: grid; place-items: center; padding: 0; }
+.st-row-x:hover { opacity: 1; }
+.st-row-x .st-ic { width: 13px; height: 13px; }
+
+/* 合同外杂费：清单 + 双币 */
+.st-fee { display: grid; grid-template-columns: minmax(110px, 1.2fr) 1fr 1fr 34px 24px;
+          gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 9px; }
+.st-fee + .st-fee { margin-top: 2px; }
+.st-fee .name { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 12.5px;
+                background: #fff; color: inherit; width: 100%; min-width: 0; }
+.st-fee .name:focus { outline: none; border-color: var(--ink-2); }
+.st-fee .col-h { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px 2px; }
+.st-fee .col-h:first-child { text-align: left; }
+/* 赠送：左绿条 + 行底绿 + 金额格绿底绿字 + 礼物图标钮（on=实心绿） */
+.st-fee.gifted { background: #dcecdf; box-shadow: inset 3px 0 0 var(--green); }
+.st-fee.gifted .name { border-color: #7fb892; color: var(--green); font-weight: 600; }
+.st-fee.gifted .st-amt { border-color: #7fb892; background: #f3faf5; }
+.st-fee.gifted .st-amt .pfx { color: var(--green); }
+.st-fee.gifted .st-amt input { color: var(--green); }
+.st-fee.gifted .st-amt input::placeholder { color: #9ec7ab; }
+.st-gift { flex: 0 0 auto; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: #fff;
+           color: var(--muted-2); display: grid; place-items: center; user-select: none; padding: 0; }
+.st-gift .st-ic { width: 15px; height: 15px; }
+.st-gift.on { background: var(--green); border-color: var(--green); color: #fff; }
+
+/* 杂费实收：总收 */
+.st-paid-sec { margin-top: 11px; padding-top: 9px; border-top: 1px dashed var(--line-soft); }
+/* 减免：独立分区，解析到才渲染（空则整区隐藏） */
+.st-ded-sec { margin-top: 11px; padding-top: 9px; border-top: 1px dashed var(--line-soft); }
+.st-ded-head { display: flex; align-items: center; gap: 7px; padding: 0 2px 7px; font-size: 12px;
+               color: var(--red); font-weight: 600; }
+.st-ded-head .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+.st-paid-head { display: flex; align-items: center; gap: 7px; padding: 0 2px 7px; font-size: 12px;
+                color: var(--green); font-weight: 600; }
+.st-paid-head .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.st-paid-head .note { font-weight: 400; color: var(--muted-2); font-size: 10.5px; }
+.st-fee.paid { background: #f0f6f1; }
+.st-fee.paid .st-amt { border-color: #b9d2c0; }
+
+.add-row { margin-top: 9px; border: 0; background: none; color: var(--ink-2); display: inline-flex;
+           align-items: center; gap: 4px; font-size: 11.5px; border-bottom: 1px dashed var(--muted-2); padding: 0 0 1px; }
+.add-row:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* 成品区 */
+.st-result { padding: 18px; }
+.st-warn { border-radius: 8px; background: var(--ai-bg); padding: 10px 14px; margin-bottom: 14px;
+           font-size: 12.5px; line-height: 1.7; color: #7a5a14; }
+.st-img { width: 100%; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.06);
+          cursor: zoom-in; }
+.st-img:active { position: fixed; inset: 4vh 4vw; width: 92vw; height: auto; max-height: 92vh; z-index: 60;
+                 object-fit: contain; background: #fff; cursor: zoom-out; }
+.st-dl { display: flex; gap: 10px; margin-top: 14px; }
+.st-check { margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+.st-img.st-draft { opacity: .93; }
+
+/* 结算单：卡片容器 + 粘贴框 + 底栏审核（对齐原型 07 v6） */
+.st-pane .card { background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+                 box-shadow: 0 6px 18px rgba(49,42,31,.05); margin-bottom: 14px; overflow: hidden; }
+.st-pane .card-head { display: flex; align-items: center; gap: 9px; padding: 11px 15px;
+                      background: linear-gradient(180deg,#f7f4ea,#f3efe3); border-bottom: 1px solid var(--line-soft); }
+.st-pane .card-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.st-pane .card-head h3 { font-family: var(--serif); font-size: 14.5px; color: var(--ink); letter-spacing: .5px; }
+.st-pane .card-body { padding: 12px 14px; }
+.st-pane textarea.paste { width: 100%; min-height: 170px; border: 1px solid var(--line); border-radius: 9px;
+                          background: #fff; padding: 11px 12px; color: #49443b; font-size: 12.5px;
+                          line-height: 1.7; resize: vertical; }
+.st-pane textarea.paste:focus { outline: none; border-color: var(--ink-2); }
+.st-pane .row-btns { display: flex; gap: 9px; margin-top: 10px; }
+.st-pane .review { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.st-pane .review input { width: 15px; height: 15px; }
+.st-pane .col-h { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px 2px; }
+/* 实收行：单金额框（跨人民币+港币两列），币种前缀点击切换 */
+.st-amt-wide { grid-column: 2 / span 2; }
+.st-cur-pfx { cursor: pointer; user-select: none; }
+/* 硬校验：必填缺失时输入框红框闪烁提示 */
+.st-miss { border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(182,74,59,.18) !important; }

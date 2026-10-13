@@ -1,0 +1,630 @@
+<meta charset="utf-8">
+<div id="settlement-entry-board">
+  <style>
+    #settlement-entry-board {
+      --seb-ink: #14233b;
+      --seb-muted: #66758a;
+      --seb-line: #d9e1eb;
+      --seb-blue: #0b2e59;
+      --seb-blue-soft: #edf4fb;
+      --seb-green-soft: #edf8f6;
+      --seb-green: #176b61;
+      --seb-bg: #f7f9fc;
+      color: var(--seb-ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px;
+      box-sizing: border-box;
+    }
+    #settlement-entry-board * { box-sizing: border-box; }
+    .seb-shell { background: white; border: 1px solid var(--seb-line); border-radius: 16px; overflow: hidden; box-shadow: 0 8px 26px rgba(20,35,59,.08); }
+    .seb-head { padding: 22px 24px 18px; background: linear-gradient(135deg, #0b2e59, #174e82); color: white; }
+    .seb-head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 500; }
+    .seb-head p { margin: 0; color: #dbe8f5; }
+    .seb-body { padding: 22px 24px 24px; background: var(--seb-bg); }
+    .seb-section { background: white; border: 1px solid var(--seb-line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+    .seb-section h2 { margin: 0 0 13px; font-size: 16px; font-weight: 500; color: var(--seb-blue); }
+    .seb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+    .seb-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; }
+    .seb-field { display: flex; flex-direction: column; gap: 6px; }
+    .seb-field label { font-size: 12px; color: var(--seb-muted); }
+    .seb-field input, .seb-field select, .seb-field textarea { width: 100%; border: 1px solid var(--seb-line); border-radius: 9px; padding: 10px 11px; font: inherit; color: var(--seb-ink); background: white; outline: none; }
+    .seb-field input:focus, .seb-field select:focus, .seb-field textarea:focus { border-color: #4d88bd; box-shadow: 0 0 0 3px rgba(77,136,189,.14); }
+    .seb-field textarea { min-height: 84px; resize: vertical; }
+    .seb-option-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .seb-option { position: relative; }
+    .seb-option input { position: absolute; opacity: 0; pointer-events: none; }
+    .seb-option label { display: inline-flex; align-items: center; min-height: 42px; padding: 9px 14px; border: 1px solid var(--seb-line); border-radius: 10px; background: white; cursor: pointer; user-select: none; }
+    .seb-option input:checked + label { background: var(--seb-blue-soft); color: var(--seb-blue); border-color: #78a6cc; font-weight: 500; }
+    .seb-option input:focus-visible + label { outline: 3px solid rgba(77,136,189,.25); }
+    .seb-note { color: var(--seb-muted); font-size: 12px; margin-top: 8px; }
+    .seb-fixed { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .seb-fixed div { border: 1px solid #cfe6df; background: var(--seb-green-soft); border-radius: 9px; padding: 10px; }
+    .seb-fixed strong { display: block; color: var(--seb-green); font-weight: 500; }
+    .seb-repeat { display: grid; gap: 9px; }
+    .seb-repeat-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(115px, .7fr) 86px 86px minmax(170px, .9fr) 42px; gap: 8px; align-items: center; }
+    .seb-repeat-row input, .seb-repeat-row select { width: 100%; border: 1px solid var(--seb-line); border-radius: 8px; padding: 9px 10px; font: inherit; color: var(--seb-ink); background: white; }
+    .seb-repeat-row .seb-remove { border: 0; border-radius: 8px; min-height: 38px; cursor: pointer; background: #fbeeee; color: #a12626; font-size: 18px; }
+    .seb-repeat-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(115px, .7fr) 86px 86px minmax(170px, .9fr) 42px; gap: 8px; padding: 0 8px; color: var(--seb-muted); font-size: 12px; }
+    .seb-add { margin-top: 10px; }
+    .seb-unpaid-repeat { display: grid; gap: 9px; }
+    .seb-unpaid-item { display: grid; gap: 8px; }
+    .seb-unpaid-row { display: grid; grid-template-columns: minmax(0, .82fr) minmax(120px, .78fr) 86px 86px minmax(155px, .78fr) 42px; gap: 7px; align-items: center; }
+    .seb-unpaid-row select, .seb-unpaid-row input { width: 100%; border: 1px solid var(--seb-line); border-radius: 8px; padding: 9px 10px; font: inherit; color: var(--seb-ink); background: white; }
+    .seb-unpaid-row .seb-remove { border: 0; border-radius: 8px; min-height: 38px; cursor: pointer; background: #fbeeee; color: #a12626; font-size: 18px; }
+    .seb-unpaid-head { display: grid; grid-template-columns: minmax(0, .82fr) minmax(120px, .78fr) 86px 86px minmax(155px, .78fr) 42px; gap: 7px; padding: 0 8px; color: var(--seb-muted); font-size: 12px; margin-top: 14px; }
+    .seb-amount-format-note { margin: 5px 0 0 8px; color: var(--seb-muted); font-size: 12px; line-height: 1.45; }
+    .seb-unpaid-other { margin-left: 8px; }
+    .seb-review { display: flex; align-items: center; gap: 9px; margin-top: 12px; color: var(--seb-muted); }
+    .seb-review input { width: 18px; height: 18px; }
+    .seb-button[disabled] { opacity: .48; cursor: not-allowed; }
+    .seb-hidden { display: none !important; }
+    .seb-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .seb-button { border: 0; border-radius: 10px; padding: 11px 15px; font: inherit; cursor: pointer; }
+    .seb-button-primary { background: var(--seb-blue); color: white; }
+    .seb-button-secondary { background: #e9eff6; color: var(--seb-blue); }
+    .seb-button:focus-visible { outline: 3px solid rgba(77,136,189,.3); outline-offset: 2px; }
+    .seb-output { margin-top: 14px; }
+    .seb-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+    .seb-tab { border: 1px solid var(--seb-line); background: white; border-radius: 9px; padding: 8px 14px; font: inherit; font-size: 13px; color: var(--seb-muted); cursor: pointer; }
+    .seb-tab.is-active { background: var(--seb-blue-soft); color: var(--seb-blue); border-color: #78a6cc; font-weight: 500; }
+    .seb-output textarea { width: 100%; min-height: 360px; border: 1px solid var(--seb-line); border-radius: 10px; padding: 12px; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #fbfcfe; color: var(--seb-ink); resize: vertical; }
+    .seb-status { min-height: 22px; margin-top: 8px; color: var(--seb-green); font-size: 12px; }
+    .seb-action-feedback { margin-top: 10px; border: 1px solid #acd8bd; border-radius: 9px; padding: 9px 12px; background: #edf8f1; color: #176b3a; font-size: 13px; font-weight: 700; }
+    @media (max-width: 680px) {
+      #settlement-entry-board { padding: 8px; }
+      .seb-body { padding: 14px; }
+      .seb-grid, .seb-grid-3, .seb-fixed { grid-template-columns: 1fr; }
+      .seb-repeat-row, .seb-repeat-head { grid-template-columns: 1fr 1fr; }
+      .seb-unpaid-row, .seb-unpaid-head { grid-template-columns: 1fr 42px; }
+      .seb-unpaid-row [data-field="type"], .seb-unpaid-row [data-field="amount"], .seb-unpaid-row [data-field="currency"], .seb-unpaid-row [data-field="status"], .seb-unpaid-row [data-field="equivalent"] { grid-column: 1; }
+      .seb-unpaid-row .seb-remove { grid-column: 2; grid-row: 1 / span 3; }
+      .seb-unpaid-head { display: none; }
+      .seb-unpaid-other { margin-left: 0; }
+      .seb-repeat-row .seb-remove { grid-column: 2; }
+      .seb-repeat-head { display: none; }
+      .seb-head { padding: 18px; }
+    }
+  </style>
+
+  <div class="seb-shell">
+    <div class="seb-head">
+      <h1>收款结算单录入看板</h1>
+      <p>选择业务类型，填写金额，生成可直接发送到当前对话的标准资料。</p>
+    </div>
+    <div class="seb-body">
+      <section class="seb-section">
+        <h2>1. 选择业务</h2>
+        <div class="seb-option-row" role="radiogroup" aria-label="业务类型">
+          <div class="seb-option"><input id="seb-existing" name="seb-business" type="radio" value="现牌结算单"><label for="seb-existing">现牌结算单</label></div>
+          <div class="seb-option"><input id="seb-new" name="seb-business" type="radio" value="新办结算单" checked><label for="seb-new">新办结算单</label></div>
+          <div class="seb-option"><input id="seb-car" name="seb-business" type="radio" value="车辆买卖结算单"><label for="seb-car">车辆买卖结算单</label></div>
+        </div>
+        <div class="seb-grid-3" style="margin-top:13px">
+          <div class="seb-field"><label for="seb-group">群名</label><input id="seb-group" placeholder="例如：6月2日 温汉文先生莲塘新办Z1J09港"></div>
+          <div class="seb-field"><label for="seb-customer">客户</label><input id="seb-customer" placeholder="手动填写客户名字"></div>
+          <div class="seb-field"><label for="seb-date">单据日期</label><input id="seb-date" placeholder="例如：2026年9月30日"></div>
+        </div>
+        <div class="seb-field" style="margin-top:12px"><label for="seb-subject" id="seb-subject-label">申请口岸</label><input id="seb-subject" placeholder="例如：莲塘口岸"></div>
+      </section>
+
+      <section class="seb-section">
+        <h2>2. 结算类型</h2>
+        <div class="seb-option-row" role="radiogroup" aria-label="结算类型">
+          <div class="seb-option"><input id="seb-deposit-type" name="seb-type" type="radio" value="收定金"><label for="seb-deposit-type">收定金</label></div>
+          <div class="seb-option"><input id="seb-second-type" name="seb-type" type="radio" value="收第二期款"><label for="seb-second-type">收第二期款</label></div>
+          <div class="seb-option"><input id="seb-tail-type" name="seb-type" type="radio" value="收尾款" checked><label for="seb-tail-type">收尾款</label></div>
+          <div class="seb-option"><input id="seb-extra-type" name="seb-type" type="radio" value="补款"><label for="seb-extra-type">补款</label></div>
+          <div class="seb-option"><input id="seb-other-type" name="seb-type" type="radio" value="其他"><label for="seb-other-type">其他</label></div>
+        </div>
+        <div class="seb-field seb-hidden" id="seb-other-type-wrap" style="margin-top:12px"><label for="seb-other-type-text">其他结算类型</label><input id="seb-other-type-text" placeholder="请手动输入结算类型"></div>
+      </section>
+
+      <section class="seb-section">
+        <h2>3. 合同金额</h2>
+        <div class="seb-grid">
+          <div class="seb-field"><label for="seb-total">合同总价</label><input id="seb-total" placeholder="例如：19.8万人民币"></div>
+          <div class="seb-field"><label for="seb-contract-date">合同签订日或合同汇率（选填）</label><input id="seb-contract-date" placeholder="如已提供双币金额可不填"></div>
+        </div>
+        <div class="seb-note">合同业务款按合同签订日汇率；如已提供同一款项的人民币和港币等值，直接使用该双币金额。合同外杂费按制作结算单当日的百度实时汇率折算。</div>
+        <div style="margin-top:14px" class="seb-field"><label>合同内已收款（可增加多笔）</label></div>
+        <div class="seb-repeat-head"><span>项目</span><span>金额</span><span>币种</span><span>状态</span><span>人民币、港币等值金额</span><span></span></div>
+        <div id="seb-contract-rows" class="seb-repeat"></div>
+        <datalist id="seb-contract-item-options">
+          <option value="定金"></option>
+          <option value="第二期款"></option>
+          <option value="总价一次性支付"></option>
+        </datalist>
+        <button class="seb-button seb-button-secondary seb-add" id="seb-add-contract" type="button">＋新增合同内款项</button>
+        <div class="seb-note">车辆买卖选择“总价一次性支付”后，金额会跟随合同总价；生成资料时直接在总价标记已一次性支付，不再重复生成同金额的已付款项或车辆尾款。</div>
+        <div class="seb-field" style="margin-top:14px"><label>合同内未收款项（可增加多笔）</label></div>
+        <div class="seb-unpaid-head"><span>项目</span><span>金额</span><span>币种</span><span>状态</span><span>人民币、港币等值金额</span><span></span></div>
+        <div id="seb-unpaid-rows" class="seb-unpaid-repeat"></div>
+        <button class="seb-button seb-button-secondary seb-add" id="seb-add-unpaid" type="button">＋新增合同内未收款项</button>
+      </section>
+
+      <section class="seb-section">
+        <h2>4. 合同外杂费</h2>
+        <div class="seb-note" id="seb-expense-note">根据业务类型自动带入常用项目；每一行都可以修改、删除或继续新增。</div>
+        <div class="seb-repeat-head"><span>杂费项目</span><span>金额</span><span>币种</span><span>状态</span><span></span></div>
+        <div id="seb-expense-rows" class="seb-repeat"></div>
+        <button class="seb-button seb-button-secondary seb-add" id="seb-add-expense" type="button">＋新增合同外杂费</button>
+        <div class="seb-grid" style="margin-top:12px">
+          <div class="seb-field"><label for="seb-expense-paid-name">合同外杂费已收项目名称</label><input id="seb-expense-paid-name" placeholder="例如：旧车通车费用"></div>
+          <div class="seb-field"><label for="seb-expense-paid">合同外杂费实收金额</label><input id="seb-expense-paid" value="0"></div>
+        </div>
+      </section>
+
+      <section class="seb-section">
+        <h2>5. 生成资料</h2>
+        <div class="seb-actions">
+          <button class="seb-button seb-button-primary" id="seb-generate" type="button">生成业务资料</button>
+          <button class="seb-button seb-button-secondary" id="seb-copy" type="button">复制业务资料</button>
+          <button class="seb-button seb-button-secondary" id="seb-clear" type="button">清空填写</button>
+        </div>
+        <div class="seb-action-feedback seb-hidden" id="seb-action-feedback" role="status" aria-live="polite"></div>
+        <div class="seb-output">
+          <div class="seb-tabs" role="tablist" aria-label="输出格式">
+            <button class="seb-tab is-active" id="seb-tab-text" role="tab" type="button" aria-selected="true">人读文本</button>
+            <button class="seb-tab" id="seb-tab-json" role="tab" type="button" aria-selected="false">引擎 JSON</button>
+          </div>
+          <textarea id="seb-output" aria-label="生成的业务资料" placeholder="点击“生成业务资料”后，这里会出现可直接发送到当前对话的文本。"></textarea>
+          <textarea id="seb-output-json" class="seb-hidden" aria-label="生成的引擎 JSON" placeholder="点击“生成业务资料”后，这里会出现可直接交给结算引擎的 JSON。"></textarea>
+          <div class="seb-note seb-hidden" id="seb-json-note">把「引擎 JSON」整段粘给助手即可，助手无需再解析文本，直接调引擎出 PDF。</div>
+          <label class="seb-review"><input id="seb-reviewed" type="checkbox">我已人工审核以上业务资料，确认内容无误</label>
+          <div class="seb-actions" style="margin-top:10px"><button class="seb-button seb-button-primary" id="seb-create-statement" type="button" disabled>制作结算单</button></div>
+          <div class="seb-status" id="seb-status" aria-live="polite"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('settlement-entry-board');
+      const $ = (id) => root.querySelector('#' + id);
+      const business = () => root.querySelector('input[name="seb-business"]:checked').value;
+      const money = (id) => $(id).value.trim() || '0';
+      function isVehicleSale() { return business() === '车辆买卖结算单'; }
+      function isNewSettlement() { return business() === '新办结算单'; }
+      function settlementType() {
+        const selected = root.querySelector('input[name="seb-type"]:checked').value;
+        return selected === '其他' ? ($('seb-other-type-text').value.trim() || '其他') : selected;
+      }
+      function unpaidTailName() { return isVehicleSale() ? '车辆尾款' : '车牌尾款'; }
+      function markNeedsReview() {
+        $('seb-reviewed').checked = false;
+        $('seb-create-statement').disabled = true;
+      }
+      function contractRows() {
+        return Array.from(root.querySelectorAll('#seb-contract-rows .seb-repeat-row'));
+      }
+      function isOneTimeTotalRow(row) {
+        return row.querySelector('[data-field="name"]').value.trim() === '总价一次性支付'
+          && row.querySelector('[data-field="status"]').value === '已收';
+      }
+      function totalValueAndCurrency() {
+        const raw = $('seb-total').value.trim();
+        const compact = raw.replace(/[,，\s]/g, '');
+        const match = compact.match(/\d+(?:\.\d+)?/);
+        let amount = match ? Number(match[0]) : 0;
+        if (/万/.test(compact)) amount *= 10000;
+        const upper = compact.toUpperCase();
+        const currency = compact.includes('$') || compact.includes('＄')
+          || compact.includes('港币') || compact.includes('港幣') || upper.includes('HKD')
+          ? '港币' : '人民币';
+        return { amount: amount ? String(amount) : '', currency };
+      }
+      const PAID_STATUSES = ['已收', '减免', '退款/扣减'];
+      function toNumber(raw) {
+        const compact = String(raw == null ? '' : raw).replace(/[,，\s]/g, '');
+        const match = compact.match(/\d+(?:\.\d+)?/);
+        if (!match) return 0;
+        let value = Number(match[0]);
+        if (/万|萬/.test(compact)) value *= 10000;
+        return value;
+      }
+      function currencyCode(label) { return label === '港币' ? 'HKD' : 'CNY'; }
+      function todayText() {
+        const now = new Date();
+        return `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
+      }
+      function toIsoDate(text) {
+        const digits = String(text || '').match(/\d+/g);
+        if (!digits || digits.length < 3) return '';
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${digits[0]}${pad(digits[1])}${pad(digits[2])}`;
+      }
+      function parseEquivalent(text, rowCurrency) {
+        const raw = String(text || '').trim();
+        if (!raw) return {};
+        let cny = null; let hkd = null;
+        const pattern = /([¥￥$＄])\s*([0-9][0-9,\.]*)\s*(万|萬)?/g;
+        let hit = pattern.exec(raw);
+        while (hit) {
+          const value = toNumber((hit[2] || '') + (hit[3] || ''));
+          if (hit[1] === '¥' || hit[1] === '￥') cny = value; else hkd = value;
+          hit = pattern.exec(raw);
+        }
+        if (cny === null && hkd === null) {
+          const numbers = (raw.match(/[0-9][0-9,\.]*/g) || []).map(toNumber);
+          if (numbers.length >= 2) {
+            if (rowCurrency === 'HKD') { hkd = numbers[0]; cny = numbers[1]; } else { cny = numbers[0]; hkd = numbers[1]; }
+          }
+        }
+        const result = {};
+        if (rowCurrency === 'CNY' && hkd !== null) result.hkd_equiv = hkd;
+        if (rowCurrency === 'HKD' && cny !== null) result.cny_equiv = cny;
+        return result;
+      }
+      function contractRate() {
+        const raw = $('seb-contract-date').value.trim();
+        if (!raw || /[年月]/.test(raw)) return null;
+        const value = toNumber(raw);
+        if (!value || value < 0.5 || value > 2) return null;
+        return { cny_to_hkd: value, basis: 'contract', source: '用户提供' };
+      }
+      function buildPayload() {
+        const total = totalValueAndCurrency();
+        const subject = $('seb-subject').value.trim();
+        const payload = {
+          group: $('seb-group').value.trim(),
+          customer: $('seb-customer').value.trim(),
+          settle_type: settlementType(),
+          title: isVehicleSale() ? '港車買賣結算單' : '收款結算單',
+          date: $('seb-date').value.trim(),
+          date_iso: toIsoDate($('seb-date').value.trim()),
+          contract_total: [],
+          contract_paid: [],
+          contract_unpaid: [],
+          extra_fees: [],
+          extra_paid: []
+        };
+        if (subject) payload[isVehicleSale() ? 'vehicle' : 'port'] = subject;
+        if (total.amount) {
+          payload.contract_total.push({
+            item: isVehicleSale() ? '车辆总价' : '车牌总价',
+            amount: Number(total.amount),
+            currency: currencyCode(total.currency)
+          });
+        }
+        contractRows().forEach((row) => {
+          const amount = toNumber(row.querySelector('[data-field="amount"]').value);
+          const status = row.querySelector('[data-field="status"]').value;
+          const isGift = status === '赠送';
+          if ((!amount && !isGift) || isOneTimeTotalRow(row)) return;
+          const currency = currencyCode(row.querySelector('[data-field="currency"]').value);
+          const baseName = row.querySelector('[data-field="name"]').value.trim() || '其他合同内款项';
+          const entry = {
+            item: isGift ? baseName + '（贈送）' : baseName,
+            amount: isGift ? 0 : amount,
+            currency,
+            ...parseEquivalent(row.querySelector('[data-field="equivalent"]') ? row.querySelector('[data-field="equivalent"]').value : '', currency)
+          };
+          if (isGift) { payload.contract_unpaid.push({ ...entry, status: 'today' }); return; }
+          if (PAID_STATUSES.includes(status)) payload.contract_paid.push(entry);
+          else payload.contract_unpaid.push({ ...entry, status: 'today' });
+        });
+        Array.from(root.querySelectorAll('#seb-unpaid-rows .seb-unpaid-item')).forEach((item) => {
+          const amount = toNumber(item.querySelector('[data-field="amount"]').value);
+          const status = item.querySelector('[data-field="status"]').value;
+          const isGift = status === '赠送';
+          if (!amount && !isGift) return;
+          const type = item.querySelector('[data-field="type"]').value;
+          const other = item.querySelector('[data-field="other"]').value.trim();
+          const currency = currencyCode(item.querySelector('[data-field="currency"]').value);
+          const baseName = type === '其他' ? (other || '其他未收款项') : type;
+          const entry = {
+            item: isGift ? baseName + '（贈送）' : baseName,
+            amount: isGift ? 0 : amount,
+            currency,
+            ...parseEquivalent(item.querySelector('[data-field="equivalent"]').value, currency)
+          };
+          if (isGift) { payload.contract_unpaid.push({ ...entry, status: 'today' }); return; }
+          if (PAID_STATUSES.includes(status)) { payload.contract_paid.push(entry); return; }
+          const mapped = { '今日应收': 'today', '下次收款': 'next', '应收': 'today' }[status] || 'today';
+          payload.contract_unpaid.push({ ...entry, status: mapped });
+        });
+        Array.from(root.querySelectorAll('#seb-expense-rows .seb-repeat-row')).forEach((row) => {
+          const amount = toNumber(row.querySelector('[data-field="amount"]').value);
+          const status = row.querySelector('[data-field="status"]').value;
+          const isGift = status === '赠送';
+          const isDeduct = status === '减免';
+          if (!amount && !isGift && !isDeduct) return;
+          const baseName = row.querySelector('[data-field="name"]').value.trim() || '其他杂费';
+          const currency = currencyCode(row.querySelector('[data-field="currency"]').value);
+          // 减免属已收类（PAID_STATUSES）：杂费行标减免即视为该笔已收，计入合同外杂费实收
+          if (isDeduct) { payload.extra_paid.push({ item: baseName, amount, currency }); return; }
+          const entry = {
+            // 用户已在项目名里写了「赠送」时不再重复追加
+            item: isGift ? (/(贈送|赠送)/.test(baseName) ? baseName : baseName + '（贈送）') : baseName,
+            amount,
+            currency
+          };
+          // 赠送：金额照写照显示，只在合计里排除（淇淇 2026-10-09 指定）
+          if (isGift) entry.gift = true;
+          payload.extra_fees.push(entry);
+        });
+        const paidAmount = toNumber($('seb-expense-paid').value);
+        if (paidAmount) {
+          payload.extra_paid.push({
+            item: $('seb-expense-paid-name').value.trim() || '合同外杂费已收',
+            amount: paidAmount,
+            currency: 'HKD'
+          });
+        }
+        const rate = contractRate();
+        if (rate) payload.rate = rate;
+        return payload;
+      }
+      function syncSubjectLabel() {
+        $('seb-subject-label').textContent = isVehicleSale() ? '购买车辆' : '申请口岸';
+        $('seb-subject').placeholder = isVehicleSale() ? '例如：日产 WY5469' : '例如：莲塘口岸';
+      }
+      function syncOneTimeTotal(row) {
+        const name = row.querySelector('[data-field="name"]').value.trim();
+        if (name !== '总价一次性支付') return;
+        const total = totalValueAndCurrency();
+        if (total.amount) row.querySelector('[data-field="amount"]').value = total.amount;
+        row.querySelector('[data-field="currency"]').value = total.currency;
+        row.querySelector('[data-field="status"]').value = '已收';
+        if (isVehicleSale()) {
+          root.querySelectorAll('#seb-unpaid-rows .seb-unpaid-item').forEach((item) => {
+            if (item.querySelector('[data-field="type"]').value === '车辆尾款') item.remove();
+          });
+        }
+      }
+      function showActionFeedback(message) {
+        const feedback = $('seb-action-feedback');
+        feedback.textContent = message;
+        feedback.classList.remove('seb-hidden');
+      }
+      function generate() {
+        const group = $('seb-group').value.trim() || '〔填写群名〕';
+        const customer = $('seb-customer').value.trim() || '〔填写客户〕';
+        const paidRows = contractRows();
+        const totalPaidOnce = paidRows.some(isOneTimeTotalRow);
+        const subject = $('seb-subject').value.trim();
+        const text = [
+          `业务类型：${business()}`,
+          `群名：${group}`,
+          `客户：${customer}`,
+          `日期：${$('seb-date').value.trim()}`,
+          subject ? (isVehicleSale() ? `车辆：${subject}` : `口岸：${subject}`) : '',
+          `结算类型：${settlementType()}`,
+          '',
+          '合同内总费用。',
+          `总价：${money('seb-total')}${totalPaidOnce ? '（已一次性支付）' : ''}`,
+          '',
+          '合同内已收费用。',
+          '合同内已收明细：',
+          ...paidRows.filter((row) => !isOneTimeTotalRow(row)).map((row) => {
+            const name = row.querySelector('[data-field="name"]').value.trim();
+            const amount = row.querySelector('[data-field="amount"]').value.trim() || '0';
+            const currency = row.querySelector('[data-field="currency"]').value;
+            const status = row.querySelector('[data-field="status"]').value;
+            const equivalent = row.querySelector('[data-field="equivalent"]').value.trim();
+            const shownAmount = status === '赠送' ? '0' : amount;
+            return (name || '其他合同内款项') + '：' + shownAmount + currency + (equivalent ? '；人民币、港币等值金额：' + equivalent : '') + '（' + status + '）';
+          }),
+          '',
+          '合同内未收。',
+          ...Array.from(root.querySelectorAll('#seb-unpaid-rows .seb-unpaid-item')).map((item) => {
+            const type = item.querySelector('[data-field="type"]').value;
+            const other = item.querySelector('[data-field="other"]').value.trim();
+            const name = type === '其他' ? (other || '其他未收款项') : type;
+            const amount = item.querySelector('[data-field="amount"]').value.trim() || '0';
+            const currency = item.querySelector('[data-field="currency"]').value;
+            const equivalent = item.querySelector('[data-field="equivalent"]').value.trim();
+            const status = item.querySelector('[data-field="status"]').value;
+            const shownAmount = status === '赠送' ? '0' : amount;
+            return name + '：' + shownAmount + currency + (equivalent ? '；人民币、港币等值金额：' + equivalent : '') + '（' + status + '）';
+          }),
+          '',
+          '合同外杂费明细。',
+          ...Array.from(root.querySelectorAll('#seb-expense-rows .seb-repeat-row')).map((row) => {
+            const name = row.querySelector('[data-field="name"]').value.trim();
+            const amount = row.querySelector('[data-field="amount"]').value.trim() || '0';
+            const currency = row.querySelector('[data-field="currency"]').value;
+            const status = row.querySelector('[data-field="status"]').value;
+            return `${name || '其他杂费'}：${amount}${currency}（${status}）${status === '赠送' ? '（不计入应收）' : ''}`;
+          }),
+          '合同外杂费实收。',
+          (($('seb-expense-paid-name').value.trim() || '合同外杂费已收') + '：' + money('seb-expense-paid')),
+          '',
+          ($('seb-contract-date').value.trim() ? '合同汇率或合同签订日：' + $('seb-contract-date').value.trim() : ''),
+          '汇率规则：合同业务款按合同签订日汇率或直接使用已提供的双币等值金额；合同外杂费按制作结算单当日百度实时汇率；人民币转港币时在基准折算结果上乘以1.01。'
+        ].join('\n');
+        $('seb-output').value = text;
+        $('seb-output-json').value = JSON.stringify(buildPayload(), null, 2);
+        markNeedsReview();
+        showActionFeedback('✓ 已生成业务资料');
+        $('seb-status').textContent = '已生成。请人工审核，确认无误后勾选并点击“制作结算单”。';
+      }
+      function makeRow(container, item) {
+        const row = document.createElement('div');
+        const isContractRow = container.id === 'seb-contract-rows';
+        row.className = 'seb-repeat-row';
+        const list = isContractRow ? ' list="seb-contract-item-options"' : '';
+        const equivalentField = isContractRow ? '<input data-field="equivalent" placeholder="例如：¥50000 / $58400" value="' + (item.equivalent || '') + '">' : '';
+        row.innerHTML = '<input data-field="name"' + list + ' placeholder="项目名称" value="' + (item.name || '') + '"><input data-field="amount" placeholder="金额" value="' + (item.amount || '') + '"><select data-field="currency"><option' + (item.currency === '人民币' ? ' selected' : '') + '>人民币</option><option' + (item.currency === '港币' ? ' selected' : '') + '>港币</option></select><select data-field="status"><option' + (item.status === '已收' ? ' selected' : '') + '>已收</option><option' + (item.status === '应收' ? ' selected' : '') + '>应收</option><option' + (item.status === '赠送' ? ' selected' : '') + '>赠送</option><option' + (item.status === '减免' ? ' selected' : '') + '>减免</option><option' + (item.status === '退款/扣减' ? ' selected' : '') + '>退款/扣减</option></select>' + equivalentField + '<button class="seb-remove" type="button" aria-label="删除本行">×</button>';
+        row.querySelectorAll('input, select').forEach((field) => field.addEventListener('change', () => {
+          if (isContractRow) syncOneTimeTotal(row);
+          markNeedsReview();
+        }));
+        row.querySelectorAll('input').forEach((field) => field.addEventListener('input', markNeedsReview));
+        row.querySelector('.seb-remove').addEventListener('click', () => { row.remove(); markNeedsReview(); });
+        container.appendChild(row);
+      }
+      function resetContractRows() {
+        const container = $('seb-contract-rows'); container.innerHTML = '';
+        if (isVehicleSale()) {
+          makeRow(container, {name:'', amount:'', currency:'港币', status:'已收'});
+        } else {
+          makeRow(container, {name:'定金', amount:'', currency:'人民币', status:'已收'});
+          makeRow(container, {name:'第二期款', amount:'', currency:'人民币', status:'已收'});
+        }
+      }
+      function makeUnpaidRow(item = {}) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seb-unpaid-item';
+        const row = document.createElement('div');
+        row.className = 'seb-unpaid-row';
+        const tail = unpaidTailName();
+        const selected = item.type || tail;
+        const typeSelect = document.createElement('select');
+        typeSelect.dataset.field = 'type';
+        ['第二期款', tail, '其他'].forEach((label) => {
+          const option = document.createElement('option');
+          option.textContent = label;
+          option.selected = selected === label;
+          typeSelect.appendChild(option);
+        });
+        const amountInput = document.createElement('input');
+        amountInput.dataset.field = 'amount';
+        amountInput.placeholder = '金额';
+        amountInput.value = item.amount || '';
+        const currencySelect = document.createElement('select');
+        currencySelect.dataset.field = 'currency';
+        ['人民币', '港币'].forEach((label) => {
+          const option = document.createElement('option');
+          option.textContent = label;
+          option.selected = (item.currency || '人民币') === label;
+          currencySelect.appendChild(option);
+        });
+        const statusSelect = document.createElement('select');
+        statusSelect.dataset.field = 'status';
+        ['已收', '应收', '赠送', '减免', '退款/扣减', '今日应收', '下次收款'].forEach((label) => {
+          const option = document.createElement('option');
+          option.textContent = label;
+          option.selected = (item.status || '应收') === label;
+          statusSelect.appendChild(option);
+        });
+        const equivalentInput = document.createElement('input');
+        equivalentInput.dataset.field = 'equivalent';
+        equivalentInput.placeholder = '例如：¥18000 / $21060';
+        equivalentInput.value = item.equivalent || '';
+        const removeButton = document.createElement('button');
+        removeButton.className = 'seb-remove';
+        removeButton.type = 'button';
+        removeButton.setAttribute('aria-label', '删除本行');
+        removeButton.textContent = '×';
+        row.append(typeSelect, amountInput, currencySelect, statusSelect, equivalentInput, removeButton);
+        const otherWrap = document.createElement('div');
+        otherWrap.className = 'seb-field seb-unpaid-other' + (selected === '其他' ? '' : ' seb-hidden');
+        const otherInput = document.createElement('input');
+        otherInput.dataset.field = 'other';
+        otherInput.placeholder = '请填写其他未收款项名称';
+        otherInput.value = item.other || '';
+        otherWrap.appendChild(otherInput);
+        typeSelect.addEventListener('change', () => {
+          otherWrap.classList.toggle('seb-hidden', typeSelect.value !== '其他');
+          markNeedsReview();
+        });
+        row.querySelectorAll('input, select').forEach((field) => field.addEventListener('change', markNeedsReview));
+        row.querySelectorAll('input').forEach((field) => field.addEventListener('input', markNeedsReview));
+        removeButton.addEventListener('click', () => { wrapper.remove(); markNeedsReview(); });
+        wrapper.appendChild(row);
+        wrapper.appendChild(otherWrap);
+        $('seb-unpaid-rows').appendChild(wrapper);
+      }
+      function resetUnpaidRows() {
+        $('seb-unpaid-rows').innerHTML = '';
+        makeUnpaidRow({type: unpaidTailName(), amount: ''});
+      }
+      function updateUnpaidOptions() {
+        const tail = unpaidTailName();
+        root.querySelectorAll('#seb-unpaid-rows [data-field="type"]').forEach((select) => {
+          const previous = select.value;
+          const wasTail = previous === '车牌尾款' || previous === '车辆尾款';
+          select.innerHTML = '<option>第二期款</option><option>' + tail + '</option><option>其他</option>';
+          select.value = wasTail ? tail : previous;
+        });
+      }
+      function resetExpenseRows() {
+        const container = $('seb-expense-rows'); container.innerHTML = '';
+        const items = isNewSettlement() ? [
+          {name:'批文卡', amount:'260', currency:'港币', status:'应收'},
+          {name:'禁区纸', amount:'744', currency:'港币', status:'应收'},
+          {name:'核证本', amount:'300', currency:'港币', status:'应收'}
+        ] : isVehicleSale() ? [
+          {name:'过户', amount:'1500', currency:'港币', status:'应收'},
+          {name:'保险', amount:'', currency:'港币', status:'应收'},
+          {name:'牌费', amount:'', currency:'港币', status:'应收'}
+        ] : [
+          {name:'换车费', amount:'5000', currency:'人民币', status:'应收'},
+          {name:'批文卡', amount:'260', currency:'港币', status:'应收'},
+          {name:'禁区纸', amount:'744', currency:'港币', status:'应收'},
+          {name:'核证本', amount:'300', currency:'港币', status:'应收'}
+        ];
+        items.forEach((item) => makeRow(container, item));
+        $('seb-expense-note').textContent = isNewSettlement() ? '新办结算单默认带入批文卡、禁区纸、核证本；自动项目可以修改、删除或继续新增。' : isVehicleSale() ? '车辆买卖默认带入过户、保险、牌费；保险和牌费金额留空可填，自动项目可以修改、删除或继续新增。' : '现牌结算单默认带入换车费、批文卡、禁区纸、核证本；自动项目可以修改、删除或继续新增。';
+      }
+      $('seb-generate').addEventListener('click', generate);
+      $('seb-add-contract').addEventListener('click', () => makeRow($('seb-contract-rows'), {name:'', amount:'', currency:'人民币', status:'已收'}));
+      $('seb-add-unpaid').addEventListener('click', () => { makeUnpaidRow({type: unpaidTailName(), amount: ''}); markNeedsReview(); });
+      $('seb-add-expense').addEventListener('click', () => makeRow($('seb-expense-rows'), {name:'', amount:'', currency:'港币', status:'应收'}));
+      root.querySelectorAll('input[name="seb-business"]').forEach((input) => input.addEventListener('change', () => { resetContractRows(); resetUnpaidRows(); resetExpenseRows(); syncSubjectLabel(); markNeedsReview(); }));
+      root.querySelectorAll('input[name="seb-type"]').forEach((input) => input.addEventListener('change', () => {
+        $('seb-other-type-wrap').classList.toggle('seb-hidden', input.value !== '其他' || !input.checked);
+        markNeedsReview();
+      }));
+      $('seb-reviewed').addEventListener('change', () => { $('seb-create-statement').disabled = !$('seb-reviewed').checked || !$('seb-output').value.trim(); });
+      $('seb-output').addEventListener('input', markNeedsReview);
+      $('seb-total').addEventListener('input', () => { contractRows().forEach(syncOneTimeTotal); markNeedsReview(); });
+      function activeTab() { return $('seb-tab-json').getAttribute('aria-selected') === 'true' ? 'json' : 'text'; }
+      function activeBox() { return activeTab() === 'json' ? $('seb-output-json') : $('seb-output'); }
+      function switchTab(target) {
+        const showJson = target === 'json';
+        $('seb-tab-json').classList.toggle('is-active', showJson);
+        $('seb-tab-json').setAttribute('aria-selected', showJson ? 'true' : 'false');
+        $('seb-tab-text').classList.toggle('is-active', !showJson);
+        $('seb-tab-text').setAttribute('aria-selected', showJson ? 'false' : 'true');
+        $('seb-output-json').classList.toggle('seb-hidden', !showJson);
+        $('seb-output').classList.toggle('seb-hidden', showJson);
+        $('seb-json-note').classList.toggle('seb-hidden', !showJson);
+        $('seb-copy').textContent = showJson ? '复制引擎 JSON' : '复制业务资料';
+      }
+      $('seb-tab-text').addEventListener('click', () => switchTab('text'));
+      $('seb-tab-json').addEventListener('click', () => switchTab('json'));
+      $('seb-create-statement').addEventListener('click', async () => {
+        if ($('seb-create-statement').disabled) return;
+        const payload = $('seb-output-json').value.trim() || JSON.stringify(buildPayload(), null, 2);
+        const prompt = '请立即按结算单技能制作结算单。我已人工审核以下业务资料并确认无误。\n'
+          + '要求：不要手写排版脚本，直接用本技能的参数化引擎出单——把下面的 JSON 存成 business.json，执行 make_settlement.py --input business.json 生成 PDF，'
+          + '读取输出里的 warnings 判断是否有冲突，生成后在对话里展示 PDF 待确认预览，暂不出 PNG。\n'
+          + '若存在会改变金额或币种的冲突，只指出冲突并向我追问，不要擅自生成金额不可靠的结算单。\n\n```json\n'
+          + payload + '\n```';
+        if (window.openai && window.openai.sendFollowUpMessage) {
+          await window.openai.sendFollowUpMessage({ prompt, title: '制作结算单' });
+          $('seb-status').textContent = '已提交到当前对话，正在进入结算单核算与制作；如资料有金额冲突，会先请你确认。';
+        } else {
+          switchTab('json');
+          try { await navigator.clipboard.writeText(payload); showActionFeedback('✓ 已复制引擎 JSON'); $('seb-status').textContent = '当前环境无法自动提交，已把引擎 JSON 复制到剪贴板，粘贴到对话即可出单。'; }
+          catch { $('seb-status').textContent = '当前环境无法自动提交，请点击「复制引擎 JSON」后粘贴到对话。'; }
+        }
+      });
+      $('seb-copy').addEventListener('click', async () => {
+        if (!$('seb-output').value.trim()) generate();
+        const box = activeBox();
+        const label = activeTab() === 'json' ? '✓ 已复制引擎 JSON' : '✓ 已复制业务资料';
+        try { await navigator.clipboard.writeText(box.value); showActionFeedback(label); $('seb-status').textContent = '已复制到剪贴板。'; }
+        catch { box.select(); document.execCommand('copy'); showActionFeedback(label); $('seb-status').textContent = '已复制。'; }
+      });
+      $('seb-clear').addEventListener('click', () => {
+        ['seb-group','seb-customer','seb-total','seb-contract-date','seb-other-type-text','seb-expense-paid-name','seb-subject'].forEach((id) => { $(id).value = ''; });
+        $('seb-date').value = todayText();
+        $('seb-expense-paid').value = '0'; $('seb-output').value = ''; $('seb-output-json').value = ''; resetContractRows(); resetUnpaidRows(); resetExpenseRows(); markNeedsReview(); $('seb-action-feedback').textContent = ''; $('seb-action-feedback').classList.add('seb-hidden'); $('seb-status').textContent = '已清空。';
+      });
+      if (!$('seb-date').value.trim()) $('seb-date').value = todayText();
+      syncSubjectLabel();
+      switchTab('text');
+      resetContractRows();
+      resetUnpaidRows();
+      resetExpenseRows();
+    })();
+  </script>
+</div>

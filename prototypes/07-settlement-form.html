@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原型 07 v6 · 收款结算单——双币并排 · 表格化</title>
+<link rel="stylesheet" href="../web/fonts/noto-sans-sc/alias.css">
+<style>
+:root{
+  --ink:#173f35;--ink-2:#245748;--paper:#fbfaf6;--bg:#e9e6dd;--line:#d8d1c2;--line-soft:#e8e2d7;
+  --muted:#817a6d;--muted-2:#a49c8e;--accent:#b64a3b;--gold:#b47c1d;--gold-bg:#fff6df;
+  --green:#2e7955;--red:#b63e32;
+  --sans:'Noto Sans SC',-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+  --serif:'Noto Serif SC','Songti SC','SimSun',serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;overflow:hidden}
+body{font-family:var(--sans);background:var(--bg);color:#2d2a24;font-size:14px}
+button,input,textarea,select{font:inherit}button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(23,63,53,.12)}
+.ic{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;vertical-align:-3px}
+.ic.sm{width:14px;height:14px}
+
+.app{display:grid;grid-template-columns:128px minmax(560px,1fr) minmax(520px,46%);grid-template-rows:minmax(0,1fr);height:100vh}
+.side{min-height:0;overflow:hidden}
+.side{background:var(--ink);color:#e6eee9;display:flex;flex-direction:column}
+.brand{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.09)}
+.brand h1{font-family:var(--serif);font-size:22px;letter-spacing:4px;color:#f0d79b}
+.brand p{margin-top:4px;font-size:8px;letter-spacing:2.4px;color:rgba(255,255,255,.42)}
+
+.editor{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:#f4f1e9;border-right:1px solid #d2cabc}
+.editor-head{padding:15px 20px 12px}
+.editor-head h2{font-family:var(--serif);font-size:19px;letter-spacing:.6px;color:var(--ink)}
+.scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 20px 18px}
+
+.card{background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 18px rgba(49,42,31,.05);margin-bottom:14px;overflow:hidden}
+.card-head{display:flex;align-items:center;gap:9px;padding:11px 15px;background:linear-gradient(180deg,#f7f4ea,#f3efe3);border-bottom:1px solid var(--line-soft)}
+.card-head .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.card-head h3{font-family:var(--serif);font-size:14.5px;color:var(--ink);letter-spacing:.5px}
+.card-body{padding:12px 14px}
+
+textarea.paste{width:100%;min-height:170px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:11px 12px;color:#49443b;font-size:12.5px;line-height:1.7;resize:vertical}
+textarea.paste:focus{border-color:var(--ink-2)}
+.row-btns{display:flex;gap:9px;margin-top:10px}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;height:34px;padding:0 16px;font-size:12.5px}
+.btn.ghost{background:transparent;border-color:var(--line);color:#6b6459}
+
+/* ---- 抬头 ---- */
+.head-compact{display:flex;flex-direction:column;gap:9px}
+.head-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.head-row .hl{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--muted);white-space:nowrap;cursor:help}
+.head-row .hl .ic{width:20px;height:20px}
+.head-row input{border:1px solid var(--line);border-radius:7px;padding:7px 10px;background:#fff;color:inherit;font-size:13px;min-width:0}
+.head-row input:focus{border-color:var(--ink-2)}
+.head-row .chips{display:flex;gap:7px;flex-wrap:wrap}
+.chip{position:relative}
+.chip input{position:absolute;opacity:0;pointer-events:none}
+.chip label{display:inline-block;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#6b6459;font-size:12px;cursor:pointer;user-select:none}
+.chip input:checked+label{background:#eef3ec;border-color:var(--ink-2);color:var(--ink);font-weight:500}
+.head-row .rate{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);white-space:nowrap}
+.head-row .rate b{color:var(--ink);font-weight:600;font-size:13px}
+
+/* ================= 金额输入：固定币种前缀 ================= */
+.amt{display:flex;align-items:center;border:1px solid var(--line);border-radius:7px;background:#fff;min-width:0}
+.amt:focus-within{border-color:var(--ink-2);box-shadow:0 0 0 3px rgba(23,63,53,.08)}
+.amt .pfx{flex:0 0 auto;padding:0 5px 0 9px;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap}
+.amt input{border:0;outline:none;background:transparent;text-align:right;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink);width:100%;min-width:0;padding:8px 9px 8px 2px}
+.amt input::placeholder{color:var(--muted-2);font-weight:400;font-size:12px}
+
+/* ---- 合同内款项：三行 × 双币 ---- */
+.ct{display:grid;grid-template-columns:86px 1fr 1fr;gap:5px 8px;align-items:center}
+.ct .col-h{font-size:11px;color:var(--muted);padding:0 2px 2px;text-align:right}
+.ct .col-h:first-child{text-align:left}
+.ct .row-label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink);white-space:nowrap}
+.ct .row-label .sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.ct .row-label.in{color:var(--green);font-weight:600}
+.ct .row-label.out{color:var(--red);font-weight:600}
+
+/* ---- 合同外杂费：清单 + 一笔总实收 ---- */
+.fee{display:grid;grid-template-columns:minmax(110px,1.2fr) 1fr 1fr 34px 24px;gap:4px 6px;align-items:center;padding:4px 6px;border-radius:9px}
+.fee+.fee{margin-top:2px}
+.fee-head{padding-bottom:0}
+.fee .col-h{font-size:11px;color:var(--muted);text-align:right;padding:0 2px 2px}
+.fee .col-h:first-child{text-align:left}
+.fee .name{border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12.5px;background:#fff;color:inherit;width:100%;min-width:0}
+.fee .name:focus{border-color:var(--ink-2)}
+
+/* 赠送：左绿条 + 行底绿 + 金额格绿底绿字 + 礼物图标钮（on=实心绿） */
+.fee.gifted{background:#dcecdf;box-shadow:inset 3px 0 0 var(--green)}
+.fee.gifted .name{border-color:#7fb892;color:var(--green);font-weight:600}
+.fee.gifted .amt{border-color:#7fb892;background:#f3faf5}
+.fee.gifted .amt .pfx{color:var(--green)}
+.fee.gifted .amt input{color:var(--green)}
+.fee.gifted .amt input::placeholder{color:#9ec7ab}
+.gift{flex:0 0 auto;height:28px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted-2);display:grid;place-items:center;user-select:none;padding:0}
+.gift .ic{width:15px;height:15px}
+.gift.on{background:var(--green);border-color:var(--green);color:#fff}
+.del{border:0;background:none;color:var(--red);opacity:.45;display:grid;place-items:center;padding:0}
+.del:hover{opacity:1}
+
+.add-row{margin-top:9px;border:0;background:none;color:var(--ink-2);display:inline-flex;align-items:center;gap:4px;font-size:11.5px;border-bottom:1px dashed var(--muted-2);padding:0 0 1px}
+.add-row:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* 杂费实收（总收，不逐项对应） */
+.paid-sec{margin-top:11px;padding-top:9px;border-top:1px dashed var(--line-soft)}
+.paid-head{display:flex;align-items:center;gap:7px;padding:0 2px 7px;font-size:12px;color:var(--green);font-weight:600}
+.paid-head .sdot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.paid-head .note{font-weight:400;color:var(--muted-2);font-size:10.5px;letter-spacing:0}
+.fee.paid{background:#f0f6f1}
+.fee.paid .amt{border-color:#b9d2c0}
+
+/* ---- 底栏 ---- */
+.genbar{display:flex;align-items:center;gap:10px;padding:11px 20px;background:#f4f1e9;border-top:1px solid #d2cabc}
+.review{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+.review input{width:15px;height:15px}
+.genbar .spacer{flex:1}
+.genbar .totals{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.genbar .totals b{font-weight:600}
+.genbar .totals .t-in{color:var(--green)}
+.genbar .totals .t-out{color:var(--red)}
+.btn.gen{height:36px;padding:0 18px}
+.btn.gen:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---- 预览栏 ---- */
+.preview{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);background:#efece3}
+.pv-head{display:flex;align-items:center;gap:10px;padding:15px 20px 10px}
+.pv-head b{font-family:var(--serif);font-size:15px;color:var(--ink)}
+.pv-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 20px 20px}
+.pv-body img{width:100%;border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(49,42,31,.08)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><h1>華星</h1><p>CONTRACT · AGENT</p></div>
+  </aside>
+
+  <!-- ============ 编辑栏 ============ -->
+  <section class="editor">
+    <div class="editor-head"><h2>收款结算单</h2></div>
+
+    <div class="scroll">
+      <div class="card">
+        <div class="card-head"><span class="dot"></span><h3>业务资料</h3></div>
+        <div class="card-body">
+          <textarea class="paste" id="paste" placeholder="0908许兰坛深圳湾现牌粤ZLT27港，客户许兰坛
+10月9号，深圳湾口岸，收尾款
+总价 228000 人民币 / 269336 港币
+……"></textarea>
+          <div class="row-btns">
+            <button class="btn"><svg class="ic sm" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>解析</button>
+            <button class="btn ghost"><svg class="ic sm" viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>清空</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="dot" style="background:var(--gold)"></span><h3>抬头与汇率</h3></div>
+        <div class="card-body head-compact">
+          <div class="head-row">
+            <span class="hl" title="结算类型"><svg class="ic" style="color:#8b5cf6" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg></span>
+            <div class="chips">
+              <span class="chip"><input type="radio" name="stype" id="s1"><label for="s1">收定金</label></span>
+              <span class="chip"><input type="radio" name="stype" id="s2"><label for="s2">收第二期款</label></span>
+              <span class="chip"><input type="radio" name="stype" id="s3" checked><label for="s3">收尾款</label></span>
+              <span class="chip"><input type="radio" name="stype" id="s4"><label for="s4">杂费结算</label></span>
+              <span class="chip"><input type="radio" name="stype" id="s5"><label for="s5">其他</label></span>
+            </div>
+            <span class="rate" title="实时汇率，与百度同口径"><svg class="ic" style="color:#d97706" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>1¥＝<b id="rateVal">1.17243</b> HK$</span>
+          </div>
+          <div class="head-row">
+            <span class="hl" title="微信群名"><svg class="ic" style="color:#07c160" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/></svg></span><input value="0906霍荣佳莲塘现牌粤Z5Q19港" style="flex:1">
+          </div>
+          <div class="head-row">
+            <span class="hl" title="客户"><svg class="ic" style="color:#3b82f6" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span><input value="霍荣佳" style="flex:1">
+            <span class="hl" title="日期"><svg class="ic" style="color:#f59e0b" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg></span><input value="2026年10月10日" style="flex:1.2">
+            <span class="hl" title="口岸"><svg class="ic" style="color:#0e9aa7" viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg></span><input value="莲塘口岸" style="flex:1">
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 合同内款项 ============ -->
+      <div class="card">
+        <div class="card-head"><span class="dot" style="background:var(--ink-2)"></span><h3>合同内款项</h3></div>
+        <div class="card-body">
+          <div class="ct" id="contract">
+            <span class="col-h">项目</span><span class="col-h">人民币</span><span class="col-h">港币</span>
+
+            <span class="row-label"><span class="sdot" style="background:var(--ink-2)"></span>合同总价</span>
+            <span class="amt"><span class="pfx">¥</span><input type="number" value="230000" placeholder="金额" data-cur="CNY" data-pair="t"></span>
+            <span class="amt"><span class="pfx">HK$</span><input type="number" value="271398" placeholder="金额" data-cur="HKD" data-pair="t"></span>
+
+            <span class="row-label in"><span class="sdot" style="background:var(--green)"></span>已收</span>
+            <span class="amt"><span class="pfx">¥</span><input type="number" value="50000" placeholder="金额" data-cur="CNY" data-pair="r"></span>
+            <span class="amt"><span class="pfx">HK$</span><input type="number" value="58999" placeholder="金额" data-cur="HKD" data-pair="r"></span>
+
+            <span class="row-label out"><span class="sdot" style="background:var(--red)"></span>未收</span>
+            <span class="amt"><span class="pfx">¥</span><input type="number" value="180000" placeholder="金额" data-cur="CNY" data-pair="u"></span>
+            <span class="amt"><span class="pfx">HK$</span><input type="number" value="212399" placeholder="金额" data-cur="HKD" data-pair="u"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 合同外杂费 ============ -->
+      <div class="card">
+        <div class="card-head"><span class="dot" style="background:#4a6e8f" id="feeDot"></span><h3>合同外杂费</h3></div>
+        <div class="card-body" id="fees">
+
+          <!-- 杂费清单：只列项目与金额，赠送整行变绿 -->
+          <div class="fee fee-head">
+            <span class="col-h">杂费项目</span><span class="col-h">人民币</span><span class="col-h">港币</span><span></span><span></span>
+          </div>
+          <div id="feeList">
+            <div class="fee gifted" data-row>
+              <input class="name" list="fee-names" value="换车费" placeholder="杂费名称">
+              <span class="amt"><span class="pfx">¥</span><input type="number" value="5000" placeholder="—" data-cur="CNY" data-pair="f"></span>
+              <span class="amt"><span class="pfx">HK$</span><input type="number" placeholder="—" data-cur="HKD" data-pair="f" data-auto="1"></span>
+              <button class="gift on" type="button" title="赠送：单据照显示，不计入应收"><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+              <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="fee gifted" data-row>
+              <input class="name" list="fee-names" value="批文卡" placeholder="杂费名称">
+              <span class="amt"><span class="pfx">¥</span><input type="number" placeholder="—" data-cur="CNY" data-pair="f" data-auto="1"></span>
+              <span class="amt"><span class="pfx">HK$</span><input type="number" value="260" placeholder="—" data-cur="HKD" data-pair="f"></span>
+              <button class="gift on" type="button" title="赠送：单据照显示，不计入应收"><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+              <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="fee gifted" data-row>
+              <input class="name" list="fee-names" value="禁区纸" placeholder="杂费名称">
+              <span class="amt"><span class="pfx">¥</span><input type="number" placeholder="—" data-cur="CNY" data-pair="f" data-auto="1"></span>
+              <span class="amt"><span class="pfx">HK$</span><input type="number" value="744" placeholder="—" data-cur="HKD" data-pair="f"></span>
+              <button class="gift on" type="button" title="赠送：单据照显示，不计入应收"><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+              <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="fee gifted" data-row>
+              <input class="name" list="fee-names" value="核证本" placeholder="杂费名称">
+              <span class="amt"><span class="pfx">¥</span><input type="number" placeholder="—" data-cur="CNY" data-pair="f" data-auto="1"></span>
+              <span class="amt"><span class="pfx">HK$</span><input type="number" value="300" placeholder="—" data-cur="HKD" data-pair="f"></span>
+              <button class="gift on" type="button" title="赠送：单据照显示，不计入应收"><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+              <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <div class="fee" data-row>
+              <input class="name" list="fee-names" value="大陆保险" placeholder="杂费名称">
+              <span class="amt"><span class="pfx">¥</span><input type="number" placeholder="—" data-cur="CNY" data-pair="f" data-auto="1"></span>
+              <span class="amt"><span class="pfx">HK$</span><input type="number" value="4819" placeholder="—" data-cur="HKD" data-pair="f"></span>
+              <button class="gift" type="button" title="赠送：单据照显示，不计入应收"><svg class="ic sm" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/></svg></button>
+              <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+          </div>
+          <datalist id="fee-names"><option value="换车费"></option><option value="批文卡"></option><option value="禁区纸"></option><option value="核证本"></option><option value="中检验车"></option><option value="大陆保险"></option></datalist>
+          <button class="add-row" id="addFee"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>加一项杂费</button>
+
+          <!-- 杂费实收：只记总收，不逐项对应 -->
+          <div class="paid-sec">
+            <div class="paid-head"><span class="sdot"></span>杂费实收<span class="note">只记总收，不逐项对应杂费</span></div>
+            <div id="paidList">
+              <div class="fee paid" data-paid>
+                <input class="name" value="港币现金" placeholder="收款方式">
+                <span class="amt"><span class="pfx">¥</span><input type="number" placeholder="—" data-cur="CNY" data-pair="p" data-auto="1"></span>
+                <span class="amt"><span class="pfx">HK$</span><input type="number" value="5000" placeholder="—" data-cur="HKD" data-pair="p"></span>
+                <span></span>
+                <button class="del" title="删这一行"><svg class="ic sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+              </div>
+            </div>
+            <button class="add-row" id="addPaid"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>加一笔实收</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="genbar">
+      <label class="review"><input type="checkbox" id="reviewed">我已核对金额与币种</label>
+      <span class="spacer"></span>
+      <span class="totals" id="totals"></span>
+      <button class="btn gen" id="gen" disabled>生成结算单<svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+    </div>
+  </section>
+
+  <!-- ============ 预览栏 ============ -->
+  <section class="preview">
+    <div class="pv-head"><b>结算单成品</b></div>
+    <div class="pv-body">
+      <img src="http://127.0.0.1:8300/api/settlement/file/png/%E9%A2%84%E8%A7%88.png" alt="实时模板稿"
+           onerror="this.outerHTML='<div style=&quot;display:grid;place-items:center;height:60%;color:var(--muted);font-size:12px&quot;>模板稿预览需本机服务运行中</div>'">
+    </div>
+  </section>
+</div>
+
+<script>
+const rateEl = document.getElementById('rateVal');
+const rate = () => parseFloat(rateEl.textContent) || 1;
+
+/* ---- 双币联动：一方为空（或仍属自动值）时按抬头汇率补齐，手动改过即不再覆盖 ---- */
+function syncMate(input){
+  input.dataset.auto = '';
+  const scope = input.closest('[data-row],[data-paid]') || input.closest('.ct');
+  if (!scope) return;
+  const mate = scope.querySelector(`input[data-pair="${input.dataset.pair}"]:not([data-cur="${input.dataset.cur}"])`);
+  if (!mate) return;
+  if (mate.value !== '' && mate.dataset.auto !== '1') return;
+  const v = parseFloat(input.value);
+  if (!Number.isFinite(v)) { mate.value = ''; return; }
+  const r = rate();
+  const out = input.dataset.cur === 'CNY' ? v * r : v / r;
+  mate.value = Math.round(out * 100) / 100;
+  mate.dataset.auto = '1';
+}
+
+/* ---- 底栏合计：已收 = 合同内已收 + 杂费实收；应收 = 合同内未收 + 非赠送杂费 ---- */
+function num(el){ const v = parseFloat(el && el.value); return Number.isFinite(v) ? v : 0; }
+function updateTotals(){
+  let inCny = 0, inHkd = 0, outCny = 0, outHkd = 0;
+  const ct = document.getElementById('contract');
+  inCny  += num(ct.querySelector('input[data-pair="r"][data-cur="CNY"]'));
+  inHkd  += num(ct.querySelector('input[data-pair="r"][data-cur="HKD"]'));
+  outCny += num(ct.querySelector('input[data-pair="u"][data-cur="CNY"]'));
+  outHkd += num(ct.querySelector('input[data-pair="u"][data-cur="HKD"]'));
+  document.querySelectorAll('#feeList .fee[data-row]').forEach(row => {
+    if (row.classList.contains('gifted')) return;
+    outCny += num(row.querySelector('input[data-pair="f"][data-cur="CNY"]'));
+    outHkd += num(row.querySelector('input[data-pair="f"][data-cur="HKD"]'));
+  });
+  document.querySelectorAll('#paidList .fee[data-paid]').forEach(row => {
+    inCny += num(row.querySelector('input[data-pair="p"][data-cur="CNY"]'));
+    inHkd += num(row.querySelector('input[data-pair="p"][data-cur="HKD"]'));
+  });
+  const f = n => n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  document.getElementById('totals').innerHTML =
+    `已收 <b class="t-in">¥${f(inCny)} / HK$${f(inHkd)}</b> · 应收 <b class="t-out">¥${f(outCny)} / HK$${f(outHkd)}</b>`;
+  /* 全部杂费都是赠送时，标题圆点变绿（一望而知整节不收钱） */
+  const rows = document.querySelectorAll('#feeList .fee[data-row]');
+  const allGift = rows.length > 0 && [...rows].every(r => r.classList.contains('gifted'));
+  document.getElementById('feeDot').style.background = allGift ? 'var(--green)' : '#4a6e8f';
+}
+
+document.addEventListener('input', e => {
+  if (e.target.matches('.amt input')) { syncMate(e.target); updateTotals(); }
+});
+
+document.getElementById('fees').addEventListener('click', e => {
+  const gift = e.target.closest('.gift');
+  if (gift) {
+    gift.classList.toggle('on');
+    gift.closest('.fee').classList.toggle('gifted', gift.classList.contains('on'));
+    updateTotals();
+    return;
+  }
+  const del = e.target.closest('.del');
+  if (del) { del.closest('.fee').remove(); updateTotals(); return; }
+  if (e.target.closest('#addFee')) {
+    const list = document.getElementById('feeList');
+    const clone = list.lastElementChild.cloneNode(true);
+    clone.querySelectorAll('input').forEach(i => { i.value = ''; delete i.dataset.auto; });
+    clone.querySelector('.gift').classList.remove('on');
+    clone.classList.remove('gifted');
+    list.appendChild(clone);
+    updateTotals();
+    clone.querySelector('.name').focus();
+    return;
+  }
+  if (e.target.closest('#addPaid')) {
+    const list = document.getElementById('paidList');
+    const clone = list.lastElementChild.cloneNode(true);
+    clone.querySelectorAll('input').forEach(i => { i.value = ''; delete i.dataset.auto; });
+    list.appendChild(clone);
+    clone.querySelector('.name').focus();
+  }
+});
+
+updateTotals();
+
+const reviewed = document.getElementById('reviewed'), gen = document.getElementById('gen');
+reviewed.addEventListener('change', () => gen.disabled = !reviewed.checked);
+</script>
+</body>
+</html>

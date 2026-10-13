@@ -1,0 +1,12 @@
+{
+  "name": "mingge-settlement-statement",
+  "display_name": "明哥中港牌收款结算单",
+  "version": "2.2.0",
+  "entry": "SKILL.md",
+  "description": "按固定商务模板制作两地牌及港车买卖收款结算单，支持 PDF/PNG 同批交付和本地客户历史档案；内置汇率分部分套用、先折汇率再加减、×1.01、截尾 .00、斜杠分隔、每单必检等铁律。",
+  "external_integrations": [],
+  "feishu_sync": false,
+  "platforms": ["macOS", "Linux", "Windows"],
+  "requirements": "requirements.txt（reportlab、pypdfium2）",
+  "install": "Windows: install.bat / install.ps1；macOS 或 Linux: bash install.sh"
+}

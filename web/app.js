@@ -4,7 +4,7 @@
  * 字段三态：待填红 / AI 金底未核（点一下标记已核）/ 已填中性
  */
 import "/vendor/vue.global.prod.js";
-const { createApp, reactive, ref, computed, watch, onMounted } = window.Vue;
+const { createApp, reactive, ref, computed, watch, onMounted, nextTick } = window.Vue;
 if (import.meta.env?.DEV) import("/workbench.css");
 
 /* ---------- 工具 ---------- */
@@ -167,6 +167,7 @@ const app = createApp({
         title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
       });
       if (get("immigration")) items.push({ title: "移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
+      items.push({ title: "文职", list: [{ key: "settlement", port: "", label: "收款结算单" }] });
       return items;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
@@ -217,6 +218,12 @@ const app = createApp({
       editMode.value = "edit"; onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
+      if (it.key === "settlement") {
+        if (!st.tRows.length) stDefaults();      // 常规项目模板：金额留空
+        stFetchRate();
+        stSchedulePreview();                     // 右侧立即出模板稿
+        nextTick(stAutoGrow);                    // 文本框铺满贴入内容
+      }
     }
 
     /* ---------- 字段三态 ---------- */
@@ -993,6 +1000,238 @@ const app = createApp({
       return TEMPLATE_NAMES[selected.type] || "";
     });
 
+    /* ---------- 收款结算单（账单式 v6：合同内双币矩阵 + 杂费清单） ----------
+       模型：tRows/rRows/uRows（总价/已收/未收，每行双币）+ fees（杂费，赠/双币）+ paid（实收总收）。
+       生成映射：两框都填 → 人民币为主、港币为等值（铁律：人民币列示为常态）；
+       只填一边 → 该边为主币种。金额算术全部在确定性引擎，前端只搬运。 */
+    const st = reactive({
+      text: "", notes: [], rate: null, parsing: false, generating: false,
+      result: null, preview: null, reviewed: false,
+      group: "", customer: "", date: "", port: "", settle_type: "收尾款",
+      settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
+      tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
+    });
+    // 与抬头那 5 枚单选牌取值一一对应（模板里的 v-model 同源，改动需同步）
+    const ST_PRESETS = ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"];
+    const isSettlement = computed(() => selected.type === "settlement");
+    const stPlaceholder = `0908许兰坛深圳湾现牌粤ZLT27港，客户许兰坛
+10月9号，深圳湾口岸，收尾款
+
+总价 228000 人民币
+定金已经收了 50000 人民币
+尾款 178000 人民币 / 210044 港币
+
+杂费这边：
+换车费 5000 人民币，我们送
+批文卡 260 港币 免
+……`;
+
+    function stBlankRow(label) { return { label, cny: null, hkd: null, cnyAuto: false, hkdAuto: false }; }
+    function stDefaults() {
+      const d = new Date();
+      st.group = ""; st.customer = ""; st.port = ""; st.settle_type = "收尾款";
+      st.settle_custom = "";
+      st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+      st.tRows = [stBlankRow("总价")];
+      st.rRows = [stBlankRow("已收")];
+      st.uRows = [stBlankRow("尾款")];
+      st.fees = ["换车费", "批文卡", "禁区纸", "核证本", "中检验车", "大陆保险"]
+        .map(name => ({ name, cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }));
+      st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
+      st.paid = [{ name: "", amount: null, currency: "HKD" }];
+    }
+
+    async function stFetchRate() {
+      try {
+        const r = await fetch("/api/settlement/rate");
+        if (r.ok) st.rate = String((await r.json()).cny_to_hkd);
+      } catch { /* 取不到就留空，生成时服务端再取 */ }
+    }
+
+    /* 双币联动：改一边，另一边为空或仍是自动值时按抬头汇率补齐。
+       双向折算一律 ×1.01（与引擎同口径，只做不说）。 */
+    function stSync(row, which) {
+      row[which + "Auto"] = false;
+      const rate = parseFloat(st.rate);
+      if (!Number.isFinite(rate) || rate <= 0) return;
+      const other = which === "cny" ? "hkd" : "cny";
+      const v = parseFloat(row[which]);
+      if (!Number.isFinite(v)) return;
+      if (row[other] !== null && row[other] !== "" && !row[other + "Auto"]) return;   // 对面手填过，不动
+      row[other] = Math.round((which === "cny" ? v * rate * 1.01 : v / rate * 1.01) * 100) / 100;
+      row[other + "Auto"] = true;
+    }
+
+    /* UI 模型 → 引擎表结构。draft=true 时空金额行保留为留白行（模板稿用）。 */
+    function stToEngine(draft) {
+      const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+      const pair = (label, cny, hkd, extra) => {
+        if (!String(label || "").trim()) return null;
+        const c = num(cny), h = num(hkd);
+        if (c === null && h === null) return draft ? { item: label.trim(), amount: 0, blank: true } : null;
+        if (c !== null) return { item: label.trim(), amount: c, currency: "CNY",
+                                 ...(h !== null && h !== 0 ? { hkd_equiv: h } : {}), ...extra };
+        return { item: label.trim(), amount: h, currency: "HKD", ...extra };
+      };
+      const fee = f => {
+        const name = String(f.name || "").trim();
+        if (!name) return null;
+        const c = num(f.cny), h = num(f.hkd);
+        if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
+        return { item: name, amount: c !== null ? c : h, currency: c !== null ? "CNY" : "HKD",
+                 ...(f.gift ? { gift: true } : {}) };
+      };
+      // 实收/减免：什么币种就在哪个汇总里直接减，不做任何换算（也无第二框可填）
+      const paid = p => {
+        const name = String(p.name || "").trim();
+        const a = num(p.amount);
+        if (!name && a === null) return null;
+        if (draft && a === null) return { item: name || "实收", amount: 0, blank: true };
+        return { item: name || "实收", amount: a, currency: p.currency === "CNY" ? "CNY" : "HKD" };
+      };
+      // 减免行与实收行同落 extra_paid（引擎同一个扣减口径），只是编辑区分开展示
+      const ded = d => {
+        const name = String(d.name || "").trim();
+        const a = num(d.amount);
+        if (!name && a === null) return null;
+        return { item: name || "减免", amount: a, currency: d.currency === "CNY" ? "CNY" : "HKD" };
+      };
+      const data = { group: st.group, customer: st.customer, date: st.date,
+                     port: st.port, settle_type: st.settle_type };
+      data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd)).filter(Boolean);
+      data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd)).filter(Boolean);
+      data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" })).filter(Boolean);
+      data.extra_fees      = st.fees.map(fee).filter(Boolean);
+      data.extra_paid      = [...st.deds.map(ded), ...st.paid.map(paid)].filter(Boolean);
+      return data;
+    }
+
+    /* 底栏实时合计（与引擎今日需付同源口径） */
+    const stTotals = computed(() => {
+      const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+      let inC = 0, inH = 0, outC = 0, outH = 0;
+      st.rRows.forEach(r => { inC += num(r.cny); inH += num(r.hkd); });
+      st.uRows.forEach(r => { outC += num(r.cny); outH += num(r.hkd); });
+      st.fees.forEach(f => { if (!f.gift) { outC += num(f.cny); outH += num(f.hkd); } });
+      st.paid.forEach(p => { if (p.currency === "CNY") inC += num(p.amount); else inH += num(p.amount); });
+      // 减免不是收到的现金，不计入「已收」；真正数字以引擎生成为准
+      const f2 = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return `已收 ¥${f2(inC)} / HK$${f2(inH)} · 应收 ¥${f2(outC)} / HK$${f2(outH)}`;
+    });
+
+    /* 解析结果（引擎表结构）→ UI 模型回填 */
+    function stFromParsed(p) {
+      const pair = e => {
+        const amt = Number(e?.amount) || null;
+        if (e?.currency === "HKD") return { cny: Number(e.cny_equiv) || null, hkd: amt };
+        return { cny: amt, hkd: Number(e.hkd_equiv) || null };
+      };
+      const mk = (label, e) => ({ label: (e?.item || label || "").trim() || label,
+                                  ...pair(e), cnyAuto: false, hkdAuto: false });
+      const fill = (arr, cur, def) => {
+        if ((arr || []).length) return arr.map(e => mk(def, e));
+        const kept = cur.filter(r => Number.isFinite(parseFloat(r.cny)) || Number.isFinite(parseFloat(r.hkd)) || String(r.label || "").trim());
+        return kept.length ? kept : [stBlankRow(def)];
+      };
+      // 抬头：规则解析逐字优先（routes.py），AI 只补口语串联没标签的情况，这里只管接收。
+      // 结算类型存原文不归一成 5 个选项——引擎按原文划本次收款范围（compute.SCOPE_RULES）。
+      st.group = String(p.group || st.group || "").trim();
+      st.customer = String(p.customer || st.customer || "").trim();
+      st.port = String(p.port || st.port || "").trim();
+      st.date = String(p.date || st.date || "").trim();
+      const stType = String(p.settle_type || "").trim();
+      if (stType) {
+        st.settle_type = stType;
+        st.settle_custom = ST_PRESETS.includes(stType) ? "" : stType;
+      }
+      st.tRows = fill(p.contract_total, st.tRows, "总价");
+      st.rRows = fill(p.contract_paid, st.rRows, "已收");
+      st.uRows = fill(p.contract_unpaid, st.uRows, "尾款").map(r => ({ ...r, status: "today" }));
+      st.fees = (p.extra_fees || []).map(e => ({
+        name: e.item || "", ...pair(e), gift: !!e.gift, cnyAuto: false, hkdAuto: false,
+      }));
+      // 解析出的 extra_paid 全进「减免」区（最常见来源）；真收到的杂费现金在实收区手填。
+      // 两区生成时都落回引擎 extra_paid，数字不受分区影响。
+      st.deds = (p.extra_paid || []).map(e => ({ name: e.item || "", amount: Number(e.amount) || null,
+        currency: e.currency === "CNY" ? "CNY" : "HKD" }));
+      st.paid = [];
+      if (!st.fees.length) st.fees = [{ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }];
+      if (!st.paid.length) st.paid = [{ name: "", amount: null, currency: "HKD" }];
+    }
+
+    async function stParse() {
+      st.parsing = true; st.notes = [];
+      try {
+        const d = await postJSON("/api/settlement/parse", { text: st.text });
+        stFromParsed(d.data);
+        st.notes = d.notes || [];
+        st.result = null;
+        stSchedulePreview();
+        toast(d.source === "llm" ? "已按 AI 整理出明细，请逐行核对" : "解析完成，请核对金额与币种", "ok");
+      } catch (e) {
+        toast(e.message || "解析失败", "error", 6000);
+      } finally { st.parsing = false; }
+    }
+
+    let stPvTimer = null;
+    function stSchedulePreview() {
+      if (!isSettlement.value) return;
+      clearTimeout(stPvTimer);
+      stPvTimer = setTimeout(stPreview, 700);
+    }
+    watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid,
+                 st.group, st.customer, st.date, st.port, st.settle_type],
+          stSchedulePreview, { deep: true });
+    async function stPreview() {
+      try {
+        const d = await postJSON("/api/settlement/preview", { data: stToEngine(true) });
+        st.preview = { url: d.png_url, t: Date.now() };
+      } catch { /* 预览失败静默：右栏保留上一张或占位 */ }
+    }
+    async function stGenerate() {
+      const missing = [["群名", st.group], ["客户", st.customer]]
+        .filter(([, v]) => !String(v || "").trim());
+      if (missing.length) {
+        toast(`「${missing.map(m => m[0]).join("」「")}」还没填，填一下才能出单`, "error", 4500);
+        const inputs = [...document.querySelectorAll('.st-head-row input:not([type="radio"])')];
+        const first = missing[0][0] === "群名" ? inputs[0] : inputs[1];
+        first?.focus();
+        first?.classList.add("st-miss");
+        setTimeout(() => first?.classList.remove("st-miss"), 2500);
+        return;
+      }
+      const payload = stToEngine(false);
+      if (!["contract_total", "contract_paid", "contract_unpaid", "extra_fees", "extra_paid"]
+            .some(k => (payload[k] || []).length)) {
+        toast("请先填金额，或粘贴资料点「解析」", "warn");
+        return;
+      }
+      if (!st.reviewed) { toast("先勾选「我已核对金额与币种」", "warn"); return; }
+      st.generating = true;
+      try {
+        st.result = await postJSON("/api/settlement/generate", { data: payload });
+        st.result.t = Date.now();
+        const n = (st.result.warnings || []).length;
+        toast(n ? `已出单，有 ${n} 项请核对（见右侧）` : "结算单已生成", n ? "warn" : "ok");
+      } catch (e) {
+        toast(e.message || "生成失败", "error", 6000);
+      } finally { st.generating = false; }
+    }
+    function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }); }
+    function stAddPaid() { st.paid.push({ name: "", amount: null, currency: "HKD" }); }
+    function stAutoGrow(e) {
+      // 文本框跟内容长高：贴多长铺多长，框内不滚动（外层 pane 自己滚）
+      const ta = e?.target || document.querySelector(".st-pane textarea");
+      if (!ta) return;
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+    }
+    function stReset() {
+      st.text = ""; st.notes = []; st.result = null; st.preview = null; st.reviewed = false;
+      stDefaults();
+      nextTick(stAutoGrow);
+    }
+
     return {
       toasts,
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
@@ -1010,6 +1249,8 @@ const app = createApp({
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
+      isSettlement, st, stPlaceholder, stTotals,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stReset, stFetchRate, saveAs, stAutoGrow, icon,
     };
   },
 
@@ -1041,7 +1282,7 @@ const app = createApp({
     <section class="pane" :class="{review: ledgerMode && editMode === 'review'}"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
-        <h2>{{ cfg?.label || '华星智能合同' }}</h2>
+        <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
         <template v-if="ledgerMode">
           <span class="spacer"></span>
@@ -1057,7 +1298,118 @@ const app = createApp({
         <span>合同完成度 {{ overall.done }}/{{ overall.total }}</span>
       </div>
       <transition name="pfade" mode="out-in">
-      <div class="pane-body" :key="paneKey">
+      <!-- ================ 收款结算单：粘贴 → 解析 → 可改 → 生成 ================ -->
+      <!-- ================ 收款结算单：账单式 v6 ================ -->
+      <div class="pane-body st-pane" v-if="isSettlement" key="settlement">
+        <div class="card">
+          <div class="card-head"><span class="dot"></span><h3>业务资料</h3></div>
+          <div class="card-body">
+            <textarea class="paste" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder" @input="stAutoGrow($event)"></textarea>
+            <div class="row-btns">
+              <button class="btn" :disabled="st.parsing || !st.text.trim()" @click="stParse">
+                <span v-if="st.parsing" class="spin"></span><span v-html="icon('sparkles','st-ic sm')"></span>解析
+              </button>
+              <button class="btn ghost" @click="stReset">
+                <span v-html="icon('eraser','st-ic sm')"></span>清空
+              </button>
+            </div>
+            <div class="note-strip" v-if="st.notes.length">
+              <div v-for="(n, i) in st.notes" :key="i">{{ n }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="dot" style="background:var(--gold)"></span><h3>抬头与汇率</h3></div>
+          <div class="card-body st-head-compact">
+            <div class="st-head-row">
+              <span class="hl" title="结算类型"><span v-html="icon('tag','st-ic')" style="color:#8b5cf6"></span></span>
+              <div class="st-chips">
+                <span class="st-chip"><input type="radio" value="收定金" v-model="st.settle_type" id="st-t1"><label for="st-t1">收定金</label></span>
+                <span class="st-chip"><input type="radio" value="收第二期款" v-model="st.settle_type" id="st-t2"><label for="st-t2">收第二期款</label></span>
+                <span class="st-chip"><input type="radio" value="收尾款" v-model="st.settle_type" id="st-t3"><label for="st-t3">收尾款</label></span>
+                <span class="st-chip"><input type="radio" value="杂费结算" v-model="st.settle_type" id="st-t4"><label for="st-t4">杂费结算</label></span>
+                <span class="st-chip"><input type="radio" value="其他" v-model="st.settle_type" id="st-t5"><label for="st-t5">其他</label></span>
+                <span class="st-chip" v-if="st.settle_custom && st.settle_type === st.settle_custom" title="解析出的结算类型，按原文计收范围"><input type="radio" :value="st.settle_custom" v-model="st.settle_type" id="st-t0"><label for="st-t0">{{ st.settle_custom }}</label></span>
+              </div>
+              <span class="st-rate" title="实时汇率，与百度同口径"><span v-html="icon('exchange','st-ic')" style="color:#d97706"></span>1¥＝<b>{{ st.rate || '…' }}</b> HK$</span>
+            </div>
+            <div class="st-head-row">
+              <span class="hl" title="微信群名"><span v-html="icon('wechat','st-ic')" style="color:#07c160"></span></span><input v-model.trim="st.group" style="flex:1" placeholder="微信群名">
+            </div>
+            <div class="st-head-row">
+              <span class="hl" title="客户"><span v-html="icon('user','st-ic')" style="color:#3b82f6"></span></span><input v-model.trim="st.customer" style="flex:1" placeholder="客户">
+              <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1.2" placeholder="日期">
+              <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><input v-model.trim="st.port" style="flex:1" placeholder="口岸">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="dot" style="background:var(--ink-2)"></span><h3>合同内款项</h3></div>
+          <div class="card-body">
+            <div class="st-ct">
+              <span class="col-h">项目</span><span class="col-h">人民币</span><span class="col-h">港币</span>
+              <template v-for="(r, i) in st.tRows" :key="'t' + i">
+                <span class="row-label"><span class="sdot" style="background:var(--ink-2)"></span><input v-model.trim="r.label"></span>
+                <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
+                <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
+              </template>
+              <template v-for="(r, i) in st.rRows" :key="'r' + i">
+                <span class="row-label in"><span class="sdot" style="background:var(--green)"></span><input v-model.trim="r.label"></span>
+                <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
+                <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
+              </template>
+              <template v-for="(r, i) in st.uRows" :key="'u' + i">
+                <span class="row-label out"><span class="sdot" style="background:var(--red)"></span><input v-model.trim="r.label"></span>
+                <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
+                <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><span class="dot" :style="{ background: st.fees.length && st.fees.every(f => f.gift) ? 'var(--green)' : '#4a6e8f' }"></span><h3>合同外杂费</h3></div>
+          <div class="card-body">
+            <div class="st-fee">
+              <span class="col-h" style="text-align:left">杂费项目</span><span class="col-h">人民币</span><span class="col-h">港币</span><span></span><span></span>
+            </div>
+            <div v-for="(f, i) in st.fees" :key="'f' + i" class="st-fee" :class="{ gifted: f.gift }">
+              <input class="name" list="fee-names" v-model.trim="f.name" placeholder="杂费名称">
+              <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="—"></span>
+              <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="—"></span>
+              <button class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="f.gift = !f.gift"><span v-html="icon('gift','st-ic')"></span></button>
+              <button class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+            </div>
+            <datalist id="fee-names"><option value="换车费"></option><option value="批文卡"></option><option value="禁区纸"></option><option value="核证本"></option><option value="中检验车"></option><option value="大陆保险"></option></datalist>
+            <button class="add-row" @click="stAddFee"><span v-html="icon('plus','st-ic sm')"></span>加一项杂费</button>
+
+            <div class="st-ded-sec" v-if="st.deds.length">
+              <div class="st-ded-head"><span class="sdot"></span>减免</div>
+              <div v-for="(d, i) in st.deds" :key="'d' + i" class="st-fee">
+                <input class="name" v-model.trim="d.name" placeholder="减免项目">
+                <span class="st-amt st-amt-wide"><span class="pfx st-cur-pfx" title="点此切换币种：减免在对应币种的汇总里直接扣" @click="d.currency = d.currency === 'HKD' ? 'CNY' : 'HKD'">{{ d.currency === 'HKD' ? 'HK$' : '¥' }}</span><input type="number" v-model.number="d.amount" placeholder="金额"></span>
+                <span></span>
+                <button class="st-row-x" title="删这一行" @click="st.deds.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+              </div>
+              <button class="add-row" @click="st.deds.push({ name: '', amount: null, currency: 'HKD' })"><span v-html="icon('plus','st-ic sm')"></span>加一项减免</button>
+            </div>
+
+            <div class="st-paid-sec">
+              <div class="st-paid-head"><span class="sdot"></span>杂费实收<span class="note">只记总收，不逐项对应杂费</span></div>
+              <div v-for="(p, i) in st.paid" :key="'p' + i" class="st-fee paid">
+                <input class="name" v-model.trim="p.name" placeholder="收款方式">
+                <span class="st-amt st-amt-wide"><span class="pfx st-cur-pfx" title="点此切换币种：减免在对应币种的汇总里直接扣" @click="p.currency = p.currency === 'HKD' ? 'CNY' : 'HKD'">{{ p.currency === 'HKD' ? 'HK$' : '¥' }}</span><input type="number" v-model.number="p.amount" placeholder="金额"></span>
+                <span></span>
+                <button class="st-row-x" title="删这一行" @click="st.paid.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+              </div>
+              <button class="add-row" @click="stAddPaid"><span v-html="icon('plus','st-ic sm')"></span>加一笔实收</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pane-body" v-else :key="paneKey">
         <div v-if="fxNotice" class="fx-warn"><span class="fx-warn-ic">⚠</span>{{ fxNotice }}</div>
 
         <!-- 智能录入：台账模式＝默认收起的金色细条，点开才是输入区；常规模式＝原卡片 -->
@@ -1447,22 +1799,44 @@ const app = createApp({
       </transition>
     </section>
 
-    <!-- ================= 合同预览栏 ================= -->
+    <!-- ================= 成品栏：结算单成品 / 合同实时预览 ================= -->
     <section class="pane preview-pane" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
-        <b>合同实时预览</b>
-        <span class="pv-sub">与下载文件 1:1 同源</span>
+        <b>{{ isSettlement ? '结算单成品' : '合同实时预览' }}</b>
+        <span class="pv-sub" v-if="!isSettlement">与下载文件 1:1 同源</span>
         <span class="spacer"></span>
-        <span v-if="pvState==='loading'" class="pv-status">渲染中…</span>
-        <span v-else-if="pvState==='ready'" class="pv-status ok">✓ 已同步</span>
-        <button v-if="pvIssues.length" class="chip ai" @click="pvIssuesOpen=!pvIssuesOpen">
+        <span v-if="!isSettlement && pvState==='loading'" class="pv-status">渲染中…</span>
+        <span v-else-if="!isSettlement && pvState==='ready'" class="pv-status ok">✓ 已同步</span>
+        <button v-if="!isSettlement && pvIssues.length" class="chip ai" @click="pvIssuesOpen=!pvIssuesOpen">
           预览提示 {{ pvIssues.length }}
         </button>
-        <button class="btn sm ghost" @click="renderPreview">重渲</button>
+        <button v-if="!isSettlement" class="btn sm ghost" @click="renderPreview">重渲</button>
       </div>
-      <div class="pv-issues" v-if="pvIssuesOpen">
+      <div class="pv-issues" v-if="!isSettlement && pvIssuesOpen">
         <div v-for="(n, i) in pvIssues" :key="i">· {{ n }}</div>
       </div>
+      <!-- 结算单成品：正式单 > 实时模板稿 > 占位 -->
+      <div class="pv-scroll st-result" v-if="isSettlement">
+        <template v-if="st.result">
+          <div class="st-warn" v-if="st.result.warnings.length">
+            <div v-for="(w, i) in st.result.warnings" :key="i">⚠ {{ w }}</div>
+          </div>
+          <img class="st-img" :src="st.result.png_url + '?t=' + st.result.t" alt="结算单成品" />
+          <div class="st-dl">
+            <button class="btn gold" @click="saveAs(st.result.pdf_url + '?t=' + st.result.t, st.result.filename)">下载 PDF</button>
+            <button class="btn ghost" @click="saveAs(st.result.png_url + '?t=' + st.result.t, st.result.filename.replace(/\.pdf$/, '.png'))">下载 PNG</button>
+          </div>
+          <div class="st-check" v-if="st.result.selfcheck && st.result.selfcheck.expr">自检：{{ st.result.selfcheck.expr }}</div>
+        </template>
+        <template v-else-if="st.preview">
+          <img class="st-img st-draft" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
+        </template>
+        <div class="pv-placeholder" v-else>
+          <div class="pv-ph-mark">結</div>
+          <div>正在渲染模板预览…</div>
+        </div>
+      </div>
+      <template v-else>
       <div class="pv-scroll" ref="pvScroll">
         <div class="pv-sheet" ref="sheetEl"></div>
         <div class="pv-placeholder" v-if="pvState==='idle'">
@@ -1490,6 +1864,16 @@ const app = createApp({
         <!-- 必填齐了就可点；付款没对齐不禁用——点了弹窗说明，不实际生成 -->
         <button v-else class="btn accent" :disabled="missing.length > 0 || generating || extracting || parsing" @click="tryGenerate">
           <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
+        </button>
+      </div>
+      </template>
+      <!-- 结算单底栏：审核勾选 + 实时合计 + 生成 -->
+      <div class="gen-bar" v-if="isSettlement">
+        <label class="review"><input type="checkbox" v-model="st.reviewed">我已核对金额与币种</label>
+        <span class="spacer"></span>
+        <span class="gb-list">{{ stTotals }}</span>
+        <button class="btn accent" :disabled="st.generating" @click="stGenerate">
+          <span v-if="st.generating" class="spin light"></span>{{ st.generating ? '生成中…' : '生成结算单 →' }}
         </button>
       </div>
     </section>

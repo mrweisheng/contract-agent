@@ -210,3 +210,50 @@ def build_summary(type_key: str, form: dict, payment: dict) -> str:
     if payment.get("source_text"):
         parts.append(f"客户原话：{payment.get('source_text')}")
     return "\n".join(str(x) for x in parts)
+
+
+def settlement_struct_messages(text: str) -> list:
+    """结算单结构化主路：把任意格式的业务资料整理成业务 JSON。
+    铁律：LLM 只搬运数字与币种，禁止任何换算、合计、补数；语义（赠送/抵扣）
+    按意思判断，不拘泥字眼；给了双币等值就两个都带出。"""
+    return [
+        {"role": "system", "content": (
+            "你是收款结算单的录入整理员。把用户粘贴的业务资料（格式可能很口语、很随意）"
+            "整理成 JSON，字段如下：\n"
+            "抬头：group(群名)/customer(客户)/date(日期原文)/port(口岸)/settle_type(结算类型)"
+            "/business(业务类型，可空)\n"
+            "抬头优先提取——开头常是一句口语串联，没有「群名：」标签也要拆出来。对照示例：\n"
+            "  输入开头「0908许兰坛深圳湾现牌粤ZLT27港，客户许兰坛 / 10月9号，深圳湾口岸，收尾款」\n"
+            "  → group:\"0908许兰坛深圳湾现牌粤ZLT27港\", customer:\"许兰坛\", date:\"10月9号\","
+            " port:\"深圳湾口岸\", settle_type:\"收尾款\"\n"
+            "  （群名＝含车牌的地段串照抄；客户＝「客户」后面的名字；日期保留原文；"
+            "口岸带「口岸」二字；结算类型＝收定金/收第N期款/收尾款等）。\n"
+            "正文里实在没有的字段才留空。\n"
+            "五个明细段落，均为数组，每行 {\"item\":项目名,\"amount\":数字,\"currency\":\"CNY\"|\"HKD\"}：\n"
+            "- contract_total 合同内总费用（如 总价）\n"
+            "- contract_paid 合同内已收费用\n"
+            "- contract_unpaid 合同内未收（额外可带 \"status\":\"today\"本次收|\"next\"下次收；"
+            "用户给出双币等值时带 \"hkd_equiv\"或\"cny_equiv\"）\n"
+            "- extra_fees 合同外杂费明细（赠送项加 \"gift\":true）\n"
+            "- extra_paid 合同外杂费实收\n"
+            "语义按意思判断，不要拘泥具体字眼：\n"
+            "- 赠送/送/免费/礼品/客户不用出/我们承担/包在费用里 → 该行归 extra_fees 并加 gift:true"
+            "（金额照显示但不收钱）\n"
+            "- 减免/已收/已付/垫付/客户已交/客户已给 → 是客户已付的抵扣，归入 extra_paid\n"
+            "硬性规则：\n"
+            "1. 只搬运原文数字和币种标记，禁止换算汇率、禁止合计、禁止补任何原文没有的数。\n"
+            "2. 「¥230000/$271398」这类斜杠双币＝同一笔款项的两个等值，是一行不是两行；"
+            "主金额取斜杠前的，另一个进 hkd_equiv/cny_equiv。\n"
+            "3. 「58999港币；人民币、港币等值金额：¥50000/$58999」→ amount=58999, currency=HKD,"
+            " cny_equiv=50000。\n"
+            "4. 合同内已收的款项归 contract_paid；contract_unpaid 默认 status=today（本次收），"
+            "用户明确说下次收/下次再付的才填 next。\n"
+            "5. 币种：人民币/RMB/¥→CNY，港币/HK$/$→HKD；上下文能确定币种就带上。\n"
+            "6. 「合同外杂费已收：0」这类是分组标题不是明细行。\n"
+            "7. 全部文字（群名/客户/口岸/结算类型/各项目名等）一律照抄原文用字，"
+            "禁止简体↔繁体互转，禁止改写姓名与群名。引擎不做任何繁简转换，"
+            "输入什么就印什么——原样搬运，不得『规范化』。\n"
+            "8. 只输出 JSON，不加解释。"
+        )},
+        {"role": "user", "content": text},
+    ]

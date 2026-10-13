@@ -18,8 +18,11 @@ from engine.builder import build_contract, derive_payment
 from engine.checker import check_rules, check_fingerprint, extract_contract_text
 from engine import writer as W
 from llm import client as llm
-from llm.prompts import extract_messages, parse_payment_messages, review_messages, build_summary
+from llm.prompts import (extract_messages, parse_payment_messages, review_messages,
+                         build_summary, settlement_struct_messages)
 from api import store
+from settlement import service as settlement_svc
+from settlement import compute as settlement_compute
 
 router = APIRouter(prefix="/api")
 
@@ -397,6 +400,148 @@ def download(no: str):
 @router.get("/history")
 def get_history():
     return {"items": store.history()}
+
+
+# ==================== 收款结算单（独立轻流程，不接合同/编号） ====================
+
+class SettlementParseReq(BaseModel):
+    text: str = Field(min_length=5)
+
+
+def _section_diff_notes(rule_data: dict, llm_data: dict) -> list:
+    """规则解析 vs AI 整理的交叉校验：段落行数/金额对不上就点名段落请人工核对。
+    规则在这里不当事实来源，只当抓 AI 漏行/幻行的网。
+    规则一行都没读出的段落（全口语格式，规则读不了）不对比——AI 是唯一读者，没有 second opinion。"""
+    labels = {"contract_total": "合同内总费用", "contract_paid": "合同内已收",
+              "contract_unpaid": "合同内未收", "extra_fees": "合同外杂费",
+              "extra_paid": "合同外杂费实收"}
+    notes = []
+    for key, label in labels.items():
+        rl = rule_data.get(key) or []
+        al = llm_data.get(key) or []
+        if not rl:   # 规则没读出该段：无对比基准，不打扰
+            continue
+        if len(rl) == len(al) and abs(
+                sum(float(r.get("amount") or 0) for r in rl)
+                - sum(float(r.get("amount") or 0) for r in al)) <= 0.01:
+            continue
+        detail = f"（规则识别 {len(rl)} 行 / AI 识别 {len(al)} 行）" if len(rl) != len(al) else \
+                 (f"（规则合计 {sum(float(r.get('amount') or 0) for r in rl):,.2f} / "
+                  f"AI 合计 {sum(float(r.get('amount') or 0) for r in al):,.2f}）")
+        notes.append(f"「{label}」段落规则解析与 AI 结果有差异{detail}，请重点核对该段")
+    return notes
+
+
+@router.post("/settlement/parse")
+def settlement_parse(req: SettlementParseReq):
+    """自由文本 → 业务结构化 JSON。
+    主路：LLM 整理（对任意措辞/口语/标记稳定，禁止算术，只搬运数字与币种）；
+    交叉校验：规则解析并行跑，段落行数/金额与 AI 不一致时点名请人工核对；
+    抬头字段以规则解析逐字为准（防模型改写简繁用字）；
+    兜底：LLM 不可用时回落规则解析并明示。算术全部留给确定性引擎。"""
+    text = req.text.strip()
+    rule_data = settlement_svc.parse_text(text)
+
+    llm_data, llm_err = None, None
+    try:
+        raw = llm.chat_json(settlement_struct_messages(text), timeout=45)
+        llm_data = settlement_svc.sanitize(raw)
+        if not any(llm_data.get(k) for k in settlement_svc.SECTIONS):
+            llm_data = None
+            llm_err = "AI 没能从文本里整理出费用明细"
+    except llm.LLMError as ex:
+        llm_err = str(ex)
+
+    if llm_data:
+        data, source = llm_data, "llm"
+        # 结构纠偏：规则解析当结构基准（段落归属、gift 标记），AI 当语义基准
+        moved = settlement_svc.reconcile_structure(rule_data, data)
+        # 抬头以规则解析为准：它逐字照抄原文，AI 会偶发把群名/客户改成繁体或改写。
+        # 引擎不做任何繁简转换（输入什么就印什么），原文用字必须原样保留，不接受
+        # 模型代转；规则没读出的字段（口语串联无「群名：」标签）才用 AI 的。
+        for k in ("group", "customer", "date", "port", "settle_type", "date_iso"):
+            if rule_data.get(k):
+                data[k] = rule_data[k]
+        notes = settlement_svc.parse_notes(data) + _section_diff_notes(rule_data, data)
+        if moved:
+            notes.insert(0, "「" + "、".join(moved) +
+                         "」是抵扣/实收款项，已自动归入「合同外杂费实收」段，请核对")
+    elif any(rule_data.get(k) for k in settlement_svc.SECTIONS):
+        data, source = rule_data, "rules"
+        notes = settlement_svc.parse_notes(data) + \
+            [f"AI 整理暂不可用（{llm_err}），已按固定格式规则解析，请逐行核对"]
+    else:
+        raise HTTPException(
+            422, f"没能识别结算单段落（{llm_err or '规则解析为空'}）。"
+                 "请按「群名：…／合同内总费用。总价：…」的标准格式粘贴")
+    return {"data": data, "notes": notes, "source": source}
+
+
+@router.get("/settlement/rate")
+def settlement_rate():
+    """当天 CNY→HKD（5 位小数）。源与合同业务同一汇率提供器（新浪主源/腾讯备源）。"""
+    try:
+        return settlement_svc.today_rate()
+    except fx.FXError as ex:
+        raise HTTPException(502, str(ex))
+
+
+class SettlementGenerateReq(BaseModel):
+    data: dict
+    rate: Optional[float] = None   # 用户手填 CNY→HKD，优先于系统汇率
+
+
+@router.post("/settlement/preview")
+def settlement_preview(req: SettlementGenerateReq):
+    """模板稿预览：金额留空的行照列项目、金额留白；固定文件名覆盖，不存底。
+    与正式出单同一渲染管线（与合同侧「预览=下载 1:1 同源」同一哲学）。"""
+    try:
+        return settlement_svc.preview(req.data, req.rate)
+    except fx.FXError as ex:
+        raise HTTPException(502, str(ex))
+    except ValueError as ex:
+        raise HTTPException(422, str(ex))
+    except Exception as ex:
+        traceback.print_exc()
+        raise HTTPException(500, f"预览渲染失败：{ex}")
+
+
+@router.post("/settlement/generate")
+def settlement_generate(req: SettlementGenerateReq):
+    data = req.data
+    for field, label in (("group", "群名"), ("customer", "客户")):
+        if not str(data.get(field) or "").strip():
+            raise HTTPException(422, f"「{label}」未填，无法出单")
+    if not any(data.get(k) for k in settlement_svc.SECTIONS):
+        raise HTTPException(422, "没有任何费用明细，无法出单")
+    try:
+        return settlement_svc.generate(data, req.rate)
+    except fx.FXError as ex:
+        raise HTTPException(502, str(ex))
+    except ValueError as ex:
+        raise HTTPException(422, str(ex))
+    except Exception as ex:
+        traceback.print_exc()
+        raise HTTPException(500, f"结算单生成失败：{ex}")
+
+
+@router.get("/settlement/file/{kind}/{name}")
+def settlement_file(kind: str, name: str):
+    """成品文件：pdf/png。inline 输出（页面 <img>/<iframe> 直接用，下载靠 <a download>）。"""
+    base = {"pdf": settlement_svc.PDF_DIR, "png": settlement_svc.PNG_DIR}.get(kind)
+    if not base:
+        raise HTTPException(404, "未知文件类型")
+    safe = os.path.basename(name)
+    if safe != name or not safe:
+        raise HTTPException(404, "文件不存在")
+    path = os.path.join(base, safe)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "文件不存在")
+    from urllib.parse import quote
+    media = "application/pdf" if kind == "pdf" else "image/png"
+    disposition = (f'inline; filename="{safe.encode("ascii", "ignore").decode() or "file"}"; '
+                   f"filename*=utf-8''{quote(safe)}")
+    return FileResponse(path, headers={"content-disposition": disposition}, media_type=media)
 
 
 @router.get("/health")
