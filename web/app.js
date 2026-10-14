@@ -1179,7 +1179,7 @@ const app = createApp({
     function stSchedulePreview() {
       if (!isSettlement.value) return;
       clearTimeout(stPvTimer);
-      stPvTimer = setTimeout(stPreview, 700);
+      stPvTimer = setTimeout(stPreview, 350);
     }
     watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid,
                  st.group, st.customer, st.date, st.port, st.settle_type],

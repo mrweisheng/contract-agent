@@ -178,7 +178,7 @@ def preview(data: dict, rate_override=None) -> dict:
     layout = render.plan_layout(spec)
     renderer = render.Renderer(spec, layout)
     renderer.render(pdf_path)
-    png_path = render.render_png(pdf_path, 220)
+    png_path = render.render_png(pdf_path, 125)   # 预览降 DPI：屏显看不出差别，光栅化+传输快一倍多；正式单仍 220
     return {
         "png_url": f"/api/settlement/file/png/{png_path.name}",
         "overflow": any("溢出" in w for w in renderer.warnings),
