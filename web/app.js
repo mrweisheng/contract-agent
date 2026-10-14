@@ -222,7 +222,6 @@ const app = createApp({
         if (!st.tRows.length) stDefaults();      // 常规项目模板：金额留空
         stFetchRate();
         stSchedulePreview();                     // 右侧立即出模板稿
-        nextTick(stAutoGrow);                    // 文本框铺满贴入内容
       }
     }
 
@@ -1218,17 +1217,9 @@ const app = createApp({
     }
     function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }); }
     function stAddPaid() { st.paid.push({ name: "", amount: null, currency: "HKD" }); }
-    function stAutoGrow(e) {
-      // 文本框跟内容长高：贴多长铺多长，框内不滚动（外层 pane 自己滚）
-      const ta = e?.target || document.querySelector(".st-pane textarea");
-      if (!ta) return;
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
-    }
     function stReset() {
       st.text = ""; st.notes = []; st.result = null; st.preview = null;
       stDefaults();
-      nextTick(stAutoGrow);
     }
 
     return {
@@ -1249,7 +1240,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stReset, stFetchRate, saveAs, stAutoGrow, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stReset, stFetchRate, saveAs, icon,
     };
   },
 
@@ -1303,7 +1294,7 @@ const app = createApp({
         <div class="card">
           <div class="card-head"><span class="dot"></span><h3>业务资料</h3></div>
           <div class="card-body">
-            <textarea class="paste" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder" @input="stAutoGrow($event)"></textarea>
+            <textarea class="paste" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder"></textarea>
             <div class="row-btns">
               <button class="btn" :disabled="st.parsing || !st.text.trim()" @click="stParse">
                 <span v-if="st.parsing" class="spin"></span><span v-html="icon('sparkles','st-ic sm')"></span>解析
