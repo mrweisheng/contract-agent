@@ -47,8 +47,9 @@ FONT_CANDIDATES = (
     # Linux
     Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
     Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
-    # 包内自带：任何系统都兜底
-    *(sorted((PKG / "assets/fonts").glob("*.[to]tf"))
+    # 包内自带：任何系统都兜底（.ttf/.otf/.ttc 都认；msyh.ttc 已随库提交，服务器零配置可跑）
+    *(sorted(p for p in (PKG / "assets/fonts").iterdir()
+             if p.suffix.lower() in (".ttf", ".otf", ".ttc"))
       if (PKG / "assets/fonts").is_dir() else []),
 )
 
