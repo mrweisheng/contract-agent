@@ -1006,7 +1006,7 @@ const app = createApp({
        只填一边 → 该边为主币种。金额算术全部在确定性引擎，前端只搬运。 */
     const st = reactive({
       text: "", notes: [], rate: null, parsing: false, generating: false,
-      result: null, preview: null, reviewed: false,
+      result: null, preview: null,
       group: "", customer: "", date: "", port: "", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
       tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
@@ -1206,7 +1206,6 @@ const app = createApp({
         toast("请先填金额，或粘贴资料点「解析」", "warn");
         return;
       }
-      if (!st.reviewed) { toast("先勾选「我已核对金额与币种」", "warn"); return; }
       st.generating = true;
       try {
         st.result = await postJSON("/api/settlement/generate", { data: payload });
@@ -1227,7 +1226,7 @@ const app = createApp({
       ta.style.height = ta.scrollHeight + "px";
     }
     function stReset() {
-      st.text = ""; st.notes = []; st.result = null; st.preview = null; st.reviewed = false;
+      st.text = ""; st.notes = []; st.result = null; st.preview = null;
       stDefaults();
       nextTick(stAutoGrow);
     }
@@ -1867,9 +1866,8 @@ const app = createApp({
         </button>
       </div>
       </template>
-      <!-- 结算单底栏：审核勾选 + 实时合计 + 生成 -->
+      <!-- 结算单底栏：实时合计 + 生成 -->
       <div class="gen-bar" v-if="isSettlement">
-        <label class="review"><input type="checkbox" v-model="st.reviewed">我已核对金额与币种</label>
         <span class="spacer"></span>
         <span class="gb-list">{{ stTotals }}</span>
         <button class="btn accent" :disabled="st.generating" @click="stGenerate">

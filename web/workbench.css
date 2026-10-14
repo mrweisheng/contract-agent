@@ -689,8 +689,6 @@ select.f-inp { appearance: auto; }
                           line-height: 1.7; resize: vertical; }
 .st-pane textarea.paste:focus { outline: none; border-color: var(--ink-2); }
 .st-pane .row-btns { display: flex; gap: 9px; margin-top: 10px; }
-.st-pane .review { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); cursor: pointer; }
-.st-pane .review input { width: 15px; height: 15px; }
 .st-pane .col-h { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px 2px; }
 /* 实收行：单金额框（跨人民币+港币两列），币种前缀点击切换 */
 .st-amt-wide { grid-column: 2 / span 2; }

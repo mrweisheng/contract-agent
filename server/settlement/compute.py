@@ -542,34 +542,31 @@ def build_spec(data: dict) -> tuple:
         # 该差异是"等值为准、不重折"铁律的必然结果，对错误零检出能力；
         # 分解式仍在 selfcheck.expr，供图下方小字核对。
 
-    # 备注
-    # 铁律（淇淇 2026-10-09 强调）：明细最后一行＝本次应收的合同内款项（不是含杂费的今日需付），
-    # 必须在备注里给出这一笔的人民币／港币等值换算金额，两个货币符号之间用 "/" 分隔。
-    today_entries = [
-        e for e in (data.get("contract_unpaid") or [])
-        if str(e.get("status", "today")) not in ("next", "paid")
-        and abs(float(e.get("amount", 0) or 0)) > 0.005
-    ]
-    bits: list = []
-    for e in today_entries:
+    # 备注（淇淇 2026-10-14 定稿，取代 2026-10-09「只列本次应收＋缺等值现折」旧规）：
+    # 合同内款项（总价→已收→未收）全数列出，金额币种照用户输入原样——
+    # 给了等值写 ¥/$ 成对，没给等值只写原币，【严禁】按当天汇率现折。
+    def _entry_pair(e) -> str:
         amount = abs(float(e.get("amount", 0) or 0))
-        if e.get("currency", "CNY") == "CNY":
-            if e.get("hkd_equiv"):
-                other_v = float(e["hkd_equiv"])
-            elif cny_to_hkd:
-                other_v = amount * cny_to_hkd * factor
-            else:
+        if e.get("currency", "CNY") == "HKD":
+            main = f"${amount:,.2f}"
+            return f"{main} / ¥{float(e['cny_equiv']):,.2f}" if e.get("cny_equiv") else main
+        main = f"¥{amount:,.2f}"
+        return f"{main} / ${float(e['hkd_equiv']):,.2f}" if e.get("hkd_equiv") else main
+
+    items: list = []
+    for group, suffix in (("contract_total", ""), ("contract_paid", "（已收）"),
+                          ("contract_unpaid", "")):
+        for e in data.get(group) or []:
+            if abs(float(e.get("amount", 0) or 0)) <= 0.005:
                 continue
-            pair = f"¥{amount:,.2f} / ${other_v:,.2f}"
-        else:
-            if e.get("cny_equiv"):
-                other_v = float(e["cny_equiv"])
-            elif hkd_to_cny:
-                other_v = amount * hkd_to_cny * factor
-            else:
-                continue
-            pair = f"${amount:,.2f} / ¥{other_v:,.2f}"
-        bits.append(f"{e.get('item', '') or '本次應收款項'}為 {pair}。")
+            name = str(e.get("item", "") or "") or "款項"
+            for mark in ("（已收）", "（已付）", "(已收)", "(已付)",
+                         "（应收）", "（應收）", "(应收)", "(應收)"):
+                name = name.replace(mark, "")
+            status_mark = {"next": "（下次收款）", "paid": "（已收）"}.get(
+                str(e.get("status", "today")), "")
+            items.append(f"{name}為 {_entry_pair(e)}{suffix or status_mark}")
+    bits = ["，".join(items) + "。"] if items else []
 
     note = data.get("note")
     if note is None:
