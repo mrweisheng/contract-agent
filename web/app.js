@@ -215,7 +215,7 @@ const app = createApp({
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       initForm(); initPayment();
-      editMode.value = "edit"; onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
+      onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
       if (it.key === "settlement") {
@@ -398,7 +398,6 @@ const app = createApp({
      * 只换皮：数据/AI/联动/生成全部复用既有状态——字段 id（f-<key>）、付款卡
      * （.pay-card[data-pfield]）、签署条（.sign-bar）与常规表单一致，
      * hitFromTarget 的预览定位逻辑不感知布局差异。 */
-    const editMode = ref("edit");   // 录入 / 核对：核对态只褪输入框外衣，数据与联动照常
     const onlyIssue = ref(false);   // 只看待补：无缺失且无 AI 待核的行/期整行隐藏
     const openPay = ref(0);         // 时间轴展开的期索引（-1＝全部收起）
     const aiOpen = ref(false);      // AI 快速导入默认收起，点按钮展开
@@ -1235,7 +1234,7 @@ const app = createApp({
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
-      editMode, onlyIssue, openPay, ledgerMode, ledgerSections,
+      onlyIssue, openPay, ledgerMode, ledgerSections,
       shortLabel, inpSize, rowIssue, rowIcon, stepIssue, condText, togglePay, eventPlaceholder, aiOpen,
       feeMain, feeRest, payDone, overall, payIssue, fixDiffToLast, genBlock, tryGenerate,
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
@@ -1273,7 +1272,7 @@ const app = createApp({
     </aside>
 
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane" :class="{review: ledgerMode && editMode === 'review'}"
+    <section class="pane"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
         <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
@@ -1281,10 +1280,6 @@ const app = createApp({
         <template v-if="ledgerMode">
           <span class="spacer"></span>
           <button class="chip" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
-          <div class="mode-switch">
-            <button :class="{active: editMode === 'edit'}" @click="editMode = 'edit'">录入</button>
-            <button :class="{active: editMode === 'review'}" @click="editMode = 'review'">核对</button>
-          </div>
         </template>
       </div>
       <div class="overall" v-if="ledgerMode">

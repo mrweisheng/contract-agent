@@ -355,13 +355,7 @@ select.f-inp { appearance: auto; }
    （.pay-card[data-pfield]）、签署条（.sign-bar）与常规表单一致，
    聚焦联动/生成链路不感知差异。
    ============================================================ */
-.mode-switch { display: flex; padding: 3px; background: #e8e3d8; border: 1px solid #d9d2c5;
-               border-radius: 7px; }
-.mode-switch button { border: 0; background: transparent; color: var(--muted); padding: 4px 12px;
-                      border-radius: 5px; font-size: 12px; cursor: pointer; font-family: var(--sans);
-                      white-space: nowrap; }
-.mode-switch button.active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(50,42,28,.08); }
-.pane-top .mode-switch, .pane-top > .chip { align-self: center; }
+.pane-top > .chip { align-self: center; }
 
 /* 总完成度条 */
 .overall { display: flex; align-items: center; gap: 10px; padding: 0 22px 10px; flex-shrink: 0; }
@@ -558,12 +552,6 @@ select.f-inp { appearance: auto; }
 .led-sec .total-line { margin: 4px 20px 12px; }
 .led-sec .note-strip { margin: 0 16px 14px; }
 .led-sign { margin: 14px 16px 16px; }
-
-/* 核对模式：褪输入外衣读事实，数据与联动照常（仍可点字段看预览定位） */
-.pane.review .lf-in, .pane.review .led-step-name, .pane.review .led-step-amount,
-.pane.review .lsd-row input, .pane.review .lsd-row textarea {
-  border-color: transparent !important; background: transparent !important; box-shadow: none !important; }
-.pane.review .edit-only { display: none !important; }
 
 /* 台账窄屏 */
 @media (max-width: 1100px) {
