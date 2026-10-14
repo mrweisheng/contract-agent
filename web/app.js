@@ -1004,7 +1004,7 @@ const app = createApp({
        生成映射：两框都填 → 人民币为主、港币为等值（铁律：人民币列示为常态）；
        只填一边 → 该边为主币种。金额算术全部在确定性引擎，前端只搬运。 */
     const st = reactive({
-      text: "", notes: [], rate: null, parsing: false, generating: false,
+      text: "", notes: [], rate: null, parsing: false, parseSec: 0, generating: false,
       result: null, preview: null,
       group: "", customer: "", date: "", port: "", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
@@ -1158,8 +1158,12 @@ const app = createApp({
       if (!st.paid.length) st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
 
+    let stParseTimer = null;
     async function stParse() {
-      st.parsing = true; st.notes = [];
+      st.parsing = true; st.parseSec = 0; st.notes = [];
+      clearInterval(stParseTimer);
+      const t0 = Date.now();
+      stParseTimer = setInterval(() => { st.parseSec = Math.floor((Date.now() - t0) / 1000); }, 1000);
       try {
         const d = await postJSON("/api/settlement/parse", { text: st.text });
         stFromParsed(d.data);
@@ -1169,7 +1173,7 @@ const app = createApp({
         toast(d.source === "llm" ? "已按 AI 整理出明细，请逐行核对" : "解析完成，请核对金额与币种", "ok");
       } catch (e) {
         toast(e.message || "解析失败", "error", 6000);
-      } finally { st.parsing = false; }
+      } finally { clearInterval(stParseTimer); st.parsing = false; }
     }
 
     let stPvTimer = null;
@@ -1294,10 +1298,17 @@ const app = createApp({
         <div class="card">
           <div class="card-head"><span class="dot"></span><h3>业务资料</h3></div>
           <div class="card-body">
-            <textarea class="paste" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder"></textarea>
+            <div class="st-paste-wrap">
+              <textarea class="paste" :class="{ dim: st.parsing }" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder"></textarea>
+              <div class="st-parse-mask" v-if="st.parsing">
+                <span class="spin dark lg"></span>
+                <b>AI 整理中 · {{ st.parseSec }}s</b>
+                <i class="bar"></i>
+              </div>
+            </div>
             <div class="row-btns">
               <button class="btn" :disabled="st.parsing || !st.text.trim()" @click="stParse">
-                <span v-if="st.parsing" class="spin"></span><span v-html="icon('sparkles','st-ic sm')"></span>解析
+                <span v-if="st.parsing" class="spin dark"></span><span v-else v-html="icon('sparkles','st-ic sm')"></span>{{ st.parsing ? '解析中' : '解析' }}
               </button>
               <button class="btn ghost" @click="stReset">
                 <span v-html="icon('eraser','st-ic sm')"></span>清空
@@ -1811,7 +1822,7 @@ const app = createApp({
           <div class="st-warn" v-if="st.result.warnings.length">
             <div v-for="(w, i) in st.result.warnings" :key="i">⚠ {{ w }}</div>
           </div>
-          <img class="st-img" :src="st.result.png_url + '?t=' + st.result.t" alt="结算单成品" />
+          <img class="st-img" :key="st.result.t" :src="st.result.png_url + '?t=' + st.result.t" alt="结算单成品" />
           <div class="st-dl">
             <button class="btn gold" @click="saveAs(st.result.pdf_url + '?t=' + st.result.t, st.result.filename)">下载 PDF</button>
             <button class="btn ghost" @click="saveAs(st.result.png_url + '?t=' + st.result.t, st.result.filename.replace(/\.pdf$/, '.png'))">下载 PNG</button>
@@ -1819,7 +1830,7 @@ const app = createApp({
           <div class="st-check" v-if="st.result.selfcheck && st.result.selfcheck.expr">自检：{{ st.result.selfcheck.expr }}</div>
         </template>
         <template v-else-if="st.preview">
-          <img class="st-img st-draft" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
+          <img class="st-img st-draft" :key="st.preview.t" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
         </template>
         <div class="pv-placeholder" v-else>
           <div class="pv-ph-mark">結</div>
