@@ -151,26 +151,39 @@ const app = createApp({
       return `（约合${lab}${other === "HKD" ? "HK$" : "¥"}${commas(amt)}）`;
     }
 
-    /* ---------- 侧栏导航 ---------- */
+    /* ---------- 侧栏手风琴导航：一级（车务/现牌/新办/移民/对账单）+ 二级，同开一个 ----------
+       单子业务做叶子直达；多子业务（现牌/新办）点一级展开二级，展开唯一。 */
+    const openGroup = ref(null);   // 当前展开的一级组名（null＝全折叠）
     const menu = computed(() => {
       const get = k => types.value.find(t => t.key === k);
-      const items = [];
-      if (get("car")) items.push({ title: "车辆买卖", list: [{ key: "car", port: "", label: "车务" }] });
-      if (get("transfer_gx") && get("transfer_ns")) items.push({
-        title: "现牌过户", list: [
-          { key: "transfer_gx", port: "", label: "高新现牌" },
-          { key: "transfer_ns", port: "", label: "纳税现牌" },
+      const groups = [];
+      if (get("car")) groups.push({ title: "车务", glyph: "车", leaf: { key: "car", port: "", label: "车务" } });
+      if (get("transfer_gx") && get("transfer_ns")) groups.push({
+        title: "现牌", glyph: "牌", children: [
+          { key: "transfer_gx", port: "", label: "高新", _g: "现牌" },
+          { key: "transfer_ns", port: "", label: "纳税", _g: "现牌" },
         ]
       });
       const np = get("new_port");
-      if (np && np.ports) items.push({
-        title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
+      if (np && np.ports) groups.push({
+        title: "新办", glyph: "新",
+        children: np.ports.map(p => ({
+          key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", ""), _g: "新办",
+        })),
       });
-      if (get("immigration")) items.push({ title: "移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
-      items.push({ title: "文职", list: [{ key: "settlement", port: "", label: "收款结算单" }] });
-      return items;
+      if (get("immigration")) groups.push({ title: "移民", glyph: "移", leaf: { key: "immigration", port: "", label: "高才移民" } });
+      groups.push({ title: "对账单", glyph: "账", leaf: { key: "settlement", port: "", label: "收款结算单" } });
+      return groups;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
+    function toggleGroup(g) {
+      // 窄屏侧栏收缩成图标条，没有宽度展开二级：点组直达第一个子项
+      if (window.matchMedia("(max-width: 1100px)").matches) {
+        if (g.children?.length) selectMenu(g.children[0]);
+        return;
+      }
+      openGroup.value = openGroup.value === g.title ? null : g.title;
+    }
 
     function initForm() {
       Object.keys(form).forEach(k => delete form[k]);
@@ -208,21 +221,62 @@ const app = createApp({
       payment.customText = "";
       payNotes.value = [];
     }
+
+    /* ---------- 业务草稿快照：Tab 切走再切回，填过的字不丢 ----------
+       结算单状态（st）本就常驻不重置，不参与快照；快照只覆盖共用
+       form/payment 的合同类业务，切换成本与旧版一致（预览照常重渲）。 */
+    const drafts = new Map();   // "type|port" → 快照
+    function saveDraft() {
+      if (!selected.type || selected.type === "settlement") return;
+      drafts.set(selected.type + "|" + selected.port, {
+        form: JSON.parse(JSON.stringify(form)),
+        aiFilled: { ...aiFilled },
+        nlText: nlText.value,
+        extractNotes: [...extractNotes.value], warnNotes: [...warnNotes.value], payNotes: [...payNotes.value],
+        payRows: JSON.parse(JSON.stringify(payment.rows)), customText: payment.customText,
+        result: result.value ? JSON.parse(JSON.stringify(result.value)) : null,
+      });
+    }
+    function restoreDraft(d) {
+      Object.keys(form).forEach(k => delete form[k]);
+      Object.assign(form, d.form);
+      Object.keys(aiFilled).forEach(k => delete aiFilled[k]);
+      Object.assign(aiFilled, d.aiFilled);
+      nlText.value = d.nlText;
+      extractNotes.value = [...d.extractNotes];
+      warnNotes.value = [...d.warnNotes];
+      payNotes.value = [...d.payNotes];
+      payment.rows = JSON.parse(JSON.stringify(d.payRows));
+      payment.customText = d.customText;
+      result.value = d.result;
+      syncExtraShown();     // 「提到才显示」按恢复后的值重算显隐
+      extraFoldOpen.value = false;
+    }
     function selectMenu(it) {
       if (isActive(it)) return;
       cancelPending();
+      saveDraft();   // 切走前存当前业务草稿
       selected.type = it.key; selected.port = it.port;
-      result.value = null; extractNotes.value = []; warnNotes.value = [];
-      nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
-      initForm(); initPayment();
-      onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
-      clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
-      schedulePreview(30, true);
+      openGroup.value = it._g || null;   // 手风琴：进组内业务展开该组，点叶子全收拢
+      notesModal.value = false; resultModal.value = false; genBlock.value = null;
       if (it.key === "settlement") {
+        result.value = null; extractNotes.value = []; warnNotes.value = []; payNotes.value = [];
         if (!st.tRows.length) stDefaults();      // 常规项目模板：金额留空
         stFetchRate();
-        stSchedulePreview();                     // 右侧立即出模板稿
+      } else {
+        const d = drafts.get(it.key + "|" + it.port);
+        if (d) restoreDraft(d);
+        else {
+          result.value = null; extractNotes.value = []; warnNotes.value = []; payNotes.value = [];
+          nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
+          initForm(); initPayment();
+        }
       }
+      onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
+      clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
+      clearTimeout(pvTimer); pvFresh = false;   // 在途的旧类型预览定时器作废
+      if (it.key !== "settlement") schedulePreview(30, true);
+      else stSchedulePreview();                 // 右侧立即出模板稿
     }
 
     /* ---------- 字段三态 ---------- */
@@ -968,7 +1022,8 @@ const app = createApp({
         const d = await r.json();
         types.value = d.types;
         currencies.value = d.currencies;
-        const first = menu.value[0]?.list[0];
+        const g0 = menu.value[0];
+        const first = g0 ? (g0.leaf || g0.children?.[0]) : null;
         if (first) selectMenu(first);
       } catch (e) {
         toast("无法加载业务类型：" + (e.message || e), "error", 5000);
@@ -1230,7 +1285,7 @@ const app = createApp({
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
       extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold, extraShown, revealLedgerSections,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe, reviewPending,
-      cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
+      cfg, currencyLabel, totalKey, total, payment, menu, openGroup, toggleGroup, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
@@ -1249,7 +1304,7 @@ const app = createApp({
 
   template: /* html */ `
   <div class="app">
-    <!-- ================= 侧栏 ================= -->
+    <!-- ================= 侧栏：手风琴菜单（一级同开一个，叶子直达） ================= -->
     <aside class="side">
       <div class="brand">
         <div class="logo">華星</div>
@@ -1257,12 +1312,20 @@ const app = createApp({
       </div>
       <div class="side-scroll">
         <template v-for="g in menu" :key="g.title">
-          <div class="side-label">{{ g.title }}</div>
-          <div v-for="(it, ii) in g.list" :key="it.key + it.port"
-               class="side-item" :class="{active: isActive(it)}" :title="it.label" @click="selectMenu(it)">
-            <span class="num">{{ String(ii + 1).padStart(2, '0') }}</span>
-            <span>{{ it.label }}</span>
+          <div v-if="g.leaf" class="side-item" :class="{active: isActive(g.leaf)}"
+               :title="g.leaf.label" @click="selectMenu(g.leaf)">
+            <span class="glyph">{{ g.glyph }}</span><span>{{ g.title }}</span>
           </div>
+          <template v-else>
+            <div class="side-group" :class="{open: openGroup === g.title, 'has-active': g.children.some(isActive)}"
+                 :title="g.title" @click="toggleGroup(g)">
+              <span class="glyph">{{ g.glyph }}</span><span class="gt">{{ g.title }}</span><span class="chev">▸</span>
+            </div>
+            <div class="side-sub" v-show="openGroup === g.title">
+              <div v-for="it in g.children" :key="it.key + it.port" class="side-item sub"
+                   :class="{active: isActive(it)}" :title="it.label" @click="selectMenu(it)">{{ it.label }}</div>
+            </div>
+          </template>
         </template>
       </div>
       <div class="side-foot">
