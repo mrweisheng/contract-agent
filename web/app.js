@@ -127,17 +127,38 @@ const app = createApp({
 
     /* ---------- 实时约合提示（费用输入行） ----------
      * 汇率与落盘同源（/api/fx → fx.get_hkd_cny，含 1.01 加成），换算口径与
-     * builder.convert_amount 一致；拉取失败/兜底时在录入栏顶部醒目提醒。 */
+     * builder.convert_amount 一致。约合仅是展示，不参与生成（生成以服务端汇率为准），
+     * 所以拉取失败绝不阻塞录入：后台按退避自动重试，拿到即自动填充并清除提醒。 */
     const fxRate = ref(null);
     const fxSource = ref("loading");
-    fetch("/api/fx")
-      .then(r => r.json())
-      .then(d => { fxRate.value = d.rate; fxSource.value = d.source; })
-      .catch(() => { fxSource.value = "error"; });
+    const FX_BACKOFF = [2000, 4000, 8000, 15000, 30000];  // 退避至 30s 封顶，无感重试
+    let fxTimer = null, fxTries = 0;
+    function loadFx() {
+      clearTimeout(fxTimer);
+      const ctrl = new AbortController();
+      const killer = setTimeout(() => ctrl.abort(), 12000);  // 防悬挂；后台请求不卡界面
+      fetch("/api/fx", { signal: ctrl.signal })
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+        .then(d => {
+          if (!d || !d.rate) throw new Error("empty");
+          fxRate.value = d.rate; fxSource.value = d.source; fxTries = 0;
+        })
+        .catch(() => {
+          if (fxRate.value) return;                  // 已有汇率就不降级，保留可用值
+          fxSource.value = "error";
+          const wait = FX_BACKOFF[Math.min(fxTries++, FX_BACKOFF.length - 1)];
+          fxTimer = setTimeout(() => { if (!document.hidden) loadFx(); }, wait);
+        })
+        .finally(() => clearTimeout(killer));
+    }
+    loadFx();
+    // 切回前台若仍无汇率，立即补一次（后台标签页里不空转）
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && !fxRate.value) loadFx();
+    });
     const fxNotice = computed(() => {
       const s = fxSource.value;
-      if (s === "error") return "汇率获取失败：暂时无法换算港币/人民币金额，请检查网络后刷新页面再生成。";
-      if (s === "fallback") return "市场汇率获取失败：第二币种金额按兜底汇率估算，仅供参考，请核对后再生成。";
+      if (s === "error") return "汇率提示暂不可用：正在后台自动重试，不影响录入与生成（金额以生成时服务端汇率为准）。";
       if (s === "stale") return "未能连接市场汇率源：使用最近一次汇率，可能非最新，请核对后再生成。";
       return "";
     });
