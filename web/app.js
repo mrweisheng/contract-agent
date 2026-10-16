@@ -1079,7 +1079,7 @@ const app = createApp({
        生成映射：两框都填 → 人民币为主、港币为等值（铁律：人民币列示为常态）；
        只填一边 → 该边为主币种。金额算术全部在确定性引擎，前端只搬运。 */
     const st = reactive({
-      text: "", notes: [], rate: null, parsing: false, parseSec: 0, generating: false,
+      text: "", notes: [], rate: null, rateErr: false, parsing: false, parseSec: 0, generating: false,
       result: null, preview: null,
       group: "", customer: "", date: "", port: "", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
@@ -1115,11 +1115,20 @@ const app = createApp({
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
 
+    let stRateTimer = null, stRateTries = 0;
     async function stFetchRate() {
+      clearTimeout(stRateTimer);
       try {
         const r = await fetch("/api/settlement/rate");
-        if (r.ok) st.rate = String((await r.json()).cny_to_hkd);
-      } catch { /* 取不到就留空，生成时服务端再取 */ }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        st.rate = String((await r.json()).cny_to_hkd);
+        st.rateErr = false; stRateTries = 0;
+      } catch {
+        if (st.rate) return;                    // 已有汇率不降级，保留可用值
+        st.rateErr = true;                      // 抬头醒目提示：核算需要汇率，已后台自动重试
+        const wait = FX_BACKOFF[Math.min(stRateTries++, FX_BACKOFF.length - 1)];
+        stRateTimer = setTimeout(() => { if (!document.hidden) stFetchRate(); }, wait);
+      }
     }
 
     /* 双币联动：改一边，另一边为空或仍是自动值时按抬头汇率补齐。
@@ -1422,6 +1431,7 @@ const app = createApp({
               <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1.2" placeholder="日期">
               <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><input v-model.trim="st.port" style="flex:1" placeholder="口岸">
             </div>
+            <div v-if="st.rateErr" class="fx-warn"><span class="fx-warn-ic">⚠</span>汇率源暂不可达：结算单核算需要实时汇率，正在后台自动重试…（不影响填写，恢复后自动可用）</div>
           </div>
         </div>
 
