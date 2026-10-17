@@ -295,15 +295,10 @@ def plan_layout(spec: dict) -> dict:
     """按可用高度选行高与尾部间距，放不下则标记 overflow。"""
     sections = spec.get("sections", [])
     row_count = sum(len(s.get("rows", [])) for s in sections)
-    # v2 排版（2026-10-13 淇淇批准）：币种内按 合同內款項/合同外雜費 再分条带；
-    # 旧 spec（无 block 标记）退回每币种一条带，渲染层走 legacy 分支。
-    legacy_bands = not any(r.get("block") for s in sections for r in s.get("rows", []))
-    if legacy_bands:
-        group_count = len(sections)
-    else:
-        group_count = sum(
-            len({r.get("block", "contract") for r in s.get("rows", [])})
-            for s in sections)
+    # 一币种一条带（2026-10-17 业务反馈定稿，退回旧版分区）：全部款项按币种
+    # 混排，纸面不出现「合同內款項/合同外雜費」字样；row 的 block 字段仅留给
+    # 「本次应收」高亮行（draw_amount_row 净额样式）使用。
+    group_count = len(sections)
     amtnote_text = " ".join(
         t for t in (spec.get("amount_note", ""), spec.get("note") or "") if t
     )
@@ -349,7 +344,6 @@ def plan_layout(spec: dict) -> dict:
     chosen["amtnote_h"] = amtnote_h
     chosen["meta_heights"] = meta_heights
     chosen["table_top"] = table_top
-    chosen["legacy_bands"] = legacy_bands
     chosen["warnings"] = warnings
     return chosen
 
@@ -452,21 +446,15 @@ class Renderer:
                       NAVY, white, "center", S_DIGIT_LABEL, True, 1, stroke=TABLE_BORDER)
 
     def draw_sections(self):
+        # 一币种一条带（2026-10-17 业务反馈定稿，退回旧版分区）：合同款项与
+        # 杂费按币种混排一列到底，纸面不出现「合同內款項/合同外雜費」字样。
         y = self.table_top - HEAD_H
         self.seq = 0
-        legacy = bool(self.layout.get("legacy_bands"))
         for section in self.spec.get("sections", []):
             currency = section.get("currency", "HKD")
             fill = FILLS.get(currency, HKD_FILL)
             label = section.get("label") or ("人民幣 CNY" if currency == "CNY" else "港幣 HKD")
-            rows = section.get("rows", [])
-            if legacy or not any(r.get("block") for r in rows):
-                y = self.draw_band(y, label, fill, rows, currency)
-                continue
-            for block, title in (("contract", "合同內款項"), ("extra", "合同外雜費")):
-                part = [r for r in rows if r.get("block", "contract") == block]
-                if part:
-                    y = self.draw_band(y, f"{title} · {label}", fill, part, currency)
+            y = self.draw_band(y, label, fill, section.get("rows", []), currency)
         return y
 
     def draw_band(self, y, label, fill, rows, currency):
