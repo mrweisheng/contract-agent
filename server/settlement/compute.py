@@ -545,6 +545,10 @@ def build_spec(data: dict) -> tuple:
     # 备注（淇淇 2026-10-14 定稿，取代 2026-10-09「只列本次应收＋缺等值现折」旧规）：
     # 合同内款项（总价→已收→未收）全数列出，金额币种照用户输入原样——
     # 给了等值写 ¥/$ 成对，没给等值只写原币，【严禁】按当天汇率现折。
+    # 2026-10-18 业务定稿追加：合同外人民币杂费（非赠送）列在合同款项之后，
+    # 只给人民币的按出单时实时汇率×1.01 补港币等值展示（与港币口径对人民币
+    # 杂费的折算同式，展示值即今日需付里实际计入的那笔）；港币杂费/赠送/减免
+    # 照旧不进备注。纯展示字符串，不写回 data、不参与任何核算。
     def _entry_pair(e) -> str:
         amount = abs(float(e.get("amount", 0) or 0))
         if e.get("currency", "CNY") == "HKD":
@@ -566,6 +570,22 @@ def build_spec(data: dict) -> tuple:
             status_mark = {"next": "（下次收款）", "paid": "（已收）"}.get(
                 str(e.get("status", "today")), "")
             items.append(f"{name}為 {_entry_pair(e)}{suffix or status_mark}")
+    for e in data.get("extra_fees") or []:
+        if e.get("gift") or e.get("currency", "HKD") != "CNY":
+            continue
+        amount = abs(float(e.get("amount", 0) or 0))
+        if amount <= 0.005:
+            continue
+        name = str(e.get("item", "") or "") or "款項"
+        for mark in ("（赠送）", "（贈送）", "(赠送)", "(贈送)",
+                     "（不计入应收）", "（不計入應收）"):
+            name = name.replace(mark, "")
+        pair = f"¥{amount:,.2f}"
+        if e.get("hkd_equiv"):
+            pair += f" / ${float(e['hkd_equiv']):,.2f}"
+        elif cny_to_hkd:
+            pair += f" / ${amount * cny_to_hkd * factor:,.2f}"
+        items.append(f"{name}為 {pair}")
     bits = ["，".join(items) + "。"] if items else []
 
     note = data.get("note")
