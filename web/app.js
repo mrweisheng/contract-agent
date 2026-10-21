@@ -1211,6 +1211,8 @@ const app = createApp({
     let stPvTimer = null;
     function stSchedulePreview() {
       if (!isSettlement.value) return;
+      // 生成后再改表单：撤下过时成品、回到实时预览，重新点「生成结算单」即出新单（2026-10-21 业务反馈）
+      if (st.result) st.result = null;
       clearTimeout(stPvTimer);
       stPvTimer = setTimeout(stPreview, 350);
     }
