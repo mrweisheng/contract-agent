@@ -1038,7 +1038,7 @@ const app = createApp({
 合同外杂费实收。
 合同外杂费已收：0`;
 
-    function stBlankRow(label) { return { label, cny: null, hkd: null, cnyAuto: false, hkdAuto: false }; }
+    function stBlankRow(label) { return { label, cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null }; }
     /* 标准费用包默认金额（2026-10-21 业务反馈）：打开即显示，特殊客户直接改数；
        解析后杂费段按客户数据整体覆盖，核算不受预置影响。中检验车/大陆保险每单不一，留空。 */
     const ST_FEE_DEFAULTS = { "换车费": { cny: 5000 }, "批文卡": { hkd: 260 },
@@ -1049,11 +1049,11 @@ const app = createApp({
       st.settle_custom = "";
       st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
       st.tRows = [stBlankRow("总价")];
-      st.rRows = [stBlankRow("已收")];
+      st.rRows = [stBlankRow("定金")];
       st.uRows = [stBlankRow("尾款")];
       st.fees = ["换车费", "批文卡", "禁区纸", "核证本", "中检验车", "大陆保险"]
         .map(name => ({ name, cny: ST_FEE_DEFAULTS[name]?.cny ?? null, hkd: ST_FEE_DEFAULTS[name]?.hkd ?? null,
-                        gift: false, cnyAuto: false, hkdAuto: false }));
+                        gift: false, cnyAuto: false, hkdAuto: false, base: null }));
       st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
@@ -1069,9 +1069,16 @@ const app = createApp({
        双向折算一律 ×1.01（与引擎同口径，只做不说）。 */
     function stSync(row, which) {
       row[which + "Auto"] = false;
+      const other = which === "cny" ? "hkd" : "cny";
+      // 先手填的哪边就是这笔钱的币种（2026-10-21 业务定稿"输什么展示什么"）；本边清空则由对面接棒
+      if (!row.base) {
+        if (Number.isFinite(parseFloat(row[which]))) row.base = which;
+      } else if (row.base === which && !Number.isFinite(parseFloat(row[which]))
+                 && Number.isFinite(parseFloat(row[other]))) {
+        row.base = other;
+      }
       const rate = parseFloat(st.rate);
       if (!Number.isFinite(rate) || rate <= 0) return;
-      const other = which === "cny" ? "hkd" : "cny";
       const v = parseFloat(row[which]);
       if (!Number.isFinite(v)) return;
       if (row[other] !== null && row[other] !== "" && !row[other + "Auto"]) return;   // 对面手填过，不动
@@ -1082,10 +1089,14 @@ const app = createApp({
     /* UI 模型 → 引擎表结构。draft=true 时空金额行保留为留白行（模板稿用）。 */
     function stToEngine(draft) {
       const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
-      const pair = (label, cny, hkd, extra) => {
+      const pair = (label, cny, hkd, extra, base) => {
         if (!String(label || "").trim()) return null;
         const c = num(cny), h = num(hkd);
         if (c === null && h === null) return draft ? { item: label.trim(), amount: 0, blank: true } : null;
+        // 主币种=先手填边（2026-10-21 业务定稿"输什么展示什么"）；base 缺省人民币
+        if (c !== null && h !== null && base === "hkd")
+          return { item: label.trim(), amount: h, currency: "HKD",
+                   ...(c !== 0 ? { cny_equiv: c } : {}), ...extra };
         if (c !== null) return { item: label.trim(), amount: c, currency: "CNY",
                                  ...(h !== null && h !== 0 ? { hkd_equiv: h } : {}), ...extra };
         return { item: label.trim(), amount: h, currency: "HKD", ...extra };
@@ -1095,6 +1106,8 @@ const app = createApp({
         if (!name) return null;
         const c = num(f.cny), h = num(f.hkd);
         if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
+        if (c !== null && h !== null && f.base === "hkd")   // 先手填港币的杂费记港币
+          return { item: name, amount: h, currency: "HKD", ...(f.gift ? { gift: true } : {}) };
         return { item: name, amount: c !== null ? c : h, currency: c !== null ? "CNY" : "HKD",
                  ...(f.gift ? { gift: true } : {}) };
       };
@@ -1115,9 +1128,9 @@ const app = createApp({
       };
       const data = { group: st.group, customer: st.customer, date: st.date,
                      port: st.port, settle_type: st.settle_type };
-      data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd)).filter(Boolean);
-      data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd)).filter(Boolean);
-      data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" })).filter(Boolean);
+      data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
+      data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
+      data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" }, r.base)).filter(Boolean);
       data.extra_fees      = st.fees.map(fee).filter(Boolean);
       data.extra_paid      = [...st.deds.map(ded), ...st.paid.map(paid)].filter(Boolean);
       return data;
@@ -1140,8 +1153,9 @@ const app = createApp({
     function stFromParsed(p) {
       const pair = e => {
         const amt = Number(e?.amount) || null;
-        if (e?.currency === "HKD") return { cny: Number(e.cny_equiv) || null, hkd: amt };
-        return { cny: amt, hkd: Number(e.hkd_equiv) || null };
+        // base=解析出的原币种（输什么记什么），等值一侧仅作参考
+        if (e?.currency === "HKD") return { base: "hkd", cny: Number(e.cny_equiv) || null, hkd: amt };
+        return { base: "cny", cny: amt, hkd: Number(e.hkd_equiv) || null };
       };
       const mk = (label, e) => ({ label: (e?.item || label || "").trim() || label,
                                   ...pair(e), cnyAuto: false, hkdAuto: false });
@@ -1162,7 +1176,7 @@ const app = createApp({
         st.settle_custom = ST_PRESETS.includes(stType) ? "" : stType;
       }
       st.tRows = fill(p.contract_total, st.tRows, "总价");
-      st.rRows = fill(p.contract_paid, st.rRows, "已收");
+      st.rRows = fill(p.contract_paid, st.rRows, "定金");
       st.uRows = fill(p.contract_unpaid, st.uRows, "尾款").map(r => ({ ...r, status: "today" }));
       st.fees = (p.extra_fees || []).map(e => ({
         name: e.item || "", ...pair(e), gift: !!e.gift, cnyAuto: false, hkdAuto: false,
@@ -1172,7 +1186,7 @@ const app = createApp({
       st.deds = (p.extra_paid || []).map(e => ({ name: e.item || "", amount: Number(e.amount) || null,
         currency: e.currency === "CNY" ? "CNY" : "HKD" }));
       st.paid = [];
-      if (!st.fees.length) st.fees = [{ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }];
+      if (!st.fees.length) st.fees = [{ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false, base: null }];
       if (!st.paid.length) st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
 
@@ -1237,7 +1251,7 @@ const app = createApp({
         toast(e.message || "生成失败", "error", 6000);
       } finally { st.generating = false; }
     }
-    function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }); }
+    function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false, base: null }); }
     function stAddPaid() { st.paid.push({ name: "", amount: null, currency: "HKD" }); }
     /* 合同内已收支持多笔（定金+二期款…）：引擎/备注/纸面本就按列表处理，这里只补个入口 */
     function stAddRecv() { st.rRows.push(stBlankRow("已收")); }
@@ -1372,18 +1386,19 @@ const app = createApp({
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
+              <div class="st-sec-head"><span class="tag">已收</span></div>
               <template v-for="(r, i) in st.rRows" :key="'r' + i">
                 <span class="row-label in"><span class="sdot" style="background:var(--green)"></span><input v-model.trim="r.label"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
+              <button class="add-row" @click="stAddRecv"><span v-html="icon('plus','st-ic sm')"></span>加一笔已收</button>
               <template v-for="(r, i) in st.uRows" :key="'u' + i">
                 <span class="row-label out"><span class="sdot" style="background:var(--red)"></span><input v-model.trim="r.label"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
             </div>
-            <button class="add-row" @click="stAddRecv"><span v-html="icon('plus','st-ic sm')"></span>加一笔已收</button>
           </div>
         </div>
 
