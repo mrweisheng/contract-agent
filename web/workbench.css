@@ -614,7 +614,7 @@ select.f-inp { appearance: auto; }
 .st-row-x .st-ic { width: 13px; height: 13px; }
 
 /* 合同外杂费：清单 + 双币 */
-.st-fee { display: grid; grid-template-columns: minmax(110px, 1.2fr) 1fr 1fr 34px 24px;
+.st-fee { display: grid; grid-template-columns: minmax(110px, 1.2fr) 1fr 1fr 48px 24px;
           gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 9px; }
 .st-fee + .st-fee { margin-top: 2px; }
 .st-fee .name { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 12.5px;
@@ -622,7 +622,7 @@ select.f-inp { appearance: auto; }
 .st-fee .name:focus { outline: none; border-color: var(--ink-2); }
 .st-fee .col-h { font-size: 11px; color: var(--muted); text-align: right; padding: 0 2px 2px; }
 .st-fee .col-h:first-child { text-align: left; }
-/* 赠送：左绿条 + 行底绿 + 金额格绿底绿字 + 礼物图标钮（on=实心绿） */
+/* 赠送：左绿条 + 行底绿 + 金额格绿底绿字 + 「☑赠」勾选钮（2026-10-21 她：图标钮不明显，改汉字+勾选，清晰无歧义） */
 .st-fee.gifted { background: #dcecdf; box-shadow: inset 3px 0 0 var(--green); }
 .st-fee.gifted .name { border-color: #7fb892; color: var(--green); font-weight: 600; }
 .st-fee.gifted .st-amt { border-color: #7fb892; background: #f3faf5; }
@@ -630,9 +630,16 @@ select.f-inp { appearance: auto; }
 .st-fee.gifted .st-amt input { color: var(--green); }
 .st-fee.gifted .st-amt input::placeholder { color: #9ec7ab; }
 .st-gift { flex: 0 0 auto; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: #fff;
-           color: var(--muted-2); display: grid; place-items: center; user-select: none; padding: 0; }
-.st-gift .st-ic { width: 15px; height: 15px; }
-.st-gift.on { background: var(--green); border-color: var(--green); color: #fff; }
+           color: var(--muted-2); display: inline-flex; align-items: center; justify-content: center;
+           gap: 4px; user-select: none; padding: 0 7px; font-size: 12.5px; font-weight: 600; }
+.st-gift .tx { display: block; line-height: 1; }
+.st-gift .ck { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px;
+               display: grid; place-items: center; flex: 0 0 auto; }
+.st-gift .ck > span { display: flex; line-height: 0; }
+.st-gift .ck .st-ic { width: 10px; height: 10px; stroke-width: 3.2; opacity: 0; }
+.st-gift.on { border-color: var(--green); background: #eef7f0; color: var(--green); }
+.st-gift.on .ck { background: var(--green); border-color: var(--green); color: #fff; }
+.st-gift.on .ck .st-ic { opacity: 1; }
 
 /* 杂费实收：总收 */
 .st-paid-sec { margin-top: 11px; padding-top: 9px; border-top: 1px dashed var(--line-soft); }

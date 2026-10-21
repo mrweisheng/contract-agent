@@ -1012,19 +1012,37 @@ const app = createApp({
     // 与抬头那 5 枚单选牌取值一一对应（模板里的 v-model 同源，改动需同步）
     const ST_PRESETS = ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"];
     const isSettlement = computed(() => selected.type === "settlement");
-    const stPlaceholder = `0908许兰坛深圳湾现牌粤ZLT27港，客户许兰坛
-10月9号，深圳湾口岸，收尾款
+    const stPlaceholder = `业务类型：现牌结算单
+群名：0908许兰坛深圳湾现牌粤ZLT27港
+客户：许兰坛
+日期：2026年10月9日
+口岸：深圳湾口岸
+结算类型：收尾款
 
-总价 228000 人民币
-定金已经收了 50000 人民币
-尾款 178000 人民币 / 210044 港币
+合同内总费用。
+总价：228000人民币
 
-杂费这边：
-换车费 5000 人民币，我们送
-批文卡 260 港币 免
-……`;
+合同内已收费用。
+合同内已收明细：
+定金：50000人民币（已收）
+
+合同内未收。
+车牌尾款：178000人民币；人民币、港币等值金额：¥178000/$210044（应收）
+
+合同外杂费明细。
+换车费（赠送）：5000人民币（赠送）（不计入应收）
+批文卡（赠送）：260港币（赠送）（不计入应收）
+禁区纸（赠送）：744港币（赠送）（不计入应收）
+核证本（赠送）：300港币（赠送）（不计入应收）
+港币现金：5000港币（减免）
+合同外杂费实收。
+合同外杂费已收：0`;
 
     function stBlankRow(label) { return { label, cny: null, hkd: null, cnyAuto: false, hkdAuto: false }; }
+    /* 标准费用包默认金额（2026-10-21 业务反馈）：打开即显示，特殊客户直接改数；
+       解析后杂费段按客户数据整体覆盖，核算不受预置影响。中检验车/大陆保险每单不一，留空。 */
+    const ST_FEE_DEFAULTS = { "换车费": { cny: 5000 }, "批文卡": { hkd: 260 },
+                              "禁区纸": { hkd: 744 }, "核证本": { hkd: 300 } };
     function stDefaults() {
       const d = new Date();
       st.group = ""; st.customer = ""; st.port = ""; st.settle_type = "收尾款";
@@ -1034,7 +1052,8 @@ const app = createApp({
       st.rRows = [stBlankRow("已收")];
       st.uRows = [stBlankRow("尾款")];
       st.fees = ["换车费", "批文卡", "禁区纸", "核证本", "中检验车", "大陆保险"]
-        .map(name => ({ name, cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }));
+        .map(name => ({ name, cny: ST_FEE_DEFAULTS[name]?.cny ?? null, hkd: ST_FEE_DEFAULTS[name]?.hkd ?? null,
+                        gift: false, cnyAuto: false, hkdAuto: false }));
       st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
@@ -1378,7 +1397,7 @@ const app = createApp({
               <input class="name" list="fee-names" v-model.trim="f.name" placeholder="杂费名称">
               <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="—"></span>
               <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="—"></span>
-              <button class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="f.gift = !f.gift"><span v-html="icon('gift','st-ic')"></span></button>
+              <button class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="f.gift = !f.gift"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
               <button class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
             </div>
             <datalist id="fee-names"><option value="换车费"></option><option value="批文卡"></option><option value="禁区纸"></option><option value="核证本"></option><option value="中检验车"></option><option value="大陆保险"></option></datalist>
