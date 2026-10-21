@@ -1220,6 +1220,8 @@ const app = createApp({
     }
     function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false }); }
     function stAddPaid() { st.paid.push({ name: "", amount: null, currency: "HKD" }); }
+    /* 合同内已收支持多笔（定金+二期款…）：引擎/备注/纸面本就按列表处理，这里只补个入口 */
+    function stAddRecv() { st.rRows.push(stBlankRow("已收")); }
     function stReset() {
       st.text = ""; st.notes = []; st.result = null; st.preview = null;
       stDefaults();
@@ -1243,7 +1245,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stReset, stFetchRate, saveAs, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
 
@@ -1362,6 +1364,7 @@ const app = createApp({
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
             </div>
+            <button class="add-row" @click="stAddRecv"><span v-html="icon('plus','st-ic sm')"></span>加一笔已收</button>
           </div>
         </div>
 
