@@ -70,6 +70,16 @@ def init():
             fetched_at TEXT,
             PRIMARY KEY(base, quote)
         )""")
+        # 结算单历史汇率：按日快照（当日最后一次拉取），供业务选历史日期出单用
+        c.execute("""CREATE TABLE IF NOT EXISTS fx_daily (
+            base TEXT,
+            quote TEXT,
+            day TEXT,
+            rate REAL,
+            source TEXT,
+            fetched_at TEXT,
+            PRIMARY KEY(base, quote, day)
+        )""")
 
 
 def fx_get(base: str, quote: str):
@@ -90,6 +100,47 @@ def fx_put(base: str, quote: str, rate: float, source: str):
             "source=excluded.source, fetched_at=excluded.fetched_at",
             (base, quote, rate, source, _now()),
         )
+
+
+FX_DAILY_KEEP_DAYS = 10   # 历史汇率可选窗口：自上线起按日积累，只留最近 10 天
+
+
+def fx_daily_put(base: str, quote: str, day: str, rate: float, source: str):
+    """当日快照 UPSERT——同日多次拉取后写覆盖先写＝当日最后一次；顺带清窗口外旧档。"""
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT INTO fx_daily(base,quote,day,rate,source,fetched_at) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(base,quote,day) DO UPDATE SET rate=excluded.rate, "
+            "source=excluded.source, fetched_at=excluded.fetched_at",
+            (base, quote, day, rate, source, _now()),
+        )
+        c.execute(
+            "DELETE FROM fx_daily WHERE base=? AND quote=? "
+            "AND day < date('now','localtime', ?)",
+            (base, quote, f"-{FX_DAILY_KEEP_DAYS - 1} days"),
+        )
+
+
+def fx_daily_dates(base: str, quote: str, days: int = FX_DAILY_KEEP_DAYS) -> list:
+    """最近 N 天内已有快照的日期（升序）——前端日期选择器据此置灰无数据日。"""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT day FROM fx_daily WHERE base=? AND quote=? "
+            "AND day >= date('now','localtime', ?) ORDER BY day",
+            (base, quote, f"-{days - 1} days"),
+        ).fetchall()
+        return [r["day"] for r in rows]
+
+
+def fx_daily_get_le(base: str, quote: str, day: str):
+    """≤指定日的最近一条快照（休市/停机日沿用上一交易日报价，金融惯例）。无则 None。"""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT day, rate, source, fetched_at FROM fx_daily "
+            "WHERE base=? AND quote=? AND day<=? ORDER BY day DESC LIMIT 1",
+            (base, quote, day),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def reserve_no() -> str:

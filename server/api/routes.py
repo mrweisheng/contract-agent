@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """API 路由。"""
 import base64
+import datetime
 import json
 import os
 import re
@@ -478,17 +479,31 @@ def settlement_parse(req: SettlementParseReq):
 
 
 @router.get("/settlement/rate")
-def settlement_rate():
-    """当天 CNY→HKD（5 位小数）。源与合同业务同一汇率提供器（新浪主源/腾讯备源）。"""
+def settlement_rate(date: Optional[str] = None):
+    """CNY→HKD（5 位小数）。缺省当天实时；带 date 取 ≤该日的最近日快照（历史汇率，
+    休市/停机日沿用上一交易日）。源与合同业务同一汇率提供器（新浪主源/腾讯备源）。"""
+    if date:
+        try:
+            return settlement_svc.rate_for_date(date)
+        except fx.FXError as ex:
+            raise HTTPException(404, str(ex))
     try:
         return settlement_svc.today_rate()
     except fx.FXError as ex:
         raise HTTPException(502, str(ex))
 
 
+@router.get("/settlement/rate/dates")
+def settlement_rate_dates():
+    """最近 10 天内已有汇率快照的日期——前端日期选择器据此置灰无数据日。"""
+    return {"dates": settlement_svc.rate_dates(),
+            "today": datetime.date.today().isoformat()}
+
+
 class SettlementGenerateReq(BaseModel):
     data: dict
-    rate: Optional[float] = None   # 用户手填 CNY→HKD，优先于系统汇率
+    rate: Optional[float] = None        # 用户手填 CNY→HKD，优先于系统汇率
+    rate_date: Optional[str] = None     # 手填汇率的生效日（历史汇率），随单留痕供纸面括号注
 
 
 @router.post("/settlement/preview")
@@ -496,7 +511,7 @@ def settlement_preview(req: SettlementGenerateReq):
     """模板稿预览：金额留空的行照列项目、金额留白；固定文件名覆盖，不存底。
     与正式出单同一渲染管线（与合同侧「预览=下载 1:1 同源」同一哲学）。"""
     try:
-        return settlement_svc.preview(req.data, req.rate)
+        return settlement_svc.preview(req.data, req.rate, req.rate_date)
     except fx.FXError as ex:
         raise HTTPException(502, str(ex))
     except ValueError as ex:
@@ -515,7 +530,7 @@ def settlement_generate(req: SettlementGenerateReq):
     if not any(data.get(k) for k in settlement_svc.SECTIONS):
         raise HTTPException(422, "没有任何费用明细，无法出单")
     try:
-        return settlement_svc.generate(data, req.rate)
+        return settlement_svc.generate(data, req.rate, req.rate_date)
     except fx.FXError as ex:
         raise HTTPException(502, str(ex))
     except ValueError as ex:

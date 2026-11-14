@@ -1005,12 +1005,17 @@ const app = createApp({
     const st = reactive({
       text: "", notes: [], rate: null, parsing: false, parseSec: 0, generating: false,
       result: null, preview: null,
-      group: "", customer: "", date: "", port: "", settle_type: "收尾款",
+      rateDay: "", rateBasis: "today", ratePicker: false, rateDates: [],
+      group: "", customer: "", date: "", port: "深圳湾", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
       tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
     });
+    const stSrcOpen = ref(false);   // 业务资料默认收起，点卡头展开/收回（同台账 AI 快速导入）
     // 与抬头那 5 枚单选牌取值一一对应（模板里的 v-model 同源，改动需同步）
     const ST_PRESETS = ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"];
+    const ST_PORTS = ["深圳湾", "莲塘", "沙头角", "港珠澳", "皇岗", "文锦渡"];   // 口岸下拉预置
+    const stPorts = computed(() =>
+      st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
     const isSettlement = computed(() => selected.type === "settlement");
     const stPlaceholder = `业务类型：现牌结算单
 群名：0908许兰坛深圳湾现牌粤ZLT27港
@@ -1045,7 +1050,7 @@ const app = createApp({
                               "禁区纸": { hkd: 744 }, "核证本": { hkd: 300 } };
     function stDefaults() {
       const d = new Date();
-      st.group = ""; st.customer = ""; st.port = ""; st.settle_type = "收尾款";
+      st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = "收尾款";
       st.settle_custom = "";
       st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
       st.tRows = [stBlankRow("总价")];
@@ -1058,11 +1063,61 @@ const app = createApp({
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
 
-    async function stFetchRate() {
+    async function stFetchRate(day) {
+      /* day 为空＝当天实时；带日期＝历史快照（≤该日最近一条，返回实际生效日）。 */
       try {
-        const r = await fetch("/api/settlement/rate");
-        if (r.ok) st.rate = String((await r.json()).cny_to_hkd);
+        const q = day ? `?date=${encodeURIComponent(day)}` : "";
+        const r = await fetch("/api/settlement/rate" + q);
+        if (!r.ok) {
+          const ex = await r.json().catch(() => null);
+          toast(ex?.detail || "该日期暂无汇率记录", "error", 4500);
+          return;
+        }
+        const d = await r.json();
+        st.rate = String(d.cny_to_hkd);
+        st.rateDay = d.date || "";
+        st.rateBasis = d.basis || "today";
+        if (d.basis === "history") toast(`已切到 ${d.date} 汇率，仅影响本次结算单计算`, "ok", 3500);
       } catch { /* 取不到就留空，生成时服务端再取 */ }
+    }
+
+    /* 历史汇率日期选择：最近 10 天逐日列出，有快照的可选、无快照置灰——
+       不存在"选了却拉不到"的路径。今天永远可选（回到实时汇率）。 */
+    const stRateDays = computed(() => {
+      const today = todayISO();
+      const out = [];
+      for (let i = 0; i < 10; i++) {
+        const dt = new Date(Date.now() - i * 86400000);
+        const day = dt.toISOString().slice(0, 10);
+        out.push({
+          day,
+          label: day === today ? "今天" : day.slice(5).replace("-", "/"),
+          week: "周" + "日一二三四五六"[dt.getDay()],
+          has: day === today || st.rateDates.includes(day),
+        });
+      }
+      return out;
+    });
+    const stRateLabel = computed(() =>
+      st.rateBasis === "history" ? (st.rateDay || "").slice(5).replace("-", "/") + " 汇率" : "今天");
+    async function stToggleRatePicker() {
+      st.ratePicker = !st.ratePicker;
+      if (st.ratePicker && !st.rateDates.length) {
+        try {
+          const r = await fetch("/api/settlement/rate/dates");
+          if (r.ok) st.rateDates = (await r.json()).dates || [];
+        } catch { /* 拉不到就按"只有今天可选"展示 */ }
+      }
+    }
+    async function stPickRateDay(day) {
+      st.ratePicker = false;
+      await stFetchRate(day === todayISO() ? "" : day);
+    }
+
+    /* 选了历史汇率时，预览/生成都要带上该汇率与生效日（纸面括号注随单留痕）。 */
+    function stRatePayload() {
+      return st.rateBasis === "history" && st.rate
+        ? { rate: parseFloat(st.rate), rate_date: st.rateDay } : {};
     }
 
     /* 双币联动：改一边，另一边为空或仍是自动值时按抬头汇率补齐。
@@ -1219,10 +1274,23 @@ const app = createApp({
     watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid,
                  st.group, st.customer, st.date, st.port, st.settle_type],
           stSchedulePreview, { deep: true });
+    let stPvSeq = 0;
     async function stPreview() {
+      const seq = ++stPvSeq;
       try {
-        const d = await postJSON("/api/settlement/preview", { data: stToEngine(true) });
-        st.preview = { url: d.png_url, t: Date.now() };
+        const d = await postJSON("/api/settlement/preview", { data: stToEngine(true), ...stRatePayload() });
+        if (seq !== stPvSeq) return;   // 迟到的旧响应丢弃，别盖住新图
+        const t = Date.now();
+        // 幕后把新图加载完再原地换 src：img 元素不销毁重建（去掉 :key 后 Vue 原地 patch），
+        // 无空白无淡入重跑，观感是"纸面那个字段原地变了"而不是整页刷新
+        const url = d.png_url + "?t=" + t;
+        const probe = new Image();
+        probe.onload = () => {
+          if (seq !== stPvSeq) return;
+          if (st.preview) { st.preview.url = d.png_url; st.preview.t = t; }
+          else st.preview = { url: d.png_url, t };
+        };
+        probe.src = url;
       } catch { /* 预览失败静默：右栏保留上一张或占位 */ }
     }
     async function stGenerate() {
@@ -1245,7 +1313,7 @@ const app = createApp({
       }
       st.generating = true;
       try {
-        st.result = await postJSON("/api/settlement/generate", { data: payload });
+        st.result = await postJSON("/api/settlement/generate", { data: payload, ...stRatePayload() });
         st.result.t = Date.now();
         const n = (st.result.warnings || []).length;
         toast(n ? `已出单，有 ${n} 项请核对（见右侧）` : "结算单已生成", n ? "warn" : "ok");
@@ -1259,6 +1327,7 @@ const app = createApp({
     function stAddRecv() { st.rRows.push(stBlankRow("已收")); }
     function stReset() {
       st.text = ""; st.notes = []; st.result = null; st.preview = null;
+      if (st.rateBasis === "history") { st.rateBasis = "today"; st.rateDay = ""; stFetchRate(""); }
       stDefaults();
     }
 
@@ -1279,7 +1348,8 @@ const app = createApp({
       isToday, setSignToday,
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
-      isSettlement, st, stPlaceholder, stTotals,
+      isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
+      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
@@ -1327,9 +1397,14 @@ const app = createApp({
       <!-- ================ 收款结算单：粘贴 → 解析 → 可改 → 生成 ================ -->
       <!-- ================ 收款结算单：账单式 v6 ================ -->
       <div class="pane-body st-pane" v-if="isSettlement" key="settlement">
-        <div class="card">
-          <div class="card-head"><span class="dot"></span><h3>业务资料</h3></div>
-          <div class="card-body">
+        <div class="card st-src" :class="{ closed: !stSrcOpen }">
+          <div class="card-head st-src-head" @click="stSrcOpen = !stSrcOpen">
+            <span class="dot"></span><h3>业务资料</h3>
+            <span class="st-src-hint" v-if="!stSrcOpen">{{ st.text.trim() ? '已粘贴原文 · 点开查看/重新解析' : '粘贴客户原文，AI 解析填表' }}</span>
+            <span class="st-src-btn" v-if="!stSrcOpen">展开录入<i>▾</i></span>
+            <span class="st-src-caret" v-else>▾</span>
+          </div>
+          <div class="card-body" v-show="stSrcOpen">
             <div class="st-paste-wrap">
               <textarea class="paste" :class="{ dim: st.parsing }" v-model="st.text" spellcheck="false" :placeholder="stPlaceholder"></textarea>
               <div class="st-parse-mask" v-if="st.parsing">
@@ -1352,7 +1427,7 @@ const app = createApp({
           </div>
         </div>
 
-        <div class="card">
+        <div class="card st-head-card">
           <div class="card-head"><span class="dot" style="background:var(--gold)"></span><h3>抬头与汇率</h3></div>
           <div class="card-body st-head-compact">
             <div class="st-head-row">
@@ -1365,7 +1440,26 @@ const app = createApp({
                 <span class="st-chip"><input type="radio" value="其他" v-model="st.settle_type" id="st-t5"><label for="st-t5">其他</label></span>
                 <span class="st-chip" v-if="st.settle_custom && st.settle_type === st.settle_custom" title="解析出的结算类型，按原文计收范围"><input type="radio" :value="st.settle_custom" v-model="st.settle_type" id="st-t0"><label for="st-t0">{{ st.settle_custom }}</label></span>
               </div>
-              <span class="st-rate" title="实时汇率，与百度同口径"><span v-html="icon('exchange','st-ic')" style="color:#d97706"></span>1¥＝<b>{{ st.rate || '…' }}</b> HK$</span>
+            </div>
+            <div class="st-head-row">
+              <span class="hl" title="实时汇率，与百度同口径"><span v-html="icon('exchange','st-ic')" style="color:#d97706"></span></span>
+              <span class="st-rate">1¥＝<b>{{ st.rate || '…' }}</b> HK$</span>
+              <span class="st-rate-wrap" @focusout="st.ratePicker = false">
+                <button type="button" class="st-rate-day" :class="{ hist: st.rateBasis === 'history' }"
+                        :title="st.rateBasis === 'history' ? '当前用 ' + st.rateDay + ' 的汇率，点击改回/换日' : '默认当天实时汇率，点击可改用最近 10 天内某天的汇率'"
+                        @click="stToggleRatePicker">
+                  {{ stRateLabel }}<i>▾</i>
+                </button>
+                <div class="st-rate-pop" v-if="st.ratePicker">
+                  <button type="button" v-for="d in stRateDays" :key="d.day" class="st-rate-opt"
+                          :class="{ on: d.day === st.rateDay && st.rateBasis === 'history', off: !d.has }"
+                          :disabled="!d.has" @click="stPickRateDay(d.day)">
+                    <span>{{ d.label }}</span><span class="wk">{{ d.week }}</span>
+                    <i v-if="!d.has" class="no">无记录</i>
+                  </button>
+                  <div class="st-rate-tip">灰色＝当天没开过系统，无该日汇率；<br>历史汇率自上线起按日积累</div>
+                </div>
+              </span>
             </div>
             <div class="st-head-row">
               <span class="hl" title="微信群名"><span v-html="icon('wechat','st-ic')" style="color:#07c160"></span></span><input v-model.trim="st.group" style="flex:1" placeholder="微信群名">
@@ -1373,7 +1467,7 @@ const app = createApp({
             <div class="st-head-row">
               <span class="hl" title="客户"><span v-html="icon('user','st-ic')" style="color:#3b82f6"></span></span><input v-model.trim="st.customer" style="flex:1" placeholder="客户">
               <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1.2" placeholder="日期">
-              <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><input v-model.trim="st.port" style="flex:1" placeholder="口岸">
+              <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.port" style="flex:1" title="口岸"><option v-for="p in stPorts" :key="p" :value="p">{{ p }}</option></select>
             </div>
           </div>
         </div>
@@ -1864,7 +1958,7 @@ const app = createApp({
           <div class="st-check" v-if="st.result.selfcheck && st.result.selfcheck.expr">自检：{{ st.result.selfcheck.expr }}</div>
         </template>
         <template v-else-if="st.preview">
-          <img class="st-img st-draft" :key="st.preview.t" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
+          <img class="st-img st-draft" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
         </template>
         <div class="pv-placeholder" v-else>
           <div class="pv-ph-mark">結</div>

@@ -571,18 +571,45 @@ select.f-inp { appearance: auto; }
 .st-head-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .st-head-row .hl { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); white-space: nowrap; cursor: help; }
 .st-head-row .hl .st-ic { width: 20px; height: 20px; }
-.st-head-row input { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px;
+.st-head-row input, .st-head-row select { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px;
                      background: #fff; color: inherit; font-size: 13px; min-width: 0; }
-.st-head-row input:focus { outline: none; border-color: var(--ink-2); }
+.st-head-row input:focus, .st-head-row select:focus { outline: none; border-color: var(--ink-2); }
+.st-head-row select { cursor: pointer; }
+/* 口岸下拉自绘箭头（去掉系统默认，风格与其他输入框一致） */
+.st-head-row select { appearance: none; -webkit-appearance: none;
+                      padding-right: 26px;
+                      background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8375' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+                      background-repeat: no-repeat; background-position: right 9px center; }
 .st-head-row .st-chips { display: flex; gap: 7px; flex-wrap: wrap; }
 .st-chip { position: relative; }
 .st-chip input { position: absolute; opacity: 0; pointer-events: none; }
 .st-chip label { display: inline-block; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px;
                  background: #fff; color: #6b6459; font-size: 12px; cursor: pointer; user-select: none; }
 .st-chip input:checked + label { background: #eef3ec; border-color: var(--ink-2); color: var(--ink); font-weight: 500; }
-.st-head-row .st-rate { margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
-                        font-size: 11.5px; color: var(--muted); white-space: nowrap; }
-.st-head-row .st-rate b { color: var(--ink); font-weight: 600; font-size: 13px; }
+.st-head-row .st-rate { display: inline-flex; align-items: center; gap: 5px;
+                        font-size: 12px; color: var(--muted); white-space: nowrap; }
+.st-head-row .st-rate b { color: var(--ink); font-weight: 600; font-size: 13.5px; }
+/* 汇率日期标签 + 最近 10 天选择浮层：有快照可选、无快照置灰，杜绝"选了拉不到" */
+.st-rate-wrap { position: relative; display: inline-flex; }
+.st-rate-day { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line);
+               background: #fff; border-radius: 999px; padding: 3px 10px; cursor: pointer;
+               font-family: var(--sans); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.st-rate-day i { font-style: normal; font-size: 9px; line-height: 1; }
+.st-rate-day:hover { border-color: var(--ai); color: var(--ai); }
+.st-rate-day.hist { border-color: var(--ai); color: var(--ai); background: #fffdf4; }
+.st-rate-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 200px;
+               background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+               box-shadow: 0 10px 28px rgba(49,42,31,.16); padding: 7px; }
+.st-rate-opt { display: flex; align-items: center; gap: 7px; width: 100%; border: 0;
+               background: none; cursor: pointer; padding: 6px 9px; border-radius: 7px;
+               font-family: var(--sans); font-size: 12.5px; color: var(--ink); text-align: left; }
+.st-rate-opt .wk { color: var(--muted); font-size: 11px; }
+.st-rate-opt .no { margin-left: auto; font-style: normal; font-size: 10px; color: #c2bbae; }
+.st-rate-opt:hover:not(:disabled) { background: #f6f1e4; }
+.st-rate-opt.on { background: #f6efdb; color: var(--ai); font-weight: 600; }
+.st-rate-opt.off { cursor: not-allowed; color: #c2bbae; }
+.st-rate-tip { border-top: 1px solid var(--line-soft); margin-top: 5px; padding: 7px 9px 3px;
+               font-size: 10.5px; color: var(--muted); line-height: 1.6; }
 
 /* 金额输入：固定币种前缀 */
 .st-amt { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 7px;
@@ -684,7 +711,26 @@ select.f-inp { appearance: auto; }
                       background: linear-gradient(180deg,#f7f4ea,#f3efe3); border-bottom: 1px solid var(--line-soft); }
 .st-pane .card-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .st-pane .card-head h3 { font-family: var(--serif); font-size: 14.5px; color: var(--ink); letter-spacing: .5px; }
+/* 业务资料折叠卡：卡头即开关。收起时整条卡头金色高亮＋右侧「展开录入」胶囊按钮，
+   一眼可辨可点；点开展开后恢复正常卡头、右上角 ▾ 收回（同台账 AI 快速导入风格） */
+.st-pane .st-src-head { cursor: pointer; user-select: none; }
+.st-pane .st-src.closed { border-left: 3px solid var(--ai); }
+.st-pane .st-src.closed .card-head { background: linear-gradient(90deg,#fffdf4,#f8efdb); border-bottom-color: transparent; }
+.st-pane .st-src-head:hover h3 { color: var(--ai); }
+.st-pane .st-src-hint { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.st-pane .st-src-btn { flex: none; display: inline-flex; align-items: center; gap: 5px;
+                       padding: 4px 13px; border: 1px solid var(--ai); border-radius: 999px;
+                       color: var(--ai); font-size: 12px; background: #fff;
+                       transition: background .15s, color .15s; }
+.st-pane .st-src-btn i { font-style: normal; font-size: 10px; line-height: 1; }
+.st-pane .st-src-head:hover .st-src-btn { background: var(--ai); color: #fff; }
+.st-pane .st-src-caret { font-size: 11px; color: var(--muted); margin-left: auto; flex: none; }
+.st-pane .st-src.closed .card-head .dot { background: var(--ai); }
 .st-pane .card-body { padding: 12px 14px; }
+/* 抬头与汇率卡放开 overflow 裁剪：汇率日期浮层要完整溢出到卡外展示（10 天全量可见），
+   卡头渐变的圆角由卡头自身补回 */
+.st-pane .card.st-head-card { overflow: visible; }
+.st-pane .card.st-head-card .card-head { border-radius: 12px 12px 0 0; }
 .st-pane textarea.paste { width: 100%; min-height: 170px; border: 1px solid var(--line); border-radius: 9px;
                           background: #fff; padding: 11px 12px; color: #49443b; font-size: 12.5px;
                           line-height: 1.7; resize: vertical; }

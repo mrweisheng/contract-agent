@@ -84,14 +84,26 @@ def get_hkd_cny() -> dict:
         cached = store.fx_get("HKD", "CNY")
     except Exception:
         cached = None
+    info = None
     if cached and _age_hours(cached["fetched_at"]) < TTL_HOURS:
-        return {"rate": cached["rate"], "source": cached["source"]}
-    for fetch, name in ((_rate_from_sina, "sina"), (_rate_from_tencent, "tencent")):
-        rate = fetch()
-        if rate is not None:
-            try:
-                store.fx_put("HKD", "CNY", rate, name)
-            except Exception:
-                pass
-            return {"rate": rate, "source": name}
-    raise FXError("新浪、腾讯汇率源均不可达，请检查服务器网络后重试")
+        info = {"rate": cached["rate"], "source": cached["source"]}
+    else:
+        for fetch, name in ((_rate_from_sina, "sina"), (_rate_from_tencent, "tencent")):
+            rate = fetch()
+            if rate is not None:
+                try:
+                    store.fx_put("HKD", "CNY", rate, name)
+                except Exception:
+                    pass
+                info = {"rate": rate, "source": name}
+                break
+    if info is None:
+        raise FXError("新浪、腾讯汇率源均不可达，请检查服务器网络后重试")
+    # 沉淀当日快照（后写覆盖先写＝当日最后一次在用值），结算单历史汇率由此按日积累；
+    # 缓存命中也补记——当天实际在用的值就该进当日档
+    try:
+        store.fx_daily_put("HKD", "CNY", datetime.date.today().isoformat(),
+                           info["rate"], info["source"])
+    except Exception:
+        pass
+    return info

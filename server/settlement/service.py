@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 from engine import fx
+from api import store
 from settlement import compute, render
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -37,6 +38,26 @@ def today_rate() -> dict:
         "basis": "today",
         "apply_101": True,   # 应收折算 ×1.01、负净额按实汇率足额折，只做不说（引擎默认，此处显式留痕）
     }
+
+
+def rate_for_date(date_iso: str) -> dict:
+    """指定日期的 CNY→HKD：取 ≤该日的最近一条按日快照（周末休市/停机日沿用上一交易日报价）。
+    无任何快照（上线初期）抛 FXError——宁可报错，不静默用今天的汇率冒充历史汇率。"""
+    snap = store.fx_daily_get_le("HKD", "CNY", date_iso)
+    if not snap:
+        raise fx.FXError(f"{date_iso} 及之前暂无汇率记录（历史汇率自上线起按日积累，最近 10 天内可选）")
+    return {
+        "cny_to_hkd": round(1 / snap["rate"], 5),
+        "source": "历史汇率",
+        "date": snap["day"],   # 实际生效日，可能早于所选日（休市日），前端如实展示
+        "basis": "history",
+        "apply_101": True,
+    }
+
+
+def rate_dates() -> list:
+    """最近 10 天内已有汇率快照的日期（升序）——前端日期选择器据此置灰无数据日。"""
+    return store.fx_daily_dates("HKD", "CNY")
 
 
 def parse_text(text: str) -> dict:
@@ -114,13 +135,15 @@ def sanitize(obj: dict) -> dict:
     return out
 
 
-def _apply_rate(data: dict, rate_override=None) -> dict:
-    """汇率注入：手填 > 已带 > 系统当天。generate/preview 共用。"""
+def _apply_rate(data: dict, rate_override=None, rate_date: str | None = None) -> dict:
+    """汇率注入：手填 > 已带 > 系统当天。generate/preview 共用。
+    rate_date：手填汇率的生效日（历史汇率），纸面括号注必须写实际所用日期，
+    否则纸面写今天、实算用前天，业务对不上账。"""
     if rate_override:
         rate = dict(data.get("rate") or {})
         rate["cny_to_hkd"] = round(float(rate_override), 5)
-        rate.setdefault("basis", "today")
-        rate.setdefault("date", datetime.date.today().isoformat())   # 纸面备注的括号注
+        rate["basis"] = "history" if rate_date else "today"
+        rate["date"] = rate_date or datetime.date.today().isoformat()
         rate["source"] = ""   # 手填汇率不在纸面标注来源
         data["rate"] = rate
     if not (data.get("rate") or {}).get("cny_to_hkd"):
@@ -128,12 +151,12 @@ def _apply_rate(data: dict, rate_override=None) -> dict:
     return data
 
 
-def preview(data: dict, rate_override=None) -> dict:
+def preview(data: dict, rate_override=None, rate_date: str | None = None) -> dict:
     """模板稿渲染：金额留空的行照列项目、金额与分位栏留白。
     固定文件名「预览.pdf/png」反复覆盖，不存底、不算正式出单。"""
     import re as _re
     data = json.loads(json.dumps(data, ensure_ascii=False))   # 深拷贝，别污染编辑态
-    _apply_rate(data, rate_override)
+    _apply_rate(data, rate_override, rate_date)
     for key in SECTIONS:
         rows = []
         for r in (data.get(key) or []):
@@ -226,9 +249,10 @@ def reconcile_structure(rule_data: dict, data: dict) -> list:
     return moved
 
 
-def generate(data: dict, rate_override=None) -> dict:
-    """核算 + 渲染 + 存底。rate_override：用户手填 CNY→HKD，优先于系统汇率。"""
-    _apply_rate(data, rate_override)
+def generate(data: dict, rate_override=None, rate_date: str | None = None) -> dict:
+    """核算 + 渲染 + 存底。rate_override：用户手填 CNY→HKD，优先于系统汇率；
+    rate_date：该汇率的生效日（历史汇率），随单留痕。"""
+    _apply_rate(data, rate_override, rate_date)
 
     spec, detail = compute.build_spec(data)
     render.register_font()
