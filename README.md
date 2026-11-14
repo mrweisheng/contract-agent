@@ -13,6 +13,8 @@
 
 Linux 服务器：`cd server && python3 -m uvicorn main:app --host 0.0.0.0 --port 8300`
 
+> 可选加固（2026-11-14 PDFium 并发崩溃事故后）：结算单渲染已在应用内加全局锁串行化（render.py），单进程即可稳定运行；若要"单进程崩溃不整站不可用"，可用 `--workers 2`（编号流水/汇率缓存均为跨进程安全设计），Nginx 侧可加 `proxy_next_upstream error timeout http_502;` 对重启窗口的 502 做重试。
+
 **Ubuntu + Nginx + HTTPS 正式部署（域名 contract.eazycar.top）见 [DEPLOY.md](DEPLOY.md)。**
 
 ## 二、使用流程

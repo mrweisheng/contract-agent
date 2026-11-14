@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from engine import fx
@@ -153,7 +154,7 @@ def _apply_rate(data: dict, rate_override=None, rate_date: str | None = None) ->
 
 def preview(data: dict, rate_override=None, rate_date: str | None = None) -> dict:
     """模板稿渲染：金额留空的行照列项目、金额与分位栏留白。
-    固定文件名「预览.pdf/png」反复覆盖，不存底、不算正式出单。"""
+    每次预览独立文件名（预览_<随机>），不算正式出单；10 分钟前的旧稿自动清理。"""
     import re as _re
     data = json.loads(json.dumps(data, ensure_ascii=False))   # 深拷贝，别污染编辑态
     _apply_rate(data, rate_override, rate_date)
@@ -180,7 +181,8 @@ def preview(data: dict, rate_override=None, rate_date: str | None = None) -> dic
         data[key] = rows
     if not any(data.get(k) for k in SECTIONS):
         raise ValueError("没有任何费用明细")
-    data["filename"] = "预览"
+    data["filename"] = f"预览_{uuid.uuid4().hex[:12]}"   # 每次预览独立文件：不再覆盖写，
+    # 消除与 /settlement/file 读取端的竞态（曾致 RuntimeError: content shorter than Content-Length）
     spec, detail = compute.build_spec(data)
     # 纯模板（所有金额都为空）＝表格式模板稿：横幅不显示 ¥0.00，备注也留白
     pure_template = not any(
@@ -202,10 +204,28 @@ def preview(data: dict, rate_override=None, rate_date: str | None = None) -> dic
     renderer = render.Renderer(spec, layout)
     renderer.render(pdf_path)
     png_path = render.render_png(pdf_path, 125)   # 预览降 DPI：屏显看不出差别，光栅化+传输快一倍多；正式单仍 220
+    _cleanup_previews()
     return {
         "png_url": f"/api/settlement/file/png/{png_path.name}",
         "overflow": any("溢出" in w for w in renderer.warnings),
     }
+
+
+def _cleanup_previews():
+    """清掉 10 分钟前的历史预览稿（每次预览独立文件，不清会越积越多）。
+    正在被响应流读走的文件，Linux unlink 无碍；Windows 上删不掉就下轮再删。"""
+    import time
+    cutoff = time.time() - 600
+    for d in (PDF_DIR, PNG_DIR):
+        try:
+            for f in Path(d).glob("预览_*.p*"):
+                try:
+                    if f.stat().st_mtime < cutoff:
+                        f.unlink(missing_ok=True)
+                except OSError:
+                    pass   # Windows 上文件被占用：留给下轮
+        except OSError:
+            pass
 
 
 def reconcile_structure(rule_data: dict, data: dict) -> list:

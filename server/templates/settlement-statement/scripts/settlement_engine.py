@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 from reportlab.lib.colors import HexColor, white
@@ -541,18 +542,24 @@ class Renderer:
         return out_path
 
 
+# PDFium 非线程安全：多线程并发光栅化会 int3/段错误（2026-11-14 线上实锤），
+# 与主应用 server/settlement/render.py 同一修复——全局锁串行化。
+_PDFIUM_LOCK = threading.Lock()
+
+
 def render_png(pdf_path: Path, dpi: int = 220) -> Path:
     import pypdfium2 as pdfium
 
-    out_dir = pdf_path.parent.parent / "image"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    doc = pdfium.PdfDocument(str(pdf_path))
-    for i, page in enumerate(doc):
-        suffix = f"_{i + 1}" if len(doc) > 1 else ""
-        img = page.render(scale=dpi / 72).to_pil()
-        target = out_dir / f"{pdf_path.stem}{suffix}.png"
-        img.save(target)
-    return out_dir / f"{pdf_path.stem}.png"
+    with _PDFIUM_LOCK:
+        out_dir = pdf_path.parent.parent / "image"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        doc = pdfium.PdfDocument(str(pdf_path))
+        for i, page in enumerate(doc):
+            suffix = f"_{i + 1}" if len(doc) > 1 else ""
+            img = page.render(scale=dpi / 72).to_pil()
+            target = out_dir / f"{pdf_path.stem}{suffix}.png"
+            img.save(target)
+        return out_dir / f"{pdf_path.stem}.png"
 
 
 def build_output_path(spec: dict, out_dir: Path) -> Path:
