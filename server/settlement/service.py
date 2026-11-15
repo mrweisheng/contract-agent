@@ -57,8 +57,10 @@ def rate_for_date(date_iso: str) -> dict:
 
 
 def rate_dates() -> list:
-    """最近 10 天内已有汇率快照的日期（升序）——前端日期选择器据此置灰无数据日。"""
-    return store.fx_daily_dates("HKD", "CNY")
+    """最近 10 天内已有汇率快照的日期与 CNY→HKD 汇值（升序）——
+    前端日期选择器据此置灰无数据日，并直接展示每天的汇率。"""
+    return [{"day": s["day"], "cny_to_hkd": round(1 / s["rate"], 5)}
+            for s in store.fx_daily_map("HKD", "CNY")]
 
 
 def parse_text(text: str) -> dict:

@@ -132,6 +132,18 @@ def fx_daily_dates(base: str, quote: str, days: int = FX_DAILY_KEEP_DAYS) -> lis
         return [r["day"] for r in rows]
 
 
+def fx_daily_map(base: str, quote: str, days: int = FX_DAILY_KEEP_DAYS) -> list:
+    """最近 N 天内已有快照的日期与当日 HKD→CNY 原始汇率（升序）——
+    供前端日期选择器直接展示每天汇值，业务选日之前心里有数。"""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT day, rate FROM fx_daily WHERE base=? AND quote=? "
+            "AND day >= date('now','localtime', ?) ORDER BY day",
+            (base, quote, f"-{days - 1} days"),
+        ).fetchall()
+        return [{"day": r["day"], "rate": r["rate"]} for r in rows]
+
+
 def fx_daily_get_le(base: str, quote: str, day: str):
     """≤指定日的最近一条快照（休市/停机日沿用上一交易日报价，金融惯例）。无则 None。"""
     with _conn() as c:

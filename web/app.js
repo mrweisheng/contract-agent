@@ -1114,19 +1114,22 @@ const app = createApp({
       } catch { /* 取不到就留空，生成时服务端再取 */ }
     }
 
-    /* 历史汇率日期选择：最近 10 天逐日列出，有快照的可选、无快照置灰——
-       不存在"选了却拉不到"的路径。今天永远可选（回到实时汇率）。 */
+    /* 历史汇率日期选择：最近 10 天逐日列出，有快照的可选并直接展示当天汇值，
+       无快照置灰——不存在"选了却拉不到"的路径。今天永远可选（回到实时汇率）。 */
     const stRateDays = computed(() => {
       const today = todayISO();
       const out = [];
       for (let i = 0; i < 10; i++) {
         const dt = new Date(Date.now() - i * 86400000);
         const day = dt.toISOString().slice(0, 10);
+        const hit = st.rateDates.find(e => e.day === day);
         out.push({
           day,
           label: day === today ? "今天" : day.slice(5).replace("-", "/"),
           week: "周" + "日一二三四五六"[dt.getDay()],
-          has: day === today || st.rateDates.includes(day),
+          today: day === today,
+          has: day === today || !!hit,
+          rate: hit ? hit.cny_to_hkd : null,
         });
       }
       return out;
@@ -1138,7 +1141,7 @@ const app = createApp({
       if (st.ratePicker && !st.rateDates.length) {
         try {
           const r = await fetch("/api/settlement/rate/dates");
-          if (r.ok) st.rateDates = (await r.json()).dates || [];
+          if (r.ok) st.rateDates = (await r.json()).days || [];
         } catch { /* 拉不到就按"只有今天可选"展示 */ }
       }
     }
@@ -1508,7 +1511,9 @@ const app = createApp({
                           :class="{ on: d.day === st.rateDay && st.rateBasis === 'history', off: !d.has }"
                           :disabled="!d.has" @click="stPickRateDay(d.day)">
                     <span>{{ d.label }}</span><span class="wk">{{ d.week }}</span>
-                    <i v-if="!d.has" class="no">无记录</i>
+                    <i class="rt" v-if="d.rate">1¥＝{{ d.rate }}</i>
+                    <i class="rt" v-else-if="d.today">实时</i>
+                    <i v-else-if="!d.has" class="no">无记录</i>
                   </button>
                   <div class="st-rate-tip">灰色＝当天没开过系统，无该日汇率；<br>历史汇率自上线起按日积累</div>
                 </div>

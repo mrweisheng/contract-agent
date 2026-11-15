@@ -495,8 +495,8 @@ def settlement_rate(date: Optional[str] = None):
 
 @router.get("/settlement/rate/dates")
 def settlement_rate_dates():
-    """最近 10 天内已有汇率快照的日期——前端日期选择器据此置灰无数据日。"""
-    return {"dates": settlement_svc.rate_dates(),
+    """最近 10 天内已有汇率快照的日期与汇值——前端日期选择器据此置灰无数据日并展示每天汇率。"""
+    return {"days": settlement_svc.rate_dates(),
             "today": datetime.date.today().isoformat()}
 
 
