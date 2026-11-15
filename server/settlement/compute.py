@@ -290,53 +290,11 @@ def derive_rate_from_equiv(data: dict):
     return sum(ratios) / len(ratios)
 
 
-SCOPE_RULES = (
-    # 结算类型关键词 → 本次该收的款项名称关键词
-    (("第二期",), ("第二期",)),
-    (("尾款",), ("尾款",)),
-)
-
-
-def apply_settle_scope(data: dict, warnings: list) -> dict:
-    """结算类型决定本次收款范围（rules.md「核算」第 65 条）。
-
-    结算类型写「收第二期款」时，车牌尾款一类的未收款只是「应收」事实，
-    不属于本次收款安排，必须按「下次收款」列示、不计入今日需付。
-    只有当结算类型本身涵盖该款项（如「收尾款」「收第二期款及尾款」）时才计入。
-    """
-    settle_type = str(data.get("settle_type") or "")
-    if not settle_type:
-        return data
-    scope = None
-    for type_keys, item_keys in SCOPE_RULES:
-        if any(k in settle_type for k in type_keys):
-            scope = item_keys if scope is None else tuple(scope) + item_keys
-    if not scope:
-        return data
-
-    demoted = []
-    for e in data.get("contract_unpaid") or []:
-        status = e.get("status", "today")
-        if status in ("next", "paid"):
-            continue
-        name = str(e.get("item") or "")
-        if any(k in name for k in scope):
-            continue
-        e["status"] = "next"
-        demoted.append(name)
-    if demoted:
-        warnings.append(
-            f"結算類型為「{settle_type}」，本次只收與此相關的款項；"
-            f"{'、'.join(demoted)} 已按「下次收款」列示，不計入今日需付。"
-            "如需本次一併收取，请明确告知。"
-        )
-    return data
-
-
 def build_spec(data: dict) -> tuple:
+    """结算类型（收定金/收第二期款/收尾款…）只作纸面显示，不参与收款范围筛选：
+    未收区填的就是本次要收的钱，今日需付＝未收各行合计（业务定稿 2026-11-15）。"""
     warnings: list[str] = []
     data = normalize_currency(data, warnings)
-    data = apply_settle_scope(data, warnings)
     rate = dict(data.get("rate") or {})
     cny_to_hkd = rate.get("cny_to_hkd")
     hkd_to_cny = rate.get("hkd_to_cny")
