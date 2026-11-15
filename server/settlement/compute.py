@@ -585,7 +585,10 @@ def build_spec(data: dict) -> tuple:
     # 基本资料
     group = data.get("group", "")
     customer = data.get("customer", "") or group
-    second_label = "購買車輛" if data.get("vehicle") else "申請口岸"
+    # 抬头第二行标签按业务类型定（2026-11-15）：车辆买卖业务一律「購買車輛」，
+    # 哪怕车辆信息还没填——不能因为空值回落成「申請口岸」，业务切了标签就要跟着切
+    is_vehicle_biz = bool(data.get("vehicle")) or "买卖" in str(data.get("business") or "")
+    second_label = "購買車輛" if is_vehicle_biz else "申請口岸"
     second_value = data.get("vehicle") or data.get("port") or ""
     meta = [
         ["客戶名稱", customer, "群名", group],
