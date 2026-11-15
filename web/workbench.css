@@ -634,8 +634,9 @@ select.f-inp { appearance: auto; }
                 width: 100%; min-width: 0; padding: 8px 9px 8px 2px; }
 .st-amt input::placeholder { color: var(--muted-2); font-weight: 400; font-size: 12px; }
 
-/* 合同内款项：三行 × 双币矩阵 */
-.st-ct { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 5px 8px; align-items: center; }
+/* 合同内款项：三行 × 双币矩阵。项目列弹性加宽（同杂费区思路）——
+   「装卡通关收尾款」等长名目要展示全；金额只到五六位数，列宽让给项目（业务反馈 2026-11-15） */
+.st-ct { display: grid; grid-template-columns: minmax(120px, 1.4fr) 1fr 1fr; gap: 5px 8px; align-items: center; }
 /* 已收小节标题：带边框小标签，与行标（圆点+可编辑名）明确区分（2026-10-21 她定） */
 .st-ct .st-sec-head { grid-column: 1 / -1; margin-top: 4px; display: flex; align-items: center; gap: 8px; }
 .st-ct .st-sec-head .tag { display: inline-flex; align-items: center; border: 1px solid var(--green);
