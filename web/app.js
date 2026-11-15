@@ -1006,6 +1006,7 @@ const app = createApp({
       text: "", notes: [], rate: null, parsing: false, parseSec: 0, generating: false,
       result: null, preview: null,
       rateDay: "", rateBasis: "today", ratePicker: false, rateDates: [],
+      biz: "两地牌", vehicle: "",
       group: "", customer: "", date: "", port: "深圳湾", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
       tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
@@ -1045,20 +1046,52 @@ const app = createApp({
 
     function stBlankRow(label) { return { label, cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null }; }
     /* 标准费用包默认金额（2026-10-21 业务反馈）：打开即显示，特殊客户直接改数；
-       解析后杂费段按客户数据整体覆盖，核算不受预置影响。中检验车/大陆保险每单不一，留空。 */
-    const ST_FEE_DEFAULTS = { "换车费": { cny: 5000 }, "批文卡": { hkd: 260 },
-                              "禁区纸": { hkd: 744 }, "核证本": { hkd: 300 } };
+       解析后杂费段按客户数据整体覆盖，核算不受预置影响。中检验车/大陆保险每单不一，留空。
+       车辆业务（2026-11-15）：过户费 $1,500 固定收（计入），牌费/保险每单不一留空；
+       客户要做留牌/套牌等手续时在杂费区自己加行。 */
+    const ST_FEE_PRESETS = {
+      "两地牌": { "换车费": { cny: 5000 }, "批文卡": { hkd: 260 },
+                  "禁区纸": { hkd: 744 }, "核证本": { hkd: 300 },
+                  "中检验车": {}, "大陆保险": {} },
+      "车辆":   { "过户费": { hkd: 1500 }, "牌费": {}, "保险": {} },
+    };
+    /* 未收行默认名随业务类型（2026-11-15 业务反馈）：两地牌最后一步是装卡+通关，
+       车辆业务则是提车——纸面「結算類型」与行名照显示。 */
+    const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款" };
+    const stTailType = computed(() => ST_TAIL_LABELS[st.biz]);   // 「收尾款」标签文案随业务类型
+    const ST_TAIL_NAMES = Object.values(ST_TAIL_LABELS);
+    const stFeeNames = computed(() => Object.keys(ST_FEE_PRESETS[st.biz] || {}));
+    function stFeePresetRows(biz) {
+      return Object.entries(ST_FEE_PRESETS[biz] || {})
+        .map(([name, d]) => ({ name, cny: d.cny ?? null, hkd: d.hkd ?? null,
+                               gift: false, cnyAuto: false, hkdAuto: false, base: null }));
+    }
+    let stBizApplied = "两地牌";   // v-model 先改 st.biz，@change 后到——比较"已应用"标记，不能用当前值
+    function stSetBiz(biz) {
+      if (stBizApplied === biz) return;
+      stBizApplied = biz;
+      st.biz = biz;
+      st.fees = stFeePresetRows(biz);   // 切换即重置为该业务默认杂费（业务定稿：清空重置）
+      if (st.settle_type === "收尾款" || ST_TAIL_NAMES.includes(st.settle_type)) {
+        st.settle_type = ST_TAIL_LABELS[biz];   // 选中的「收尾款」标签文案随业务换名
+      }
+      const cur = String((st.uRows[0] || {}).label || "").trim();
+      if (!cur || cur === "尾款" || Object.values(ST_TAIL_LABELS).includes(cur)) {
+        if (st.uRows.length) st.uRows[0].label = ST_TAIL_LABELS[biz];   // 行名还是预设名才跟随切换
+      }
+      toast(`已切换到${biz === "车辆" ? "车辆" : "两地牌"}业务，杂费已重置为该业务默认项`, "ok");
+      stSchedulePreview();
+    }
     function stDefaults() {
       const d = new Date();
-      st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = "收尾款";
+      st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = ST_TAIL_LABELS[st.biz];
       st.settle_custom = "";
+      st.vehicle = "";
       st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
       st.tRows = [stBlankRow("总价")];
       st.rRows = [stBlankRow("定金")];
-      st.uRows = [stBlankRow("尾款")];
-      st.fees = ["换车费", "批文卡", "禁区纸", "核证本", "中检验车", "大陆保险"]
-        .map(name => ({ name, cny: ST_FEE_DEFAULTS[name]?.cny ?? null, hkd: ST_FEE_DEFAULTS[name]?.hkd ?? null,
-                        gift: false, cnyAuto: false, hkdAuto: false, base: null }));
+      st.uRows = [stBlankRow(ST_TAIL_LABELS[st.biz])];
+      st.fees = stFeePresetRows(st.biz);
       st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
@@ -1182,7 +1215,10 @@ const app = createApp({
         return { item: name || "减免", amount: a, currency: d.currency === "CNY" ? "CNY" : "HKD" };
       };
       const data = { group: st.group, customer: st.customer, date: st.date,
-                     port: st.port, settle_type: st.settle_type };
+                     settle_type: st.settle_type,
+                     business: st.biz === "车辆" ? "港车买卖结算单" : "现牌结算单" };
+      if (st.biz === "车辆") data.vehicle = st.vehicle;   // 引擎纸面自動顯示「購買車輛」行
+      else data.port = st.port;
       data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
       data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
       data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" }, r.base)).filter(Boolean);
@@ -1220,15 +1256,26 @@ const app = createApp({
         return kept.length ? kept : [stBlankRow(def)];
       };
       // 抬头：规则解析逐字优先（routes.py），AI 只补口语串联没标签的情况，这里只管接收。
-      // 结算类型存原文不归一成 5 个选项——引擎按原文划本次收款范围（compute.SCOPE_RULES）。
+      // 结算类型存原文不归一成 5 个选项——纯显示字段（2026-11-15 起不参与核算）。
       st.group = String(p.group || st.group || "").trim();
       st.customer = String(p.customer || st.customer || "").trim();
       st.port = String(p.port || st.port || "").trim();
+      // 业务类型：解析原文带「买卖/车辆」或给出购买车辆/车牌时自动切到车辆业务
+      if (/买卖|车辆/.test(String(p.business || "")) || String(p.vehicle || p.plate || "").trim()) {
+        st.biz = "车辆";
+        st.vehicle = String(p.vehicle || p.plate || "").trim();
+      } else if (String(p.business || "").trim()) {
+        st.biz = "两地牌";
+      }
       st.date = String(p.date || st.date || "").trim();
       const stType = String(p.settle_type || "").trim();
       if (stType) {
         st.settle_type = stType;
         st.settle_custom = ST_PRESETS.includes(stType) ? "" : stType;
+        if (stType === "收尾款" || ST_TAIL_NAMES.includes(stType)) {
+          st.settle_type = ST_TAIL_LABELS[st.biz];   // 尾款类结算类型按业务显示新名（纯显示）
+          st.settle_custom = "";
+        }
       }
       st.tRows = fill(p.contract_total, st.tRows, "总价");
       st.rRows = fill(p.contract_paid, st.rRows, "定金");
@@ -1349,7 +1396,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts,
+      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
@@ -1431,14 +1478,20 @@ const app = createApp({
           <div class="card-head"><span class="dot" style="background:var(--gold)"></span><h3>抬头与汇率</h3></div>
           <div class="card-body st-head-compact">
             <div class="st-head-row">
-              <span class="hl" title="结算类型"><span v-html="icon('tag','st-ic')" style="color:#8b5cf6"></span></span>
+              <span class="hl" title="业务类型：决定口岸/车辆信息与默认杂费"><span v-html="icon('tag','st-ic')" style="color:#8b5cf6"></span></span>
+              <span class="st-biz-group" title="切换业务类型：影响口岸/车辆信息与默认杂费">
+                <button type="button" :class="{ on: st.biz === '两地牌' }" @click="stSetBiz('两地牌')">两地牌</button>
+                <button type="button" :class="{ on: st.biz === '车辆' }" @click="stSetBiz('车辆')">车辆</button>
+              </span>
+            </div>
+            <div class="st-head-row">
               <div class="st-chips">
                 <span class="st-chip"><input type="radio" value="收定金" v-model="st.settle_type" id="st-t1"><label for="st-t1">收定金</label></span>
                 <span class="st-chip"><input type="radio" value="收第二期款" v-model="st.settle_type" id="st-t2"><label for="st-t2">收第二期款</label></span>
-                <span class="st-chip"><input type="radio" value="收尾款" v-model="st.settle_type" id="st-t3"><label for="st-t3">收尾款</label></span>
+                <span class="st-chip"><input type="radio" :value="stTailType" v-model="st.settle_type" id="st-t3"><label for="st-t3">{{ stTailType }}</label></span>
                 <span class="st-chip"><input type="radio" value="杂费结算" v-model="st.settle_type" id="st-t4"><label for="st-t4">杂费结算</label></span>
                 <span class="st-chip"><input type="radio" value="其他" v-model="st.settle_type" id="st-t5"><label for="st-t5">其他</label></span>
-                <span class="st-chip" v-if="st.settle_custom && st.settle_type === st.settle_custom" title="解析出的结算类型，按原文计收范围"><input type="radio" :value="st.settle_custom" v-model="st.settle_type" id="st-t0"><label for="st-t0">{{ st.settle_custom }}</label></span>
+                <span class="st-chip" v-if="st.settle_custom && st.settle_type === st.settle_custom" title="解析出的结算类型，按原文显示"><input type="radio" :value="st.settle_custom" v-model="st.settle_type" id="st-t0"><label for="st-t0">{{ st.settle_custom }}</label></span>
               </div>
             </div>
             <div class="st-head-row">
@@ -1465,9 +1518,14 @@ const app = createApp({
               <span class="hl" title="微信群名"><span v-html="icon('wechat','st-ic')" style="color:#07c160"></span></span><input v-model.trim="st.group" style="flex:1" placeholder="微信群名">
             </div>
             <div class="st-head-row">
-              <span class="hl" title="客户"><span v-html="icon('user','st-ic')" style="color:#3b82f6"></span></span><input v-model.trim="st.customer" style="flex:1" placeholder="客户">
-              <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1.2" placeholder="日期">
-              <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.port" style="flex:1" title="口岸"><option v-for="p in stPorts" :key="p" :value="p">{{ p }}</option></select>
+              <span class="hl" title="客户"><span v-html="icon('user','st-ic')" style="color:#3b82f6"></span></span><input v-model.trim="st.customer" style="flex:0.6" placeholder="客户">
+              <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1" placeholder="日期">
+              <template v-if="st.biz === '两地牌'">
+                <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.port" style="flex:1.2" title="口岸"><option v-for="p in stPorts" :key="p" :value="p">{{ p }}</option></select>
+              </template>
+              <template v-else>
+                <span class="hl" title="车辆信息（车型或车架号）"><span v-html="icon('car','st-ic')" style="color:#0e9aa7"></span></span><input v-model.trim="st.vehicle" style="flex:1.6" placeholder="车型 / 车架号">
+              </template>
             </div>
           </div>
         </div>
@@ -1482,13 +1540,14 @@ const app = createApp({
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
-              <div class="st-sec-head"><span class="tag">已收</span></div>
+              <div class="st-sec-head"><span class="tag">已收</span><span class="sec-hint">之前收过的，纸面红減行展示，不计入今日需付</span></div>
               <template v-for="(r, i) in st.rRows" :key="'r' + i">
                 <span class="row-label in"><span class="sdot" style="background:var(--green)"></span><input v-model.trim="r.label"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
               </template>
               <button class="add-row" @click="stAddRecv"><span v-html="icon('plus','st-ic sm')"></span>加一笔已收</button>
+              <div class="st-sec-head"><span class="tag red">本次收款</span><span class="sec-hint">填的就是今天要收的，计入下方今日需付</span></div>
               <template v-for="(r, i) in st.uRows" :key="'u' + i">
                 <span class="row-label out"><span class="sdot" style="background:var(--red)"></span><input v-model.trim="r.label"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
@@ -1511,7 +1570,7 @@ const app = createApp({
               <button class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="f.gift = !f.gift"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
               <button class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
             </div>
-            <datalist id="fee-names"><option value="换车费"></option><option value="批文卡"></option><option value="禁区纸"></option><option value="核证本"></option><option value="中检验车"></option><option value="大陆保险"></option></datalist>
+            <datalist id="fee-names"><option v-for="n in stFeeNames" :key="n" :value="n"></option></datalist>
             <button class="add-row" @click="stAddFee"><span v-html="icon('plus','st-ic sm')"></span>加一项杂费</button>
 
             <div class="st-ded-sec" v-if="st.deds.length">
