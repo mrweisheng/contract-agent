@@ -1074,13 +1074,17 @@ const app = createApp({
       st.fees = stFeePresetRows(biz);   // 切换即重置为该业务默认杂费（业务定稿：清空重置）
       if (st.settle_type === "收尾款" || ST_TAIL_NAMES.includes(st.settle_type)) {
         st.settle_type = ST_TAIL_LABELS[biz];   // 选中的「收尾款」标签文案随业务换名
-      }
-      const cur = String((st.uRows[0] || {}).label || "").trim();
-      if (!cur || cur === "尾款" || Object.values(ST_TAIL_LABELS).includes(cur)) {
-        if (st.uRows.length) st.uRows[0].label = ST_TAIL_LABELS[biz];   // 行名还是预设名才跟随切换
+        stFollowTail();
       }
       toast(`已切换到${biz === "车辆" ? "车辆" : "两地牌"}业务，杂费已重置为该业务默认项`, "ok");
       stSchedulePreview();
+    }
+    /* 「本次收款」行名跟随选中的结算类型标签（2026-11-15 业务定稿）：
+       切标签即重置为标签文案；用户手改行名仍被尊重，直到下次切标签。 */
+    function stFollowTail() {
+      if (st.uRows.length && String(st.settle_type || "").trim()) {
+        st.uRows[0].label = st.settle_type;
+      }
     }
     function stDefaults() {
       const d = new Date();
@@ -1399,7 +1403,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType,
+      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType, stFollowTail,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
@@ -1488,7 +1492,7 @@ const app = createApp({
               </span>
             </div>
             <div class="st-head-row">
-              <div class="st-chips">
+              <div class="st-chips" @change="stFollowTail">
                 <span class="st-chip"><input type="radio" value="收定金" v-model="st.settle_type" id="st-t1"><label for="st-t1">收定金</label></span>
                 <span class="st-chip"><input type="radio" value="收第二期款" v-model="st.settle_type" id="st-t2"><label for="st-t2">收第二期款</label></span>
                 <span class="st-chip"><input type="radio" :value="stTailType" v-model="st.settle_type" id="st-t3"><label for="st-t3">{{ stTailType }}</label></span>
