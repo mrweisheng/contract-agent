@@ -249,6 +249,31 @@ def rewrite_span(doc, start: int, end: int, texts) -> None:
         set_paragraph_text(p, t)
 
 
+def delete_paragraph(p) -> None:
+    """删除单个段落（不动其余段落——指纹校验要求未动段落签名零变化）。"""
+    p._p.getparent().remove(p._p)
+
+
+def append_clone_after(anchor_p, texts) -> None:
+    """在 anchor_p 之后依次插入 len(texts) 个段落：克隆 anchor_p 的样式（含 paraId 清理）
+    并整段写入文字。既有段落零改动。"""
+    from docx.text.paragraph import Paragraph
+    anchor = anchor_p._p
+    last = anchor
+    made = []
+    for _ in texts:
+        el = copy.deepcopy(anchor)
+        for e in el.iter():
+            for attr in list(e.attrib):
+                if attr.endswith("}paraId") or attr.endswith("}textId"):
+                    del e.attrib[attr]
+        last.addnext(el)
+        last = el
+        made.append(Paragraph(el, anchor_p._parent))
+    for p, t in zip(made, texts):
+        set_paragraph_text(p, t)
+
+
 def _shrink_to_payment_block(doc, sec, labels):
     """把条款区 (start, end) 收缩到分期付款段块；无 labels 或无命中时原样返回。"""
     start, end = sec

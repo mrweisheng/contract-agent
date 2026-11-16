@@ -286,7 +286,7 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
 
 def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
     """合并版卖车模板的条件块（server/templates/1-卖车，中文条款号）：
-    A. 四节尾「甲方陈述并保证」块——承诺无重大事故才保留；
+    A. 四节尾「甲方陈述并保证」块——承诺无重大事故或有自定义承诺才保留；
     B. 五节附赠服务——有附赠行才保留并写入推导文字；
     C. 六节售后质保——开启质保才保留，自定义参数写入保修范围句；
     最后全量重排中文条款号。赠过户费/车险时最小改写八节对应句。文字推导统一走 car_extras。"""
@@ -304,10 +304,23 @@ def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
               if X.warranty_on(form) else None)
 
     # A. 陈述与保证块（「甲方陈述并保证：」起至下一标题）
-    if not X.accident_free_on(form):
-        i = W.heading_index(doc, "甲方陈述并保证：")
-        j = W.next_heading_index(doc, i)
+    # 保留条件：承诺无重大事故 或 有自定义承诺（promise_other），否则整块删除；
+    # 无事故关 → 只删条目4；自定义承诺 → 克隆末条样式追加（编号顺延，原样落盘），
+    # 插在条目之后、块尾空段之前；其余段落零改动（指纹按「same」逐段比对）。
+    i = W.heading_index(doc, "甲方陈述并保证：")
+    j = W.next_heading_index(doc, i)
+    _promises = X.promise_other_items(form)
+    if not X.accident_free_on(form) and not _promises:
         W.delete_span(doc, i, j)
+    else:
+        _items = [p for p in doc.paragraphs[i + 1:j] if p.text.strip()]
+        if not X.accident_free_on(form):
+            _p4 = next((p for p in _items if X.ACCIDENT_ITEM_MARK in p.text), None)
+            if _p4 is not None:
+                W.delete_paragraph(_p4)
+                _items.remove(_p4)
+        if _promises:
+            W.append_clone_after(_items[-1], X.promise_appended_lines(form, len(_items)))
 
     # B. 附赠服务节
     i = W.heading_index(doc, "附赠服务")
@@ -338,6 +351,7 @@ def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
     report["gift_lines"] = gifts
     report["warranty_on"] = bool(wp)
     report["accident_free"] = X.accident_free_on(form)
+    report["promise_lines"] = _promises
 
     # 八节：赠过户费/车险时改写过户费用句/保险句（逐字锚点，禁止盲改）
     if X.gift_transfer_on(form):

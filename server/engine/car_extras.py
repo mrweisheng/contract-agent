@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""卖车合同可选内容（无事故承诺 / 附赠项 / 发动机质保）的文字推导。
+"""卖车合同可选内容（无事故承诺 / 附赠项 / 发动机质保 / 自定义承诺）的文字推导。
 builder 落盘与 checker 校验共用此模块，保证表单所见即合同所得。
 原则：客户信息没提到就完全不出现（默认全关）；提到才落盘。
 合并版模板（server/templates/1-卖车）的条件块：
-  四节尾「甲方陈述并保证」块 ← accident_free 开关
+  四节尾「甲方陈述并保证」块 ← accident_free 开关 + promise_other（自定义承诺逐条追加）
   五节附赠服务 ← gift_*
   六节售后质保 ← warranty_*
 """
@@ -157,6 +157,29 @@ def gift_lines(form: dict) -> list:
         lines.append(f"附赠：本车辆汽车保险（{ins}）。")
     lines.extend(f"附赠：{x}。" for x in gift_other_items(form))
     return lines
+
+
+def promise_other_items(form: dict) -> list:
+    """自定义承诺（promise_other 自由文本）：按分号/换行拆条，原样落盘。
+    逗号/顿号视为句内成分不拆；仅去首尾标点并去重，措辞零加工。"""
+    raw = str(form.get("promise_other") or "").strip()
+    if not raw:
+        return []
+    items = [x.strip(" 。；;，,、") for x in re.split(r"[；;\n]+", raw)]
+    seen, out = set(), []
+    for x in items:
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+ACCIDENT_ITEM_MARK = "无水泡"   # 条目4 的识别锚点（承诺关时从块中删去该条）
+
+def promise_appended_lines(form: dict, kept_items: int) -> list:
+    """追加到「甲方陈述并保证」块的承诺条目行，编号顺延 kept_items 条既有条目。
+    文字原样、仅补句号——用户输入什么合同写什么。"""
+    return [f"{kept_items + k + 1}、{x}。" for k, x in enumerate(promise_other_items(form))]
 
 
 def passage_text(form: dict) -> str:

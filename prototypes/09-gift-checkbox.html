@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原型 09 · 卖车「附赠与售后」勾选式交互</title>
+<link rel="stylesheet" href="../web/fonts/noto-sans-sc/alias.css">
+<style>
+:root{
+  --ink:#1d3a2f;--ink-2:#31503f;--paper:#fdfcf8;--bg:#f1efe8;
+  --line:#ddd6c8;--line-soft:#e8e2d7;--muted:#8a8276;
+  --ai:#b97f1f;--ai-bg:#fff5e0;--ok:#2e7d54;--bad:#c0392b;
+  --acc:#a5741c;   /* 分节金（同生产 sec-2） */
+  --sans:'Noto Sans SC',-apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+  --serif:'Noto Serif SC','Songti SC','SimSun',serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:#2b2b28;font-size:14px;min-height:100vh;padding:22px 18px 40px}
+
+/* 原型说明条（仅原型页，非产品 UI） */
+.proto-head{max-width:900px;margin:0 auto 16px;font-size:12px;color:#8a8276;display:flex;align-items:baseline;gap:14px}
+.proto-head b{font-family:var(--serif);font-size:15px;color:var(--ink);letter-spacing:.5px}
+
+/* ---- 以下样式取自生产 workbench.css 的台账块，保持一致 ---- */
+.ledger-sheet{max-width:900px;margin:0 auto;background:var(--paper);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 10px 26px rgba(49,42,31,.05);padding:4px 14px 14px}
+.led-sec{--acc:#2e6e53;margin:12px 0 0}
+.led-sec.sec-2{--acc:#a5741c}
+.led-sec-head{display:flex;align-items:center;gap:10px;padding:11px 15px;
+  background:linear-gradient(180deg,#f7f4ea,#f3efe3);border:1px solid var(--line-soft);border-bottom:0;
+  border-radius:12px 12px 0 0}
+.led-no{flex:none;width:27px;height:27px;background:var(--acc);color:#fdf8ea;display:grid;
+  place-items:center;border-radius:50%;font-family:var(--serif);font-size:11px;
+  box-shadow:inset 0 -7px 10px rgba(0,0,0,.16)}
+.led-sec-title h3{font-family:var(--serif);font-size:15.5px;color:var(--ink);letter-spacing:.6px}
+.led-body{padding:10px 14px;background:#fffdf8;border:1px solid var(--line-soft);border-top:0;
+  border-radius:0 0 12px 12px}
+.led-row{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:start;
+  padding:11px 14px;margin:0 0 8px;border:1px solid #eee6d6;border-radius:11px;background:#fffefb;
+  transition:border-color .15s,box-shadow .15s}
+.led-row:hover{border-color:#dcd1ba;box-shadow:0 3px 12px rgba(70,58,32,.07)}
+.led-row:focus-within{border-color:#b5c6bd;box-shadow:0 0 0 3px rgba(29,58,47,.06)}
+.led-row-label{display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:1px}
+.led-ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--acc) 11%,#fff);color:var(--acc)}
+.led-ico svg{width:17px;height:17px}
+.led-facts{display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center;min-width:0}
+.led-fact{display:inline-flex;align-items:center;gap:6px;min-width:0;position:relative}
+.lf-label{font-size:11px;color:#8a8275;white-space:nowrap}
+.led-badge{width:23px;height:23px;border-radius:50%;display:grid;place-items:center;
+  background:#edf2ec;color:#87a291;font-size:12px;margin-top:2px;font-style:normal}
+.led-badge::after{content:'✓'}
+.led-row.has-ai .led-badge{background:var(--ai-bg);color:var(--ai)}
+.led-row.has-ai .led-badge::after{content:'AI';font-size:8.5px;letter-spacing:.5px}
+.lf-in{border:0;border-bottom:1px solid #d8d0c1;border-radius:3px;background:transparent;
+  padding:1px 3px;font-family:var(--serif);font-size:14.5px;color:#2c2a25;min-width:0;
+  transition:background .15s,border-color .15s,box-shadow .15s}
+.lf-in:hover{background:#f5f0e5;border-bottom-color:#aaa08e}
+.lf-in:focus{outline:none;background:#fff;border-color:var(--ink-2);box-shadow:0 0 0 3px rgba(29,58,47,.10)}
+.lf-in::placeholder{color:#b8b1a2;font-family:var(--sans);font-size:12px}
+.lf-sel{appearance:auto;cursor:pointer;max-width:240px}
+.lf-badge{flex:none;align-self:center;border:0;border-radius:8px;background:var(--ai);color:#fff;
+  font-size:9.5px;padding:2px 6px;line-height:1.4;cursor:pointer;white-space:nowrap;font-family:var(--sans)}
+.lf-badge:hover{background:#9a6919}
+
+/* ---- 新增：勾选式事实（本原型核心） ---- */
+label.ck{display:inline-grid;place-items:center;padding:3px;margin:-3px;cursor:pointer;flex:none}
+.lf-ck{appearance:none;-webkit-appearance:none;width:15px;height:15px;border:1.5px solid #c8bfa9;
+  border-radius:4px;background:#fff;display:inline-grid;place-items:center;cursor:pointer;
+  transition:background .15s,border-color .15s}
+label.ck:hover .lf-ck{border-color:var(--acc)}
+.lf-ck:checked{background:var(--acc);border-color:var(--acc)}
+.lf-ck:checked::after{content:'';width:8px;height:4.5px;border-left:2px solid #fff;
+  border-bottom:2px solid #fff;transform:rotate(-45deg) translate(.5px,-1px)}
+.lf-ck:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(29,58,47,.12)}
+
+/* 未勾＝整项置灰：标签、输入变浅，输入不可编辑；勾框保持全色引导点击 */
+.ck-fact.off .lf-label{color:#c4bcaa}
+.ck-fact.off .lf-in{color:#bfb7a4;border-bottom-color:#e6dec9;background:transparent}
+.ck-fact.off .lf-in::placeholder{color:#cfc8b6}
+.ck-fact.off .lf-in:hover{background:transparent;border-bottom-color:#e6dec9}
+.ck-fact .lf-in:disabled{cursor:default}
+
+/* 固定宽度：勾选/取消不引起任何横向位移 */
+.w-ins{width:120px}.w-other{width:130px}.w-period{width:74px;text-align:center}.w-km{width:84px;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="proto-head"><b>原型 09 · 附赠与售后（勾选式）</b><span>勾选＝写入合同，灰＝不上合同；勾选自动带默认值，可直接改。所有字段常驻，页面永不跳动。</span></div>
+
+<div class="ledger-sheet">
+  <section class="led-sec sec-2">
+    <div class="led-sec-head">
+      <span class="led-no">+</span>
+      <div class="led-sec-title"><h3>附赠与售后</h3></div>
+    </div>
+    <div class="led-body">
+
+      <!-- 行一：附赠 -->
+      <div class="led-row">
+        <div class="led-row-label"><span class="led-ico" title="附赠"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"></rect><path d="M12 8v13"></path><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"></path><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"></path></svg></span></div>
+        <div class="led-facts">
+          <span class="led-fact ck-fact">
+            <label class="ck"><input type="checkbox" class="lf-ck" checked></label>
+            <span class="lf-label">附赠过户费用</span>
+          </span>
+          <span class="led-fact ck-fact">
+            <label class="ck"><input type="checkbox" class="lf-ck" checked></label>
+            <span class="lf-label">附赠香港牌费</span>
+            <select class="lf-in lf-sel"><option value="4个月">4个月</option><option value="12个月">12个月</option></select>
+          </span>
+          <span class="led-fact ck-fact off">
+            <label class="ck"><input type="checkbox" class="lf-ck"></label>
+            <span class="lf-label">附赠车险</span>
+            <input class="lf-in w-ins" placeholder="待填" disabled>
+          </span>
+          <span class="led-fact ck-fact off">
+            <label class="ck"><input type="checkbox" class="lf-ck"></label>
+            <span class="lf-label">其他赠品</span>
+            <input class="lf-in w-other" placeholder="待填" disabled>
+          </span>
+        </div>
+        <i class="led-badge"></i>
+      </div>
+
+      <!-- 行二：无事故 / 质保 -->
+      <div class="led-row has-ai">
+        <div class="led-row-label"><span class="led-ico" title="承诺与质保"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span></div>
+        <div class="led-facts">
+          <span class="led-fact ck-fact ai">
+            <label class="ck"><input type="checkbox" class="lf-ck" checked></label>
+            <span class="lf-label">承诺无重大事故</span>
+            <button class="lf-badge" id="ai-demo" title="AI 回填、尚未核对，点此确认">AI·未核</button>
+          </span>
+          <span class="led-fact ck-fact off">
+            <label class="ck"><input type="checkbox" class="lf-ck"></label>
+            <span class="lf-label">发动机质保</span>
+            <span class="lf-label">质保时长</span>
+            <input class="lf-in w-period" value="6个月" disabled>
+            <span class="lf-label">质保公里数</span>
+            <input class="lf-in w-km" value="30000" disabled>
+          </span>
+          <span class="led-fact ck-fact off">
+            <label class="ck"><input type="checkbox" class="lf-ck"></label>
+            <span class="lf-label">其他承诺</span>
+            <input class="lf-in w-other" placeholder="如：协助办理两地牌" disabled>
+          </span>
+        </div>
+        <i class="led-badge"></i>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<script>
+// 勾选＝启用＋亮起；取消＝置灰＋禁用。输入框内容保留（灰显），重新勾选即恢复，无隐藏状态
+document.querySelectorAll('.lf-ck').forEach(ck => {
+  ck.addEventListener('change', () => {
+    const fact = ck.closest('.led-fact');
+    fact.classList.toggle('off', !ck.checked);
+    fact.querySelectorAll('.lf-in').forEach(el => el.disabled = !ck.checked);
+  });
+});
+// AI·未核 演示：点击即确认，行徽随之回✓
+const aiBtn = document.getElementById('ai-demo');
+aiBtn.addEventListener('click', () => {
+  aiBtn.remove();
+  document.querySelectorAll('.led-row').forEach(r => {
+    if (!r.querySelector('.lf-badge')) { r.classList.remove('has-ai'); }
+  });
+});
+</script>
+</body>
+</html>

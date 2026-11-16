@@ -470,6 +470,26 @@ select.f-inp { appearance: auto; }
             white-space: nowrap; font-family: var(--sans); }
 .lf-badge:hover { background: #9a6919; }
 
+/* ---- 勾选式组（附赠与售后）：勾=写入合同，不勾=整项置灰；字段常驻零跳动 ---- */
+.ck-fact { align-items: center; }
+label.ck { display: inline-grid; place-items: center; padding: 3px; margin: -3px; cursor: pointer; flex: none; }
+.lf-ck { appearance: none; -webkit-appearance: none; width: 15px; height: 15px;
+         border: 1.5px solid #c8bfa9; border-radius: 4px; background: #fff;
+         display: inline-grid; place-items: center; cursor: pointer; flex: none;
+         transition: background .15s, border-color .15s; }
+label.ck:hover .lf-ck { border-color: var(--ai); }
+.lf-ck:checked { background: var(--acc, var(--ai)); border-color: var(--acc, var(--ai)); }
+.lf-ck:checked::after { content: ''; width: 8px; height: 4.5px; border-left: 2px solid #fff;
+                        border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(.5px, -1px); }
+.lf-ck:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(29,58,47,.12); }
+.ck-fact.off .lf-label { color: #c4bcaa; }
+.ck-fact.off .lf-in { color: #bfb7a4; border-bottom-color: #e6dec9; background: transparent; }
+.ck-fact.off .lf-in::placeholder { color: #cfc8b6; }
+.ck-fact.off .lf-in:hover { background: transparent; border-bottom-color: #e6dec9; }
+.ck-fact .lf-in:disabled { cursor: default; }
+.ck-fact.miss .lf-in { border-bottom-color: var(--bad); background: #fffafa; }
+.ck-fact.miss .lf-in::placeholder { color: var(--bad); }
+
 /* 只看待补：干净行/期整行隐藏，分节头保留（完成度计数仍是全局信号） */
 .ledger.only-issue .led-row:not(.has-miss):not(.has-ai) { display: none; }
 .ledger.only-issue .led-step:not(.step-issue) { display: none; }

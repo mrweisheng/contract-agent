@@ -241,8 +241,8 @@ def _tbl_texts(t):
 
 def _car_expected_tail(tp, te, form):
     """合并版卖车模板尾部期望段落序列（中文条款号）。
-    条件块：四节尾「甲方陈述并保证」块（accident_free）/ 五节附赠服务（gift_*）/
-    六节售后质保（warranty_*）——有内容保留并按推导文字，无内容整块不出现。
+    条件块：四节尾「甲方陈述并保证」块（accident_free / promise_other）/
+    五节附赠服务（gift_*）/ 六节售后质保（warranty_*）——有内容保留并按推导文字，无内容整块不出现。
     固定节标题因删块重排，期望文字＝模板标题换前导中文序号。
     条目：("head", 期望文字, 模板下标) / ("same", 模板下标) / ("text", 期望文字, 模板下标)。"""
     gifts = car_extras.gift_lines(form)
@@ -278,6 +278,16 @@ def _car_expected_tail(tp, te, form):
                     break
             break
 
+    # 「甲方陈述并保证」块期望：无事故关 → 条目4不出现；自定义承诺 → 追加在最后一条
+    # 条目之后（builder 克隆末条样式，样式基准＝模板块内最后一条编号条目段）；
+    # 块尾空段与未动条目一律「same」零变化
+    promises = car_extras.promise_other_items(form)
+    _last_kept = None   # 幸存的最后一条编号条目（builder 在它后面插承诺）
+    if bi is not None:
+        _kept = [k for k in range(bi + 1, bj)
+                 if tp[k].text.strip() and (accident or car_extras.ACCIDENT_ITEM_MARK not in tp[k].text)]
+        _last_kept = _kept[-1] if _kept else None
+
     exp = []
     n = 3          # te 处为四节标题，进入循环后递增
     for i in range(te, len(tp)):
@@ -298,8 +308,19 @@ def _car_expected_tail(tp, te, form):
             exp.append(("head", renum(t, n), i))
             continue
         if bi is not None and bi <= i < bj:
-            if accident:
-                exp.append(("same", i))
+            if not accident and not promises:
+                continue   # 整块删除：标题带正文都不出现
+            if i == bi:
+                exp.append(("same", i))   # 块标题文字恒不变
+                continue
+            if not accident and car_extras.ACCIDENT_ITEM_MARK in t:
+                continue   # 条目4已删：不产生期望条目
+            exp.append(("same", i))
+            if promises and i == _last_kept:
+                # 紧跟幸存的最后一条条目之后：builder 克隆该段样式追加的承诺条目
+                kept = len([k for k in range(bi + 1, bj)
+                            if tp[k].text.strip() and (accident or car_extras.ACCIDENT_ITEM_MARK not in tp[k].text)])
+                exp.extend(("text", ln, _last_kept) for ln in car_extras.promise_appended_lines(form, kept))
             continue
         if gi is not None and gi < i < gj:
             continue   # 占位行已由 gift 行代替

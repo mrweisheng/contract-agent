@@ -67,8 +67,7 @@ const app = createApp({
     const selected = reactive({ type: "", port: "" });
     const form = reactive({});
     const aiFilled = reactive({});
-    const extraShown = reactive({});   // 「提到才显示」组：已显示字段 key 集合（客户在旁边看屏幕，没提到的不渲染）
-    const extraFoldOpen = ref(false);  // 未提及字段折叠条展开态（默认合上，不暴露字段名）
+    const ckState = reactive({});      // 勾选式组（附赠与售后）：勾=写入合同；不勾=置灰、提交时回默认值（输入框灰显保留已填内容）
     const nlText = ref("");
     const extractNotes = ref([]);
     const warnNotes = ref([]);
@@ -175,8 +174,7 @@ const app = createApp({
     function initForm() {
       Object.keys(form).forEach(k => delete form[k]);
       Object.keys(aiFilled).forEach(k => delete aiFilled[k]);
-      Object.keys(extraShown).forEach(k => delete extraShown[k]);  // 换类型清显隐集合
-      extraFoldOpen.value = false;
+      Object.keys(ckState).forEach(k => delete ckState[k]);   // 换类型清勾选态
       const c = cfg.value;
       if (!c) return;
       form.currency = c.currency_default;
@@ -237,25 +235,102 @@ const app = createApp({
     function onFieldInput(key) { delete aiFilled[key]; }
     function confirmAI(key) { delete aiFilled[key]; }
 
-    /* ---------- 提到才显示（reveal:on_fill 组的字段级显隐）----------
-     * 场景：录入时客户在旁边看屏幕。没提到的可选字段整行不渲染（含 AI 回填的显式默认值，
-     * 「不赠送/不承诺/不含」＝没提到），只留一行不含字段名的中性折叠条。
-     * 显隐集合只在「AI 提取完成」和「字段失焦」两个时刻重算——编辑中搬家会重挂载
-     * 输入框，打断焦点与中文输入法，所以值变化本身不触发搬家。 */
-    const extraGroup = computed(() => (cfg.value?.groups || []).find(g => g.reveal === "on_fill") || null);
-    const extraShownList = computed(() => (extraGroup.value?.fields || []).filter(f => extraShown[f.key]));
-    const extraFoldList = computed(() => (extraGroup.value?.fields || []).filter(f => !extraShown[f.key]));
-    function extraMentioned(f) {
-      const v = String(form[f.key] ?? "").trim();
-      return !!v && v !== String(f.default ?? "").trim();
+    /* ---------- 勾选式组（附赠与售后，cfg 打 checkbox 标记）----------
+     * 所有字段常驻：勾=写入合同，不勾=置灰不可编辑，页面无任何显隐/搬家/折叠条。
+     * 勾选态独立于表单值：不勾不清值（灰显保留已填内容，重新勾选即恢复），
+     * 提交时由 formForPost 统一把未勾字段回默认值。二值下拉（赠送/承诺/含）勾框即值，
+     * 不再渲染下拉；多值下拉只留正向选项；勾了但全空 → 红线提示待填。 */
+    const checkGroup = computed(() => (cfg.value?.groups || []).find(g => g.checkbox) || null);
+    const checkFields = computed(() => {
+      const g = checkGroup.value;
+      return g ? Object.fromEntries(g.fields.map(f => [f.key, f])) : {};
+    });
+    const ckRows = computed(() => {
+      const g = checkGroup.value, c = cfg.value;
+      if (!g || !c) return [];
+      const def = (c.ledger_rows || []).find(r => r.title === g.title);
+      const byKey = Object.fromEntries(g.fields.map(f => [f.key, f]));
+      return def
+        ? def.rows.map(r => ({ label: r.label, facts: r.fields.map(k => byKey[k]).filter(Boolean) }))
+        : g.fields.map(f => ({ label: "", facts: [f] }));
+    });
+    const ckGroupEn = computed(() => {
+      const g = checkGroup.value, c = cfg.value;
+      if (!g || !c) return "";
+      return ((c.ledger_rows || []).find(r => r.title === g.title) || {}).en || "";
+    });
+    // 行事实→勾选事实组：check 字段开新事实，非 check 从属字段（质保的时长/公里数）并入前一事实
+    function ckRowFacts(fields) {
+      const groups = [];
+      for (const f of fields) {
+        if (f.check || !groups.length) groups.push({ lead: f.check ? f : null, fields: [f] });
+        else groups[groups.length - 1].fields.push(f);
+      }
+      return groups;
     }
-    function syncExtraShown() {
-      (extraGroup.value?.fields || []).forEach(f => {
-        if (extraMentioned(f)) extraShown[f.key] = true;
-        else delete extraShown[f.key];
-      });
+    function ckOn(key) { return ckState[key] === true; }
+    function ckAffirmative(f) {   // 勾选写入的值：多值下拉=check_default，文本=预填默认（质保时长6个月/公里3万），二值不走此路
+      if (f.check_default !== undefined) return f.check_default;
+      return "";
     }
-    function toggleExtraFold() { extraFoldOpen.value = !extraFoldOpen.value; }
+    function binaryCheck(f) {     // 二值下拉：正向选项只有一个 → 勾框即值，不再渲染下拉
+      if (f.type !== "select") return false;
+      return (f.options || []).filter(o => o !== String(f.default ?? "")).length <= 1;
+    }
+    function ckOptions(f) { return (f.options || []).filter(o => o !== String(f.default ?? "")); }
+    function syncCkFromForm() {   // 表单值反推勾选态（AI 回填后调用：抽到非默认值自动亮勾）
+      for (const [key, f] of Object.entries(checkFields.value)) {
+        const v = String(form[key] ?? "").trim();
+        if (v && v !== String(f.default ?? "")) ckState[key] = true;
+        else if (!v) delete ckState[key];
+      }
+    }
+    function ckToggle(f) {
+      onFieldInput(f.key);        // 手动勾/取消 = 已核对，清 AI 未核标记
+      schedulePreview();          // 勾选切换不动 form（提交门才回默认），预览须显式刷新
+      if (ckOn(f.key)) { ckState[f.key] = false; return; }   // 不勾不清值：提交门回默认
+      ckState[f.key] = true;
+      const cur = String(form[f.key] ?? "").trim();
+      if (binaryCheck(f)) {
+        form[f.key] = ckOptions(f)[0] || "";
+      } else if (!cur || cur === String(f.default ?? "")) {
+        form[f.key] = ckAffirmative(f);
+        if (f.type !== "select") nextTick(() => document.getElementById("f-" + f.key)?.focus());
+      }
+      // 从属字段（质保→时长/公里数）空值预填默认
+      const g = checkGroup.value;
+      if (g) {
+        const fl = g.fields, idx = fl.findIndex(x => x.key === f.key);
+        for (const sub of fl.slice(idx + 1)) {
+          if (sub.check) break;
+          if (sub.check_default !== undefined && !String(form[sub.key] ?? "").trim()) form[sub.key] = sub.check_default;
+        }
+      }
+    }
+    function ckFactState(g) {     // "" | "miss" | "ai"：勾了但组内全空 → 待填
+      const lead = g.lead;
+      if (!lead || !ckOn(lead.key)) return "";
+      if (aiFilled[lead.key]) return "ai";
+      if (g.fields.every(f => !String(form[f.key] ?? "").trim())) return "miss";
+      return "";
+    }
+    function ckFactClass(g) {
+      if (!g.lead) return "";
+      return [ckOn(g.lead.key) ? "" : "off", ckFactState(g)].filter(Boolean).join(" ");
+    }
+    function ckRowIssue(r) {
+      for (const g of ckRowFacts(r.facts)) if (ckFactState(g) === "miss") return "miss";
+      return rowIssue(r);
+    }
+    // 提交门：未勾的字段不进合同——值回默认（文本回空）；灰显里保留的已填内容不上送
+    function formForPost() {
+      const out = JSON.parse(JSON.stringify(form));
+      const g = checkGroup.value;
+      if (g) for (const f of g.fields) {
+        if (f.check && !ckOn(f.key)) out[f.key] = f.default !== undefined ? f.default : "";
+      }
+      return out;
+    }
 
     /* ---------- 智能抽取 ---------- */
     async function runExtract() {
@@ -274,8 +349,7 @@ const app = createApp({
           if (k === "quota_type") return;
           form[k] = v; aiFilled[k] = true;
         });
-        syncExtraShown();               // 提取完重算显隐：只亮提到的字段
-        extraFoldOpen.value = false;    // 折叠条保持合上，未提及项继续隐藏
+        syncCkFromForm();               // 提取完反推勾选态：抽到非默认值自动亮勾
         if (data.currency && ["HKD", "CNY"].includes(data.currency)) {
           form.currency = data.currency; aiFilled.currency = true;
         }
@@ -430,7 +504,7 @@ const app = createApp({
     const ledgerSections = computed(() => {
       const c = cfg.value;
       if (!c) return [];
-      return (c.groups || []).filter(g => g.reveal !== "on_fill").map((g, i) => {
+      return (c.groups || []).filter(g => !g.checkbox).map((g, i) => {
         const def = (c.ledger_rows || []).find(r => r.title === g.title);
         const byKey = Object.fromEntries(g.fields.map(f => [f.key, f]));
         const rows = def
@@ -439,19 +513,6 @@ const app = createApp({
         const req = g.fields.filter(f => f.required && !f.auto);
         const done = req.filter(f => String(form[f.key] ?? "").trim()).length;
         return { no: String(i + 1).padStart(2, "0"), en: def?.en || "", title: shortLabel(g.title), rows, done, total: req.length, pct: req.length ? Math.round(done / req.length * 100) : 100 };
-      });
-    });
-    // 「提到才显示」组的台账分节：行组织同上，但字段是否渲染由 extraShown 决定（模板层过滤）
-    const revealLedgerSections = computed(() => {
-      const c = cfg.value;
-      if (!c) return [];
-      return (c.groups || []).filter(g => g.reveal === "on_fill").map(g => {
-        const def = (c.ledger_rows || []).find(r => r.title === g.title);
-        const byKey = Object.fromEntries(g.fields.map(f => [f.key, f]));
-        const rows = def
-          ? def.rows.map(r => ({ label: r.label, facts: r.fields.map(k => byKey[k]).filter(Boolean) }))
-          : g.fields.map(f => ({ label: "", facts: [f] }));
-        return { title: shortLabel(g.title), en: def?.en || "", rows, total: 0, done: 0, pct: 0 };
       });
     });
     // 行问题态：miss 优先于 ai（红点压金点）；「只看待补」据此过滤
@@ -592,7 +653,7 @@ const app = createApp({
           signal: pvCtrl.signal,
           body: JSON.stringify({
             type: selected.type,
-            form: JSON.parse(JSON.stringify(form)),
+            form: formForPost(),
             payment: { installments: payment.rows.map(rowPayload), source_text: payment.customText || null },
           }),
         });
@@ -823,9 +884,6 @@ const app = createApp({
     }
 
     function onPaneFocusout(e) {
-      // 「提到才显示」搬家时机＝失焦：值非默认→升到显示区，回到默认→折回折叠区
-      const key = typeof e.target?.id === "string" && e.target.id.startsWith("f-") ? e.target.id.slice(2) : null;
-      if (key && extraGroup.value?.fields.some(f => f.key === key)) syncExtraShown();
       if (!pvHit) return;
       if (e.relatedTarget && hitFromTarget(e.relatedTarget)) return;  // 字段间直切：交给 focusin 重定位
       hideHit();
@@ -883,7 +941,7 @@ const app = createApp({
         }));
         const data = await postJSON("/api/generate", {
           type: selected.type,
-          form: JSON.parse(JSON.stringify(form)),
+          form: formForPost(),
           payment: { installments: rows, source_text: payment.customText || null },
         });
         if (myGen !== reqGen) return;
@@ -1388,7 +1446,7 @@ const app = createApp({
     return {
       toasts,
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
-      extraShownList, extraFoldList, extraFoldOpen, toggleExtraFold, extraShown, revealLedgerSections,
+      checkGroup, ckRows, ckGroupEn, ckRowFacts, ckOn, ckToggle, ckFactClass, ckRowIssue, binaryCheck, ckOptions,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe, reviewPending,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
@@ -1684,60 +1742,36 @@ const app = createApp({
               </div>
             </section>
 
-            <!-- 提到才显示组（如卖车附赠与售后）：没提到的字段不渲染，隐私优先；折叠区点开才见 -->
-            <section class="led-sec sec-2" v-for="g in revealLedgerSections" :key="'rv-' + g.title">
+            <!-- 勾选式组（附赠与售后）：字段常驻，勾=写入合同，不勾=置灰；页面无显隐无搬家 -->
+            <section class="led-sec sec-2" v-if="checkGroup" :key="'ck-section'">
               <div class="led-sec-head">
                 <span class="led-no">+</span>
-                <div class="led-sec-title"><h3>{{ g.title }}</h3><div class="led-en" v-if="g.en">{{ g.en }}</div></div>
+                <div class="led-sec-title"><h3>{{ shortLabel(checkGroup.title) }}</h3><div class="led-en" v-if="ckGroupEn">{{ ckGroupEn }}</div></div>
               </div>
               <div class="led-body">
-                <template v-for="r in g.rows" :key="r.label">
-                  <div class="led-row" v-show="r.facts.some(f => extraShown[f.key])"
-                       :class="rowIssue(r) ? 'has-' + rowIssue(r) : ''">
-                    <div class="led-row-label"><span class="led-ico" v-html="rowIcon(r.label)"></span></div>
-                    <div class="led-facts">
-                      <span class="led-fact" v-for="f in r.facts" :key="f.key" v-show="extraShown[f.key]"
-                            :class="fieldState(f)" :title="f.label">
+                <div class="led-row" v-for="(r, ri) in ckRows" :key="r.label"
+                     :class="ckRowIssue(r) ? 'has-' + ckRowIssue(r) : ''">
+                  <div class="led-row-label"><span class="led-ico" v-html="rowIcon(r.label)" :title="r.label"></span></div>
+                  <div class="led-facts">
+                    <span class="led-fact ck-fact" v-for="g in ckRowFacts(r.facts)" :key="g.lead?.key || g.fields[0].key"
+                          :class="ckFactClass(g)" :title="g.lead?.label">
+                      <template v-for="f in g.fields" :key="f.key">
+                        <label class="ck" v-if="f.check"><input type="checkbox" class="lf-ck" :checked="ckOn(f.key)" @change="ckToggle(f)"></label>
                         <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required && !f.auto">*</em></span>
-                        <select v-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
-                                v-model="form[f.key]" @change="onFieldInput(f.key)">
-                          <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                        <select v-if="f.type === 'select' && !binaryCheck(f)" :id="'f-' + f.key" class="lf-in lf-sel"
+                                v-model="form[f.key]" :disabled="!ckOn(f.key)" @change="onFieldInput(f.key)">
+                          <option v-for="o in ckOptions(f)" :key="o" :value="o">{{ o }}</option>
                         </select>
-                        <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
-                               :size="inpSize(form[f.key])"
-                               :placeholder="fieldState(f) === 'miss' ? '必填 · 待填' : (f.hint || '待填')"
-                               @input="onFieldInput(f.key)"/>
-                        <button v-if="aiFilled[f.key] && !f.auto" class="lf-badge" title="AI 回填、尚未核对，点此确认"
-                                @click="confirmAI(f.key)">AI·未核</button>
-                      </span>
-                    </div>
-                    <i class="led-badge"></i>
+                        <input v-else-if="f.type !== 'select'" :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
+                               :size="inpSize(form[f.key])" placeholder="待填"
+                               :disabled="!ckOn(f.key)" @input="onFieldInput(f.key)"/>
+                      </template>
+                      <button v-if="g.lead && aiFilled[g.lead.key] && ckOn(g.lead.key)" class="lf-badge" title="AI 回填、尚未核对，点此确认"
+                              @click="confirmAI(g.lead.key)">AI·未核</button>
+                    </span>
                   </div>
-                </template>
-                <template v-if="extraFoldOpen">
-                  <template v-for="r in g.rows" :key="'fold-' + r.label">
-                    <div class="led-row" v-show="r.facts.some(f => extraFoldList.some(x => x.key === f.key))">
-                      <div class="led-row-label"><span class="led-ico" v-html="rowIcon(r.label)"></span></div>
-                      <div class="led-facts">
-                        <span class="led-fact" v-for="f in r.facts" :key="f.key" v-show="extraFoldList.some(x => x.key === f.key)"
-                              :class="fieldState(f)" :title="f.label">
-                          <span class="lf-label">{{ shortLabel(f.label) }}</span>
-                          <select v-if="f.type === 'select'" :id="'f-' + f.key" class="lf-in lf-sel"
-                                  v-model="form[f.key]" @change="onFieldInput(f.key)">
-                            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                          </select>
-                          <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
-                                 :size="inpSize(form[f.key])"
-                                 :placeholder="f.hint || '待填'" @input="onFieldInput(f.key)"/>
-                          <button v-if="aiFilled[f.key] && !f.auto" class="lf-badge" title="AI 回填、尚未核对，点此确认"
-                                  @click="confirmAI(f.key)">AI·未核</button>
-                        </span>
-                      </div>
-                      <i class="led-badge"></i>
-                    </div>
-                  </template>
-                </template>
-                <button class="extra-fold-bar edit-only" v-if="extraFoldList.length" @click="toggleExtraFold">{{ extraFoldOpen ? '▾ 收起' : '＋ ' + g.title + '（客户提到才填）' }}</button>
+                  <i class="led-badge"></i>
+                </div>
               </div>
             </section>
 
@@ -1848,65 +1882,24 @@ const app = createApp({
           </div>
           <div class="sec-body">
             <template v-for="g in cfg.groups" :key="g.title">
-              <template v-if="g.reveal === 'on_fill'">
-                <!-- 提到才显示：只渲染提到的字段；未提及的收进中性折叠条，点开才见内容 -->
-                <div class="group-label" v-if="extraShownList.length">{{ g.title }}</div>
-                <div class="fields">
-                  <div class="field" v-for="f in extraShownList" :key="f.key" :class="fieldState(f)">
-                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
-                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
-                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
-                            v-model="form[f.key]" @change="onFieldInput(f.key)">
-                      <option value="" disabled>请选择</option>
-                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                    </select>
-                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
-                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
-                           @input="onFieldInput(f.key)"/>
-                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
-                            @click="confirmAI(f.key)">AI · 未核</button>
-                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
-                  </div>
-                  <button type="button" class="extra-fold-bar" v-if="extraFoldList.length"
-                          @click="toggleExtraFold">{{ extraFoldOpen ? '▾ 收起' : '＋ 附赠与售后（客户提到才填）' }}</button>
-                  <div class="field" v-for="f in extraFoldList" :key="'xf-' + f.key"
-                       v-show="extraFoldOpen" :class="fieldState(f)">
-                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
-                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
-                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
-                            v-model="form[f.key]" @change="onFieldInput(f.key)">
-                      <option value="" disabled>请选择</option>
-                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                    </select>
-                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
-                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
-                           @input="onFieldInput(f.key)"/>
-                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
-                            @click="confirmAI(f.key)">AI · 未核</button>
-                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
-                  </div>
+              <div class="group-label">{{ g.title }}</div>
+              <div class="fields">
+                <div class="field" v-for="f in g.fields" :key="f.key" :class="fieldState(f)">
+                  <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
+                  <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
+                  <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
+                          v-model="form[f.key]" @change="onFieldInput(f.key)">
+                    <option value="" disabled>请选择</option>
+                    <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+                  </select>
+                  <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
+                         :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
+                         @input="onFieldInput(f.key)"/>
+                  <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
+                          @click="confirmAI(f.key)">AI · 未核</button>
+                  <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
                 </div>
-              </template>
-              <template v-else>
-                <div class="group-label">{{ g.title }}</div>
-                <div class="fields">
-                  <div class="field" v-for="f in g.fields" :key="f.key" :class="fieldState(f)">
-                    <label>{{ f.label }}<em v-if="f.required && !f.auto">*</em></label>
-                    <input v-if="f.auto" :id="'f-' + f.key" class="f-inp" :value="f.auto" disabled/>
-                    <select v-else-if="f.type==='select'" :id="'f-' + f.key" class="f-inp"
-                            v-model="form[f.key]" @change="onFieldInput(f.key)">
-                      <option value="" disabled>请选择</option>
-                      <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
-                    </select>
-                    <input v-else :id="'f-' + f.key" class="f-inp" v-model="form[f.key]"
-                           :placeholder="fieldState(f)==='miss' ? '必填 · 待填' : (f.hint || '待填')"
-                           @input="onFieldInput(f.key)"/>
-                    <button v-if="aiFilled[f.key] && !f.auto" class="badge ai" title="AI 回填、尚未核对，点此确认"
-                            @click="confirmAI(f.key)">AI · 未核</button>
-                    <span v-else-if="fieldState(f)==='done' && f.required" class="badge ok">✓</span>
-                  </div>
-                </div>
-              </template>
+              </div>
             </template>
 
             <!-- 签署日期条 -->
