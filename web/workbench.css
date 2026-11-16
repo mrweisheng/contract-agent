@@ -472,6 +472,10 @@ select.f-inp { appearance: auto; }
 
 /* ---- 勾选式组（附赠与售后）：勾=写入合同，不勾=整项置灰；字段常驻零跳动 ---- */
 .ck-fact { align-items: center; }
+/* 多行事实（其他承诺）：首行与「其他承诺」标题同线，行往下加，不再垂直居中往上顶 */
+.ck-fact:has(.ck-rows) { align-items: flex-start; }
+.ck-fact:has(.ck-rows) label.ck { margin-top: 2px; }
+.ck-fact:has(.ck-rows) .lf-label { margin-top: 5px; }
 label.ck { display: inline-grid; place-items: center; padding: 3px; margin: -3px; cursor: pointer; flex: none; }
 .lf-ck { appearance: none; -webkit-appearance: none; width: 15px; height: 15px;
          border: 1.5px solid #c8bfa9; border-radius: 4px; background: #fff;
