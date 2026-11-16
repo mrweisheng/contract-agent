@@ -347,6 +347,36 @@ def _car_expected_tail(tp, te, form):
     return exp
 
 
+def _transfer_expected_tail(tp, te, form):
+    """过户合约尾部期望：勾选赠品时「五、甲方服务内容与责任」末尾追加
+    「附赠：X。」行（builder 克隆五节最后一条正文段，样式基准＝该段）；
+    未勾选＝与模板零差异（返回 None 走严格比对）。"""
+    items = car_extras.transfer_gift_items(form)
+    if not items:
+        return None
+    bi = bj = None
+    for i in range(te, len(tp)):
+        if "甲方服务内容与责任" in tp[i].text:
+            bi = i
+            for j in range(i + 1, len(tp)):
+                if W.HEADING_RE.match(tp[j].text.strip()):
+                    bj = j
+                    break
+            break
+    if bi is None:
+        return None
+    body = [k for k in range(bi + 1, bj) if tp[k].text.strip()]
+    if not body:
+        return None
+    last = body[-1]
+    exp = []
+    for i in range(te, len(tp)):
+        exp.append(("same", i))
+        if i == last:
+            exp.extend(("text", f"附赠：{x}。", last) for x in items)
+    return exp
+
+
 def check_fingerprint(template_path: str, out_path: str, type_key: str, report: dict,
                       form: dict = None) -> list:
     """比对模板与生成件：非修改点必须零变化；修改点样式签名必须与源一致。
@@ -401,6 +431,8 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
             expected = _car_expected_tail(tp, te, form)
         except ValueError as ex:
             issues.append(str(ex))
+    elif type_key in ("transfer_gx", "transfer_ns") and form is not None:
+        expected = _transfer_expected_tail(tp, te, form)
     if expected is not None:
         if len(out_tail) != len(expected):
             issues.append(f"条款区之后段落数量与期望不一致（{len(out_tail)} ≠ {len(expected)}）")

@@ -181,6 +181,7 @@ TYPES = {
             "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
+            "gift_items": {"para": "附赠："},
         },
         # 前端布局：ledger＝事实台账（分节/行内编辑/付款时间轴，原型 06）；缺省为常规表单
         "ui_mode": "ledger",
@@ -196,6 +197,9 @@ TYPES = {
                 # quota_type（高新）由分节标题承载，不再单列展示；值仍在表单数据里随合同落盘
                 {"label": "受让公司", "fields": ["target_hk_company"]},
             ]},
+            {"title": "附赠服务", "en": "Complimentary", "rows": [
+                {"label": "附赠", "fields": ["gift_items"]},
+            ]},
         ],
         "groups": [
             {"title": "委托方信息（乙方）", "fields": [
@@ -210,6 +214,10 @@ TYPES = {
                 {"key": "port", "label": "通行口岸", "type": "select", "options": PORTS, "required": True},
                 {"key": "quota_type", "label": "两地牌类型（自动带入）", "type": "text", "required": False, "auto": "高新"},
                 {"key": "target_hk_company", "label": "目标香港公司名称", "type": "text", "required": True},
+            ]},
+            {"title": "附赠服务", "checkbox": True, "fields": [
+                {"key": "gift_items", "label": "其他赠品", "type": "text", "check": True, "multiline": True,
+                 "required": False, "hint": "一条一行，原样写入第五节末尾"},
             ]},
         ],
         "fee_fields": [
@@ -264,6 +272,7 @@ TYPES = {
             "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
+            "gift_items": {"para": "附赠："},
         },
         # 前端布局：ledger＝事实台账；行标遵循指标业务语义（两地牌过户非车辆买卖）
         "ui_mode": "ledger",
@@ -277,6 +286,9 @@ TYPES = {
                 {"label": "车牌", "fields": ["plate", "port"]},
                 # quota_type（纳税）由分节标题承载，不再单列展示；值仍在表单数据里随合同落盘
                 {"label": "受让公司", "fields": ["target_hk_company", "target_ml_company"]},
+            ]},
+            {"title": "附赠服务", "en": "Complimentary", "rows": [
+                {"label": "附赠", "fields": ["gift_items"]},
             ]},
         ],
         "groups": [
@@ -293,6 +305,10 @@ TYPES = {
                 {"key": "quota_type", "label": "两地牌类型（自动带入）", "type": "text", "required": False, "auto": "纳税"},
                 {"key": "target_hk_company", "label": "目标香港公司名称", "type": "text", "required": True},
                 {"key": "target_ml_company", "label": "目标内地公司名称", "type": "text", "required": True},
+            ]},
+            {"title": "附赠服务", "checkbox": True, "fields": [
+                {"key": "gift_items", "label": "其他赠品", "type": "text", "check": True, "multiline": True,
+                 "required": False, "hint": "一条一行，原样写入第五节末尾"},
             ]},
         ],
         "fee_fields": [

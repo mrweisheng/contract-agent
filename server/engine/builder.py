@@ -259,6 +259,8 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     # 6. 卖车可选内容：附赠项 / 发动机质保（客户信息提到才落盘，默认全无）
     if type_key == "car":
         _apply_car_extras(doc, form, report, draft, issues)
+    elif type_key in ("transfer_gx", "transfer_ns"):
+        _apply_transfer_gifts(doc, form, report)
 
     # 7. 签署确认块：双方签署日期（与顶部签署日期同源：录入日默认今日，可手动改期）
     if W.is_valid_iso_date(sign_date):
@@ -283,6 +285,23 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
 
 
 # ---------------- 统一付款表 → 生成器付款 dict ----------------
+
+def _apply_transfer_gifts(doc, form: dict, report: dict):
+    """过户合约赠品（不预设，手动勾选手动编辑）：勾选后逐条「附赠：X。」追加在
+    「五、甲方服务内容与责任」末尾（最后一条正文段之后、六节标题之前），
+    不勾＝合同零变化，模板零改动，节号不受影响。样式母本＝五节最后一条正文段。"""
+    from engine import car_extras as X
+    items = X.transfer_gift_items(form)
+    if not items:
+        return
+    i = W.heading_index(doc, "甲方服务内容与责任")
+    j = W.next_heading_index(doc, i)
+    body = [p for p in doc.paragraphs[i + 1:j] if p.text.strip()]
+    if not body:
+        raise ValueError("五节缺少正文段，无法追加赠品行，请检查模板")
+    W.append_clone_after(body[-1], [f"附赠：{x}。" for x in items])
+    report["transfer_gifts"] = items
+
 
 def _apply_car_extras(doc, form: dict, report: dict, draft: bool, issues: list):
     """合并版卖车模板的条件块（server/templates/1-卖车，中文条款号）：

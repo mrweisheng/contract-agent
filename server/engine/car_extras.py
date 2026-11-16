@@ -159,19 +159,27 @@ def gift_lines(form: dict) -> list:
     return lines
 
 
-def promise_other_items(form: dict) -> list:
-    """自定义承诺（promise_other 自由文本）：按分号/换行拆条，原样落盘。
-    逗号/顿号视为句内成分不拆；仅去首尾标点并去重，措辞零加工。"""
-    raw = str(form.get("promise_other") or "").strip()
-    if not raw:
-        return []
-    items = [x.strip(" 。；;，,、") for x in re.split(r"[；;\n]+", raw)]
+def _split_items(raw: str) -> list:
+    """分号/换行拆条，去首尾标点并去重（保持原顺序）。措辞零加工。"""
+    items = [x.strip(" 。；;，,、") for x in re.split(r"[；;\n]+", str(raw or "").strip())]
     seen, out = set(), []
     for x in items:
         if x and x not in seen:
             seen.add(x)
             out.append(x)
     return out
+
+
+def promise_other_items(form: dict) -> list:
+    """自定义承诺（promise_other 自由文本）：按分号/换行拆条，原样落盘。
+    逗号/顿号视为句内成分不拆；仅去首尾标点并去重，措辞零加工。"""
+    return _split_items(str(form.get("promise_other") or "").strip())
+
+
+def transfer_gift_items(form: dict) -> list:
+    """过户合约赠品（gift_items 自由文本，不预设）：一行/分号一条，原样落盘，
+    逐条「附赠：X。」追加在五节末尾。"""
+    return _split_items(str(form.get("gift_items") or "").strip())
 
 
 ACCIDENT_ITEM_MARK = "无水泡"   # 条目4 的识别锚点（承诺关时从块中删去该条）
