@@ -1790,23 +1790,23 @@ const app = createApp({
                         <label class="ck" v-if="f.check"><input type="checkbox" class="lf-ck" :id="binaryCheck(f) ? 'f-' + f.key : null" :checked="ckOn(f.key)" @change="ckToggle(f)"></label>
                         <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required && !f.auto">*</em></span>
                         <select v-if="f.type === 'select' && !binaryCheck(f)" :id="'f-' + f.key" class="lf-in lf-sel"
-                                v-model="form[f.key]" :disabled="!ckOn(f.key)" @change="onFieldInput(f.key)">
+                                v-model="form[f.key]" :disabled="!ckOn(g.lead?.key)" @change="onFieldInput(f.key)">
                           <option v-for="o in ckOptions(f)" :key="o" :value="o">{{ o }}</option>
                         </select>
                         <template v-else-if="f.multiline">
                           <span class="ck-rows">
                             <span class="ck-row" v-for="(row, ri) in promiseRows" :key="ri">
                               <input class="lf-in ck-row-in" :value="row" placeholder="待填"
-                                     :disabled="!ckOn(f.key)" @input="onPromiseRow(ri, $event)"/>
-                              <button type="button" class="ck-row-del" v-if="promiseRows.length > 1 && ckOn(f.key)"
+                                     :disabled="!ckOn(g.lead?.key)" @input="onPromiseRow(ri, $event)"/>
+                              <button type="button" class="ck-row-del" v-if="promiseRows.length > 1 && ckOn(g.lead?.key)"
                                       title="删除此行" @click="delPromiseRow(ri)">✕</button>
                             </span>
-                            <button type="button" class="ck-row-add" v-if="ckOn(f.key)" @click="addPromiseRow()">＋ 加一行</button>
+                            <button type="button" class="ck-row-add" v-if="ckOn(g.lead?.key)" @click="addPromiseRow()">＋ 加一行</button>
                           </span>
                         </template>
                         <input v-else-if="f.type !== 'select'" :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
                                :size="inpSize(form[f.key])" placeholder="待填"
-                               :disabled="!ckOn(f.key)" @input="onFieldInput(f.key)"/>
+                               :disabled="!ckOn(g.lead?.key)" @input="onFieldInput(f.key)"/>
                       </template>
                       <button v-if="g.lead && aiFilled[g.lead.key] && ckOn(g.lead.key)" class="lf-badge" title="AI 回填、尚未核对，点此确认"
                               @click="confirmAI(g.lead.key)">AI·未核</button>
