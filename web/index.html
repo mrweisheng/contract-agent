@@ -12,6 +12,26 @@
 </head>
 <body>
 <div id="app"></div>
+<script>
+/* rAF 冻结兜底（必须在 Vue 之前）：IAB/后台标签失焦时 Chromium 冻结 rAF 与定时器，
+   Vue out-in 过渡的 double-rAF 永不回火 → 切换业务永久卡白屏（2026-11-16 实锤，
+   业务切了标题变了、表单还是上一个业务的旧 DOM）。MessageChannel 消息不受
+   隐藏页定时器节流影响，对 Vue 只当「下一帧」边界用，CSS 动画本身不受影响；
+   页面可见且有焦点时照走原生 rAF，正常环境零行为差异。 */
+(function () {
+  var nativeRaf = window.requestAnimationFrame;
+  window.requestAnimationFrame = function (cb) {
+    if (typeof nativeRaf === "function" && document.visibilityState === "visible"
+        && (!document.hasFocus || document.hasFocus())) {
+      return nativeRaf.call(window, cb);
+    }
+    var ch = new MessageChannel();
+    ch.port1.onmessage = function (e) { ch.port1.close(); cb(e.data || 0); };
+    ch.port2.postMessage(0);
+    return 0;
+  };
+})();
+</script>
 <script src="/icons.js?v=20261115"></script>
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/jszip.min.js"></script>

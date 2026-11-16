@@ -326,31 +326,36 @@ const app = createApp({
       for (const g of ckRowFacts(r.facts)) if (ckFactState(g) === "miss") return "miss";
       return rowIssue(r);
     }
-    /* ---------- 其他承诺多行（multiline 字段：一行一条，加行按钮，join("\n") 回写表单 ---------- */
-    const promiseRows = ref([]);   // 仅 promise_other 用；提交值=form.promise_other（后端按换行/分号拆条）
+    /* ---------- 多行字段（multiline：一行一条，加行按钮，join("\n") 回写表单）---------- */
+    const promiseRows = ref([]);   // 当前多行字段的行数据；键取 checkGroup 内 multiline 字段的 key
+    function mlKey() {
+      const ml = (checkGroup.value?.fields || []).find(f => f.multiline);
+      return ml ? ml.key : null;
+    }
     function syncPromiseRows() {   // AI 回填后把表单值拆成行
-      const v = String(form.promise_other ?? "");
+      const key = mlKey();
+      const v = key ? String(form[key] ?? "") : "";
       promiseRows.value = v ? v.split(/[；;\n]+/).map(s => s.trim()).filter(Boolean) : [];
     }
-    function writePromiseRows() {
-      form.promise_other = promiseRows.value.map(s => s.trim()).filter(Boolean).join("\n");
+    function writeRows(f) {
+      form[f.key] = promiseRows.value.map(s => s.trim()).filter(Boolean).join("\n");
     }
-    function onPromiseRow(ri, e) {
+    function onPromiseRow(ri, e, f) {
       promiseRows.value[ri] = e.target.value;
-      writePromiseRows();
-      onFieldInput("promise_other");
+      writeRows(f);
+      onFieldInput(f.key);
     }
-    function addPromiseRow() {
+    function addPromiseRow(f) {
       promiseRows.value.push("");
       nextTick(() => {
         const ins = document.querySelectorAll(".ck-fact .ck-row-in");
         ins[ins.length - 1]?.focus();
       });
     }
-    function delPromiseRow(ri) {
+    function delPromiseRow(ri, f) {
       promiseRows.value.splice(ri, 1);
-      writePromiseRows();
-      onFieldInput("promise_other");
+      writeRows(f);
+      onFieldInput(f.key);
       schedulePreview();
     }
     // 提交门：未勾的字段不进合同——值回默认（文本回空）；灰显里保留的已填内容不上送
@@ -1813,11 +1818,11 @@ const app = createApp({
                           <span class="ck-rows">
                             <span class="ck-row" v-for="(row, ri) in promiseRows" :key="ri">
                               <input class="lf-in ck-row-in" :value="row" placeholder="待填" :data-fkey="f.key"
-                                     :disabled="!ckOn(g.lead?.key)" @input="onPromiseRow(ri, $event)"/>
+                                     :disabled="!ckOn(g.lead?.key)" @input="onPromiseRow(ri, $event, f)"/>
                               <button type="button" class="ck-row-del" v-if="promiseRows.length > 1 && ckOn(g.lead?.key)"
-                                      title="删除此行" @click="delPromiseRow(ri)">✕</button>
+                                      title="删除此行" @click="delPromiseRow(ri, f)">✕</button>
                             </span>
-                            <button type="button" class="ck-row-add" v-if="ckOn(g.lead?.key)" @click="addPromiseRow()">＋ 加一行</button>
+                            <button type="button" class="ck-row-add" v-if="ckOn(g.lead?.key)" @click="addPromiseRow(f)">＋ 加一行</button>
                           </span>
                         </template>
                         <input v-else-if="f.type !== 'select'" :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
