@@ -347,16 +347,17 @@ def _car_expected_tail(tp, te, form):
     return exp
 
 
-def _transfer_expected_tail(tp, te, form):
-    """过户合约尾部期望：勾选赠品时「五、甲方服务内容与责任」末尾追加
-    「附赠：X。」行（builder 克隆五节最后一条正文段，样式基准＝该段）；
+def _transfer_expected_tail(tp, te, form, section_kw):
+    """过户/新办合约尾部期望：勾选赠品时指定节（section_kw 锚定）末尾追加
+    「附赠：X。」行（builder 克隆该节最后一条正文段，样式基准＝该段）；
     未勾选＝与模板零差异（返回 None 走严格比对）。"""
     items = car_extras.transfer_gift_items(form)
     if not items:
         return None
-    bi = bj = None
+    bi = None
+    bj = len(tp)   # 尾节（如新办「八、其他约定」）后可能无下一标题：按文末处理
     for i in range(te, len(tp)):
-        if "甲方服务内容与责任" in tp[i].text:
+        if section_kw in tp[i].text:
             bi = i
             for j in range(i + 1, len(tp)):
                 if W.HEADING_RE.match(tp[j].text.strip()):
@@ -365,7 +366,9 @@ def _transfer_expected_tail(tp, te, form):
             break
     if bi is None:
         return None
-    body = [k for k in range(bi + 1, bj) if tp[k].text.strip()]
+    # 与 builder 同款过滤：排除签署块（新办「签署确认」无序号不算标题），锚定最后一条正文段
+    body = [k for k in range(bi + 1, bj)
+            if tp[k].text.strip() and "签署确认" not in tp[k].text]
     if not body:
         return None
     last = body[-1]
@@ -431,8 +434,10 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
             expected = _car_expected_tail(tp, te, form)
         except ValueError as ex:
             issues.append(str(ex))
-    elif type_key in ("transfer_gx", "transfer_ns") and form is not None:
-        expected = _transfer_expected_tail(tp, te, form)
+    elif form is not None and type_key in ("transfer_gx", "transfer_ns", "new_port"):
+        section_kw = {"transfer_gx": "甲方服务内容与责任", "transfer_ns": "甲方服务内容与责任",
+                      "new_port": "其他约定"}[type_key]
+        expected = _transfer_expected_tail(tp, te, form, section_kw)
     if expected is not None:
         if len(out_tail) != len(expected):
             issues.append(f"条款区之后段落数量与期望不一致（{len(out_tail)} ≠ {len(expected)}）")

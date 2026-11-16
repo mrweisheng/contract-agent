@@ -354,6 +354,7 @@ TYPES = {
             "currency": {"table": "@fee", "row": "服务总费用", "col": 1},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
+            "gift_items": {"para": ["附赠：", "其他约定"]},
         },
         # 前端布局：ledger＝事实台账
         "ui_mode": "ledger",
@@ -361,6 +362,9 @@ TYPES = {
             {"title": "委托方信息（甲方 · 个人）", "en": "Client", "rows": [
                 {"label": "主体", "fields": ["client_name", "client_id"]},
                 {"label": "联络", "fields": ["client_phone", "client_address"]},
+            ]},
+            {"title": "附赠服务", "en": "Complimentary", "rows": [
+                {"label": "附赠", "fields": ["gift_items"]},
             ]},
         ],
         "port_required": True,
@@ -370,6 +374,10 @@ TYPES = {
                 {"key": "client_id", "label": "证件号码（身份证/回乡证）", "type": "text", "required": True},
                 {"key": "client_phone", "label": "联络电话", "type": "text", "required": True},
                 {"key": "client_address", "label": "联络地址", "type": "text", "required": False},
+            ]},
+            {"title": "附赠服务", "checkbox": True, "fields": [
+                {"key": "gift_items", "label": "其他赠品", "type": "text", "check": True, "multiline": True,
+                 "required": False, "hint": "一条一行，原样写入第八节末尾"},
             ]},
         ],
         "fee_fields": [
