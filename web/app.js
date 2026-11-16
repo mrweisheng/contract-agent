@@ -859,6 +859,15 @@ const app = createApp({
         a = cfg.value.field_anchors?.[pvHit.key];
       }
       if (!el) el = a && resolveAnchor(a, instIdx);
+      // 其他承诺：精确到她写的那一条（合同行为「N、文字。」，锚点只到块头）
+      if (pvHit.key === "promise_other") {
+        const v = promiseRows.value.map(s => s.trim()).find(Boolean);
+        if (v) {
+          const ps = [...sheetEl.value.querySelectorAll("p")];
+          el = ps.find(p => (p.textContent || "").trim() === `${v}。`)
+            || ps.find(p => (p.textContent || "").includes(v)) || el;
+        }
+      }
       if (!el) return;
       el.classList.add("pv-hit");
       pinBeacon(el);
@@ -883,6 +892,7 @@ const app = createApp({
     function hitFromTarget(t) {
       if (typeof t?.id === "string" && t.id.startsWith("f-"))
         return { key: t.id.slice(2) };
+      if (t?.dataset?.fkey) return { key: t.dataset.fkey };   // 组内无 id 控件（承诺多行输入）带 data-fkey
       if (t?.closest?.(".pc-del")) return null;         // 删除按钮不是在编辑字段
       if (t?.closest?.(".sign-bar")) return { key: "sign_date" };
       const card = t?.closest?.(".pay-card");
@@ -1796,7 +1806,7 @@ const app = createApp({
                         <template v-else-if="f.multiline">
                           <span class="ck-rows">
                             <span class="ck-row" v-for="(row, ri) in promiseRows" :key="ri">
-                              <input class="lf-in ck-row-in" :value="row" placeholder="待填"
+                              <input class="lf-in ck-row-in" :value="row" placeholder="待填" :data-fkey="f.key"
                                      :disabled="!ckOn(g.lead?.key)" @input="onPromiseRow(ri, $event)"/>
                               <button type="button" class="ck-row-del" v-if="promiseRows.length > 1 && ckOn(g.lead?.key)"
                                       title="删除此行" @click="delPromiseRow(ri)">✕</button>
