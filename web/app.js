@@ -1127,7 +1127,14 @@ const app = createApp({
     });
     const stSrcOpen = ref(false);   // 业务资料默认收起，点卡头展开/收回（同台账 AI 快速导入）
     // 与抬头那 5 枚单选牌取值一一对应（模板里的 v-model 同源，改动需同步）
-    const ST_PRESETS = ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"];
+    /* 结算类型标签按业务定制（2026-11-16）：高才收款节点是 定金→第二期→第三期（批准函后），
+       没有「收尾款」的说法；两地牌/车辆维持原五标签。 */
+    const ST_PRESETS = {
+      "两地牌": ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"],
+      "车辆":   ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"],
+      "高才":   ["收定金", "收第二期款", "收第三期款", "其他"],
+    };
+    const stPresets = computed(() => ST_PRESETS[st.biz] || ST_PRESETS["两地牌"]);
     const ST_PORTS = ["深圳湾", "莲塘", "沙头角", "港珠澳", "皇岗", "文锦渡"];   // 口岸下拉预置
     const stPorts = computed(() =>
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
@@ -1168,10 +1175,11 @@ const app = createApp({
                   "禁区纸": { hkd: 744 }, "核证本": { hkd: 300 },
                   "中检验车": {}, "大陆保险": {} },
       "车辆":   { "过户费": { hkd: 1500 }, "牌费": {}, "保险": {} },
+      "高才":   {},   /* 高才移民几乎无杂费：默认全空，特殊客户在杂费区手动加行 */
     };
     /* 未收行默认名随业务类型（2026-11-15 业务反馈）：两地牌最后一步是装卡+通关，
-       车辆业务则是提车——纸面「結算類型」与行名照显示。 */
-    const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款" };
+       车辆业务则是提车，高才最后一笔是第三期款（批准函后）——纸面「結算類型」与行名照显示。 */
+    const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "第三期款" };
     const stTailType = computed(() => ST_TAIL_LABELS[st.biz]);   // 「收尾款」标签文案随业务类型
     const ST_TAIL_NAMES = Object.values(ST_TAIL_LABELS);
     const stFeeNames = computed(() => Object.keys(ST_FEE_PRESETS[st.biz] || {}));
@@ -1190,7 +1198,8 @@ const app = createApp({
         st.settle_type = ST_TAIL_LABELS[biz];   // 选中的「收尾款」标签文案随业务换名
         stFollowTail();
       }
-      toast(`已切换到${biz === "车辆" ? "车辆" : "两地牌"}业务，杂费已重置为该业务默认项`, "ok");
+      const bizName = { "两地牌": "两地牌", "车辆": "车辆", "高才": "高才移民" }[biz] || biz;
+      toast(`已切换到${bizName}业务，杂费已重置为该业务默认项`, "ok");
       stSchedulePreview();
     }
     /* 「本次收款」行名跟随选中的结算类型标签（2026-11-15 业务定稿）：
@@ -1337,7 +1346,8 @@ const app = createApp({
       };
       const data = { group: st.group, customer: st.customer, date: st.date,
                      settle_type: st.settle_type,
-                     business: st.biz === "车辆" ? "港车买卖结算单" : "现牌结算单" };
+                     business: st.biz === "车辆" ? "港车买卖结算单"
+                             : st.biz === "高才" ? "高才移民结算单" : "现牌结算单" };
       if (st.biz === "车辆") data.vehicle = st.vehicle;   // 引擎纸面自動顯示「購買車輛」行
       else data.port = st.port;
       data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
@@ -1381,8 +1391,10 @@ const app = createApp({
       st.group = String(p.group || st.group || "").trim();
       st.customer = String(p.customer || st.customer || "").trim();
       st.port = String(p.port || st.port || "").trim();
-      // 业务类型：解析原文带「买卖/车辆」或给出购买车辆/车牌时自动切到车辆业务
-      if (/买卖|车辆/.test(String(p.business || "")) || String(p.vehicle || p.plate || "").trim()) {
+      // 业务类型：解析原文带「高才/移民」切高才业务；带「买卖/车辆」或给出购买车辆/车牌切车辆业务
+      if (/高才|移民|批准函|入境事务处/.test(String(p.business || ""))) {
+        st.biz = "高才";
+      } else if (/买卖|车辆/.test(String(p.business || "")) || String(p.vehicle || p.plate || "").trim()) {
         st.biz = "车辆";
         st.vehicle = String(p.vehicle || p.plate || "").trim();
       } else if (String(p.business || "").trim()) {
@@ -1392,8 +1404,8 @@ const app = createApp({
       const stType = String(p.settle_type || "").trim();
       if (stType) {
         st.settle_type = stType;
-        st.settle_custom = ST_PRESETS.includes(stType) ? "" : stType;
-        if (stType === "收尾款" || ST_TAIL_NAMES.includes(stType)) {
+        st.settle_custom = stPresets.value.includes(stType) ? "" : stType;
+        if (stType === "收尾款" || stType === "第三期款" || ST_TAIL_NAMES.includes(stType)) {
           st.settle_type = ST_TAIL_LABELS[st.biz];   // 尾款类结算类型按业务显示新名（纯显示）
           st.settle_custom = "";
         }
@@ -1518,7 +1530,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType, stFollowTail,
+      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
@@ -1604,15 +1616,12 @@ const app = createApp({
               <span class="st-biz-group" title="切换业务类型：影响口岸/车辆信息与默认杂费">
                 <button type="button" :class="{ on: st.biz === '两地牌' }" @click="stSetBiz('两地牌')">两地牌</button>
                 <button type="button" :class="{ on: st.biz === '车辆' }" @click="stSetBiz('车辆')">车辆</button>
+                <button type="button" :class="{ on: st.biz === '高才' }" @click="stSetBiz('高才')">高才移民</button>
               </span>
             </div>
             <div class="st-head-row">
               <div class="st-chips" @change="stFollowTail">
-                <span class="st-chip"><input type="radio" value="收定金" v-model="st.settle_type" id="st-t1"><label for="st-t1">收定金</label></span>
-                <span class="st-chip"><input type="radio" value="收第二期款" v-model="st.settle_type" id="st-t2"><label for="st-t2">收第二期款</label></span>
-                <span class="st-chip"><input type="radio" :value="stTailType" v-model="st.settle_type" id="st-t3"><label for="st-t3">{{ stTailType }}</label></span>
-                <span class="st-chip"><input type="radio" value="杂费结算" v-model="st.settle_type" id="st-t4"><label for="st-t4">杂费结算</label></span>
-                <span class="st-chip"><input type="radio" value="其他" v-model="st.settle_type" id="st-t5"><label for="st-t5">其他</label></span>
+                <span class="st-chip" v-for="(p, pi) in stPresets" :key="p"><input type="radio" :value="p" v-model="st.settle_type" :id="'st-t' + (pi + 1)"><label :for="'st-t' + (pi + 1)">{{ p }}</label></span>
                 <span class="st-chip" v-if="st.settle_custom && st.settle_type === st.settle_custom" title="解析出的结算类型，按原文显示"><input type="radio" :value="st.settle_custom" v-model="st.settle_type" id="st-t0"><label for="st-t0">{{ st.settle_custom }}</label></span>
               </div>
             </div>
@@ -1647,7 +1656,7 @@ const app = createApp({
               <template v-if="st.biz === '两地牌'">
                 <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.port" style="flex:1.2" title="口岸"><option v-for="p in stPorts" :key="p" :value="p">{{ p }}</option></select>
               </template>
-              <template v-else>
+              <template v-else-if="st.biz === '车辆'">
                 <span class="hl" title="车辆信息（车型或车架号）"><span v-html="icon('car','st-ic')" style="color:#0e9aa7"></span></span><input v-model.trim="st.vehicle" style="flex:1.6" placeholder="车型 / 车架号">
               </template>
             </div>
