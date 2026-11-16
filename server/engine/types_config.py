@@ -69,11 +69,12 @@ TYPES = {
             "sign_date": {"table": "授权代表签署"},
             # 分期卡片无固定行：前端按付款模式算行号（订金→1，订金日期→2，尾款→末行）
             "installment": {"table": "@fee"},
-            # 条件节：仅当该节落盘时才存在，找不到即静默跳过
-            "accident_free": {"para": "甲方陈述并保证"},
-            "gift_plate": {"para": "附赠服务"},
-            "gift_transfer": {"para": "车辆过户手续"},
-            "gift_insurance": {"para": ["代办投保", "现有保险不随车转移"]},
+            # 条件节：仅当该节落盘时才存在，找不到即静默跳过。
+            # 勾选字段锚到「内容真正出现的行」，首选行文字、回落区域标题（勾了没填时滚到它将出现的区域）
+            "accident_free": {"para": ["该车辆无水泡", "甲方陈述并保证"]},
+            "gift_plate": {"para": ["附赠：本车辆香港车辆牌照费", "附赠服务"]},
+            "gift_transfer": {"para": ["附赠：本车辆过户登记手续", "附赠服务"]},
+            "gift_insurance": {"para": ["附赠：本车辆汽车保险", "附赠服务"]},
             "gift_other": {"para": "附赠服务"},
             "warranty_enabled": {"para": "售后质保"},
             "warranty_period": {"para": "保修范围"},

@@ -289,6 +289,8 @@ const app = createApp({
     function ckToggle(f) {
       onFieldInput(f.key);        // 手动勾/取消 = 已核对，清 AI 未核标记
       schedulePreview();          // 勾选切换不动 form（提交门才回默认），预览须显式刷新
+      pvHit = { key: f.key };     // 勾选即联动（不依赖焦点：非二值勾框无 id，聚焦反推不出字段）
+      pvHitRescroll = true;       // 等重渲出新条款后滚到对应内容（此刻定位必扑空）
       if (ckOn(f.key)) { ckState[f.key] = false; return; }   // 不勾不清值：提交门回默认
       ckState[f.key] = true;
       const cur = String(form[f.key] ?? "").trim();
@@ -717,7 +719,8 @@ const app = createApp({
         pvState.value = "ready";
         pvHasContent.value = true;
         pvIssues.value = d.draft_issues || [];
-        if (pvHit) applyPvHit(false);   // 重渲后 DOM 重建：重贴水洗并重新校准光环位置，巡游不中断
+        if (pvHit) applyPvHit(pvHitRescroll);   // 重渲后 DOM 重建：重贴水洗并重新校准光环位置，巡游不中断；
+        pvHitRescroll = false;                  // 勾选切换的那次重渲带滚动（新条款此刻才存在，滚给她看）
       } catch (e) {
         if (e.name === "AbortError") return;
         if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = String(e.message || e); pvIssues.value = []; }
@@ -736,6 +739,7 @@ const app = createApp({
     const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
     let pvHit = null;            // { key, cardIdx?, pfield? } 当前联动字段
     let pvHitTimer = null;
+    let pvHitRescroll = false;   // 勾选切换置位：预览重渲完成后重贴联动并滚到目标（勾选时新条款还没渲染，聚焦瞬间的定位必扑空）
     let pvBeacon = null;         // 巡游光环覆盖层（单例，重渲不销毁，动效无缝连续）
     const PV_HIT_HIDE_MS = 1800; // 焦点移出联动字段后的隐藏缓冲
     const isoOk = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(Date.parse(s));
