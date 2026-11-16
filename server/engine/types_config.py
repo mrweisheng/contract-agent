@@ -78,6 +78,7 @@ TYPES = {
             "warranty_enabled": {"para": "售后质保"},
             "warranty_period": {"para": "保修范围"},
             "warranty_km": {"para": "保修范围"},
+            "promise_other": {"para": "甲方陈述并保证"},
         },
         # 表单结构
         "ui_mode": "ledger",
@@ -121,8 +122,8 @@ TYPES = {
                  "check_default": "6个月", "hint": "如1年/6个月，空=半年"},
                 {"key": "warranty_km", "label": "质保公里数", "type": "text", "required": False,
                  "check_default": "30000", "hint": "如30000，空=3万"},
-                {"key": "promise_other", "label": "其他承诺", "type": "text", "check": True, "required": False,
-                 "hint": "客户额外要求，原样写入承诺条款；多条用「；」隔开"},
+                {"key": "promise_other", "label": "其他承诺", "type": "text", "check": True, "multiline": True,
+                 "required": False, "hint": "客户额外要求，原样写入承诺条款；一条一行"},
             ]},
             {"title": "车辆数据", "fields": [
                 {"key": "plate", "label": "车牌号码（新车未上牌可空）", "type": "text", "required": False},

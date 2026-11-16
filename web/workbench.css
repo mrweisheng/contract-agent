@@ -490,6 +490,18 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .ck-fact.miss .lf-in { border-bottom-color: var(--bad); background: #fffafa; }
 .ck-fact.miss .lf-in::placeholder { color: var(--bad); }
 
+/* 其他承诺多行：一行一条承诺，竖排长输入框 + 加行按钮 */
+.ck-rows { display: flex; flex-direction: column; gap: 5px; flex: 1 1 240px; min-width: 240px; }
+.ck-row { display: flex; align-items: center; gap: 4px; }
+.ck-row-in { flex: 1 1 auto; min-width: 220px; }
+.ck-row-del { flex: none; border: 0; background: none; color: #b8b1a2; cursor: pointer;
+              font-size: 11px; padding: 2px 4px; line-height: 1; }
+.ck-row-del:hover { color: var(--bad); }
+.ck-row-add { align-self: flex-start; border: 1px dashed var(--line); border-radius: 6px;
+              background: transparent; color: var(--muted); font-size: 11px;
+              padding: 2px 9px; cursor: pointer; font-family: var(--sans); }
+.ck-row-add:hover { color: var(--ink); border-color: var(--ink-2); }
+
 /* 只看待补：干净行/期整行隐藏，分节头保留（完成度计数仍是全局信号） */
 .ledger.only-issue .led-row:not(.has-miss):not(.has-ai) { display: none; }
 .ledger.only-issue .led-step:not(.step-issue) { display: none; }

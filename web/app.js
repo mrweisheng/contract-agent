@@ -175,6 +175,7 @@ const app = createApp({
       Object.keys(form).forEach(k => delete form[k]);
       Object.keys(aiFilled).forEach(k => delete aiFilled[k]);
       Object.keys(ckState).forEach(k => delete ckState[k]);   // 换类型清勾选态
+      promiseRows.value = [];
       const c = cfg.value;
       if (!c) return;
       form.currency = c.currency_default;
@@ -306,6 +307,7 @@ const app = createApp({
           if (sub.check_default !== undefined && !String(form[sub.key] ?? "").trim()) form[sub.key] = sub.check_default;
         }
       }
+      if (f.multiline && !promiseRows.value.length) promiseRows.value.push("");   // 勾即给一条空白行
     }
     function ckFactState(g) {     // "" | "miss" | "ai"：勾了但组内全空 → 待填
       const lead = g.lead;
@@ -321,6 +323,33 @@ const app = createApp({
     function ckRowIssue(r) {
       for (const g of ckRowFacts(r.facts)) if (ckFactState(g) === "miss") return "miss";
       return rowIssue(r);
+    }
+    /* ---------- 其他承诺多行（multiline 字段：一行一条，加行按钮，join("\n") 回写表单 ---------- */
+    const promiseRows = ref([]);   // 仅 promise_other 用；提交值=form.promise_other（后端按换行/分号拆条）
+    function syncPromiseRows() {   // AI 回填后把表单值拆成行
+      const v = String(form.promise_other ?? "");
+      promiseRows.value = v ? v.split(/[；;\n]+/).map(s => s.trim()).filter(Boolean) : [];
+    }
+    function writePromiseRows() {
+      form.promise_other = promiseRows.value.map(s => s.trim()).filter(Boolean).join("\n");
+    }
+    function onPromiseRow(ri, e) {
+      promiseRows.value[ri] = e.target.value;
+      writePromiseRows();
+      onFieldInput("promise_other");
+    }
+    function addPromiseRow() {
+      promiseRows.value.push("");
+      nextTick(() => {
+        const ins = document.querySelectorAll(".ck-fact .ck-row-in");
+        ins[ins.length - 1]?.focus();
+      });
+    }
+    function delPromiseRow(ri) {
+      promiseRows.value.splice(ri, 1);
+      writePromiseRows();
+      onFieldInput("promise_other");
+      schedulePreview();
     }
     // 提交门：未勾的字段不进合同——值回默认（文本回空）；灰显里保留的已填内容不上送
     function formForPost() {
@@ -350,6 +379,7 @@ const app = createApp({
           form[k] = v; aiFilled[k] = true;
         });
         syncCkFromForm();               // 提取完反推勾选态：抽到非默认值自动亮勾
+        syncPromiseRows();              // 承诺文本拆行展示
         if (data.currency && ["HKD", "CNY"].includes(data.currency)) {
           form.currency = data.currency; aiFilled.currency = true;
         }
@@ -1447,6 +1477,7 @@ const app = createApp({
       toasts,
       types, currencies, selected, form, aiFilled, nlText, extractNotes, warnNotes, payNotes, notesModal,
       checkGroup, ckRows, ckGroupEn, ckRowFacts, ckOn, ckToggle, ckFactClass, ckRowIssue, binaryCheck, ckOptions,
+      promiseRows, onPromiseRow, addPromiseRow, delPromiseRow,
       extracting, parsing, generating, result, resultModal, historyOpen, historyItems, elapsed, pipe, reviewPending,
       cfg, currencyLabel, totalKey, total, payment, menu, isActive, paneKey,
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
@@ -1756,12 +1787,23 @@ const app = createApp({
                     <span class="led-fact ck-fact" v-for="g in ckRowFacts(r.facts)" :key="g.lead?.key || g.fields[0].key"
                           :class="ckFactClass(g)" :title="g.lead?.label">
                       <template v-for="f in g.fields" :key="f.key">
-                        <label class="ck" v-if="f.check"><input type="checkbox" class="lf-ck" :checked="ckOn(f.key)" @change="ckToggle(f)"></label>
+                        <label class="ck" v-if="f.check"><input type="checkbox" class="lf-ck" :id="binaryCheck(f) ? 'f-' + f.key : null" :checked="ckOn(f.key)" @change="ckToggle(f)"></label>
                         <span class="lf-label">{{ shortLabel(f.label) }}<em v-if="f.required && !f.auto">*</em></span>
                         <select v-if="f.type === 'select' && !binaryCheck(f)" :id="'f-' + f.key" class="lf-in lf-sel"
                                 v-model="form[f.key]" :disabled="!ckOn(f.key)" @change="onFieldInput(f.key)">
                           <option v-for="o in ckOptions(f)" :key="o" :value="o">{{ o }}</option>
                         </select>
+                        <template v-else-if="f.multiline">
+                          <span class="ck-rows">
+                            <span class="ck-row" v-for="(row, ri) in promiseRows" :key="ri">
+                              <input class="lf-in ck-row-in" :value="row" placeholder="待填"
+                                     :disabled="!ckOn(f.key)" @input="onPromiseRow(ri, $event)"/>
+                              <button type="button" class="ck-row-del" v-if="promiseRows.length > 1 && ckOn(f.key)"
+                                      title="删除此行" @click="delPromiseRow(ri)">✕</button>
+                            </span>
+                            <button type="button" class="ck-row-add" v-if="ckOn(f.key)" @click="addPromiseRow()">＋ 加一行</button>
+                          </span>
+                        </template>
                         <input v-else-if="f.type !== 'select'" :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
                                :size="inpSize(form[f.key])" placeholder="待填"
                                :disabled="!ckOn(f.key)" @input="onFieldInput(f.key)"/>
