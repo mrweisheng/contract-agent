@@ -181,7 +181,7 @@ TYPES = {
             "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
-            "gift_items": {"para": "附赠："},
+            "gift_items": {"para": ["附赠：", "甲方服务内容与责任"]},
         },
         # 前端布局：ledger＝事实台账（分节/行内编辑/付款时间轴，原型 06）；缺省为常规表单
         "ui_mode": "ledger",
@@ -272,7 +272,7 @@ TYPES = {
             "exchange_fee": {"table": "@exchange"},
             "sign_date": {"table": "授权代表签署"},
             "installment": {"table": "@fee"},
-            "gift_items": {"para": "附赠："},
+            "gift_items": {"para": ["附赠：", "甲方服务内容与责任"]},
         },
         # 前端布局：ledger＝事实台账；行标遵循指标业务语义（两地牌过户非车辆买卖）
         "ui_mode": "ledger",

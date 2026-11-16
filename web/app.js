@@ -289,10 +289,15 @@ const app = createApp({
     function ckToggle(f) {
       onFieldInput(f.key);        // 手动勾/取消 = 已核对，清 AI 未核标记
       schedulePreview();          // 勾选切换不动 form（提交门才回默认），预览须显式刷新
-      pvHit = { key: f.key };     // 勾选即联动（不依赖焦点：非二值勾框无 id，聚焦反推不出字段）
-      pvHitScrollPending = true;  // 此刻定位必扑空（新条款还没渲染）：目标第一次出现的那次渲染带滚动补上
-      if (ckOn(f.key)) { ckState[f.key] = false; return; }   // 不勾不清值：提交门回默认
+      if (ckOn(f.key)) {
+        ckState[f.key] = false;   // 不勾不清值：提交门回默认
+        pvHit = null;             // 取消勾选＝内容消失，无动效（无可指目标，指了反而误导）
+        pvHitScrollPending = false;
+        return;
+      }
       ckState[f.key] = true;
+      pvHit = { key: f.key };     // 勾选即联动（不依赖焦点：非二值勾框无 id，聚焦反推不出字段）
+      pvHitScrollPending = true;  // 此刻定位可能扑空（新条款还没渲染）：目标出现的那次渲染带滚动补上
       const cur = String(form[f.key] ?? "").trim();
       if (binaryCheck(f)) {
         form[f.key] = ckOptions(f)[0] || "";
