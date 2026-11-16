@@ -290,7 +290,7 @@ const app = createApp({
       onFieldInput(f.key);        // 手动勾/取消 = 已核对，清 AI 未核标记
       schedulePreview();          // 勾选切换不动 form（提交门才回默认），预览须显式刷新
       pvHit = { key: f.key };     // 勾选即联动（不依赖焦点：非二值勾框无 id，聚焦反推不出字段）
-      pvHitRescroll = true;       // 等重渲出新条款后滚到对应内容（此刻定位必扑空）
+      pvHitScrollPending = true;  // 此刻定位必扑空（新条款还没渲染）：目标第一次出现的那次渲染带滚动补上
       if (ckOn(f.key)) { ckState[f.key] = false; return; }   // 不勾不清值：提交门回默认
       ckState[f.key] = true;
       const cur = String(form[f.key] ?? "").trim();
@@ -719,8 +719,8 @@ const app = createApp({
         pvState.value = "ready";
         pvHasContent.value = true;
         pvIssues.value = d.draft_issues || [];
-        if (pvHit) applyPvHit(pvHitRescroll);   // 重渲后 DOM 重建：重贴水洗并重新校准光环位置，巡游不中断；
-        pvHitRescroll = false;                  // 勾选切换的那次重渲带滚动（新条款此刻才存在，滚给她看）
+        if (pvHit) applyPvHit(pvHitScrollPending);  // 重渲后 DOM 重建：重贴水洗并重新校准光环位置，巡游不中断；
+        // 目标上次还没出现（如勾了再输入）：这次渲染出来了就带滚动补定位（applyPvHit 成功时自清 pending）
       } catch (e) {
         if (e.name === "AbortError") return;
         if (mySeq === pvSeq) { pvState.value = "error"; pvError.value = String(e.message || e); pvIssues.value = []; }
@@ -739,7 +739,7 @@ const app = createApp({
     const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)");
     let pvHit = null;            // { key, cardIdx?, pfield? } 当前联动字段
     let pvHitTimer = null;
-    let pvHitRescroll = false;   // 勾选切换置位：预览重渲完成后重贴联动并滚到目标（勾选时新条款还没渲染，聚焦瞬间的定位必扑空）
+    let pvHitScrollPending = false;  // 联动目标还没在预览里出现过（勾选新条款/聚焦时定位扑空）：等它第一次渲染出来那次带滚动补定位
     let pvBeacon = null;         // 巡游光环覆盖层（单例，重渲不销毁，动效无缝连续）
     const PV_HIT_HIDE_MS = 1800; // 焦点移出联动字段后的隐藏缓冲
     const isoOk = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(Date.parse(s));
@@ -850,8 +850,8 @@ const app = createApp({
 
     // scroll=定位后滚动到目标；重渲重贴走同一入口，光环位置随新内容重新校准
     function applyPvHit(scroll) {
-      clearPvHit();
-      if (!pvHit || !cfg.value) return;
+      clearTimeout(pvHitTimer);
+      if (!pvHit || !cfg.value) return false;
       let a = null, instIdx, el = null;
       if (pvHit.key === "__inst") {
         a = cfg.value.field_anchors?.installment;
@@ -872,10 +872,12 @@ const app = createApp({
             || ps.find(p => (p.textContent || "").includes(v)) || el;
         }
       }
-      if (!el) return;
+      if (!el) return false;   // 目标还没渲染出来（如刚勾选）：pending 保持，等内容出现的那次带滚动
       el.classList.add("pv-hit");
       pinBeacon(el);
       if (scroll) pvScrollTo(el);
+      pvHitScrollPending = false;   // 已定位：补定位任务完成
+      return true;
     }
 
     // 定位滚动：目标中心一律对齐预览视口垂直中线（偏下的要滚到正中）；
