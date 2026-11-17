@@ -604,6 +604,31 @@ def build_spec(data: dict) -> tuple:
         [second_label, second_value, "結算類型", data.get("settle_type", "")],
     ]
 
+    # 下次需付（2026-11-17）：收定金/第二期时顺带写明下一期金额。纯展示——
+    # 不进今日需付、不进任何合计与备注句；手填多少写多少，缺等值边不代折
+    # （前端联动已按抬头汇率补齐另一边，到引擎即所见即所得）。
+    # 结构与 today_pay 同形 {cny, hkd}，纸面画成黄条下的浅灰窄条、金额列对齐。
+    np = data.get("next_pay") if isinstance(data.get("next_pay"), dict) else {}
+    np_spec = None
+    try:
+        np_amount = abs(float(np.get("amount", 0) or 0))
+    except (TypeError, ValueError):
+        np_amount = 0.0
+    if np_amount > 0.005:
+        np_cur = np.get("currency") if np.get("currency") in ("CNY", "HKD") else "CNY"
+        np_spec = {"label": str(np.get("item") or "").strip() or "下次需付",
+                   "cny": f"¥ {np_amount:,.2f}" if np_cur == "CNY" else None,
+                   "hkd": f"$ {np_amount:,.2f}" if np_cur == "HKD" else None}
+        for k, cur in (("cny_equiv", "CNY"), ("hkd_equiv", "HKD")):
+            if np_spec[cur.lower()] is not None:
+                continue
+            try:
+                v = float(np.get(k))
+            except (TypeError, ValueError):
+                v = None
+            if v:
+                np_spec[cur.lower()] = f"{'¥' if cur == 'CNY' else '$'} {v:,.2f}"
+
     filename = data.get("filename")
     if not filename:
         date_digits = re.sub(r"[^0-9]", "", data.get("date_iso") or "")
@@ -625,6 +650,7 @@ def build_spec(data: dict) -> tuple:
         "sections": sections,
         "note": note,
         "today_pay": today_pay,
+        "next_pay": np_spec,
         "amount_note": amount_note,
     }
     if data.get("overrides"):

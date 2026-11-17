@@ -1124,6 +1124,9 @@ const app = createApp({
       group: "", customer: "", date: "", port: "深圳湾", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
       tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
+      /* 下次需付（2026-11-17）：收定金/第二期时顺带写明下一期金额，手填、纯展示，
+         不进今日需付与任何合计；联动同普通行（先填边=主币种）。 */
+      nextPay: { cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null },
     });
     const stSrcOpen = ref(false);   // 业务资料默认收起，点卡头展开/收回（同台账 AI 快速导入）
     // 与抬头那 5 枚单选牌取值一一对应（模板里的 v-model 同源，改动需同步）
@@ -1225,6 +1228,7 @@ const app = createApp({
       st.fees = stFeePresetRows(st.biz);
       st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
+      st.nextPay = { cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null };
     }
 
     async function stFetchRate(day) {
@@ -1359,6 +1363,9 @@ const app = createApp({
       data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" }, r.base)).filter(Boolean);
       data.extra_fees      = st.fees.map(fee).filter(Boolean);
       data.extra_paid      = [...st.deds.map(ded), ...st.paid.map(paid)].filter(Boolean);
+      // 下次需付：仅高才移民业务（2026-11-17 范围钉死）；填了金额才随单走，纸面窄条展示，不进任何核算
+      if (st.biz === "高才" && st.nextPay && (num(st.nextPay.cny) !== null || num(st.nextPay.hkd) !== null))
+        data.next_pay = pair("下次需付", st.nextPay.cny, st.nextPay.hkd, null, st.nextPay.base);
       return data;
     }
 
@@ -1425,6 +1432,7 @@ const app = createApp({
       st.deds = (p.extra_paid || []).map(e => ({ name: e.item || "", amount: Number(e.amount) || null,
         currency: e.currency === "CNY" ? "CNY" : "HKD" }));
       st.paid = [];
+      st.nextPay = { cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null };   // 解析不识别这项，手填
       if (!st.fees.length) st.fees = [{ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false, base: null }];
       if (!st.paid.length) st.paid = [{ name: "", amount: null, currency: "HKD" }];
     }
@@ -1455,7 +1463,7 @@ const app = createApp({
       clearTimeout(stPvTimer);
       stPvTimer = setTimeout(stPreview, 350);
     }
-    watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid,
+    watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid, st.nextPay,
                  st.group, st.customer, st.date, st.port, st.settle_type],
           stSchedulePreview, { deep: true });
     let stPvSeq = 0;
@@ -1689,6 +1697,13 @@ const app = createApp({
                 <span class="row-label out"><span class="sdot" style="background:var(--red)"></span><input v-model.trim="r.label"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="r.cny" @input="stSync(r, 'cny')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="r.hkd" @input="stSync(r, 'hkd')" placeholder="金额"></span>
+              </template>
+              <!-- 下次需付只在高才移民业务出现（2026-11-17 她钉死范围：香港移民这一个） -->
+              <template v-if="st.biz === '高才'">
+                <div class="st-sec-head"><span class="tag gray">下次需付</span><span class="sec-hint">下一期要收的，不计入今日需付</span></div>
+                <span></span>
+                <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="st.nextPay.cny" @input="stSync(st.nextPay, 'cny')" placeholder="金额"></span>
+                <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="st.nextPay.hkd" @input="stSync(st.nextPay, 'hkd')" placeholder="金额"></span>
               </template>
             </div>
           </div>

@@ -83,6 +83,7 @@ TABLE_BORDER = HexColor("#9FB4C9")
 ACC_BORDER = HexColor("#DEE7F0")
 RED = HexColor("#C62828")
 YELLOW = HexColor("#FFF1B8")
+NEXT_FILL = HexColor("#F4F5F7")   # 下次需付窄条：中性浅灰，弱于黄条但成框不成裸字
 NEXT_BLUE = HexColor("#8FA6BF")
 GIFT_GREEN = HexColor("#2E7955")
 GIFT_BG = HexColor("#E6F4EA")
@@ -105,6 +106,7 @@ S_AMOUNT = 13.0
 S_DIGIT = 12.8
 S_NOTE = 10.2
 S_TODAY = 16.0
+S_NEXT = 12.5   # 下次需付窄条：黄条的从属对照，金额槽位与黄条同列
 S_AMTNOTE_LABEL = 11.8
 S_AMTNOTE = 11.0
 S_ACC_LABEL = 11.2
@@ -137,6 +139,8 @@ NOTE_H = 36.0
 NOTE_LINE_H = 15.0
 NOTE_PAD = 9.0
 TODAY_H = 35.0
+NEXT_BAR_H = 26.0
+NEXT_H = 30.0   # 下次需付浅灰窄条（26 条身+4 间隙）紧贴黄条之下；没填不占位
 AMTNOTE_H = 31.0
 AMTNOTE_GAP = 16.0
 ACC_LEFT, ACC_RIGHT = X0, X0 + 261.0
@@ -310,6 +314,7 @@ def plan_layout(spec: dict) -> dict:
     meta_heights, table_top = meta_layout(spec)
     available = table_top - BOTTOM_LIMIT
     accounts_h = sum(ACC_ROW_H)
+    next_h = NEXT_H if spec.get("next_pay") else 0.0
     warnings: list[str] = []
 
     chosen = None
@@ -320,6 +325,7 @@ def plan_layout(spec: dict) -> dict:
                 + group_count * GROUP_H
                 + row_count * row_h
                 + TODAY_H
+                + next_h
                 + amtnote_h
                 + gap
                 + accounts_h
@@ -532,6 +538,24 @@ class Renderer:
             self.txt(tx, y - 17 - i * 15.0, line, S_AMTNOTE, NOTE_GRAY)
         return y - h - self.layout["tail_gap"]
 
+    def draw_next_pay(self, y):
+        """下次需付窄条：紧贴黄条之下成一组对照（今天 vs 下次），金额槽位与黄条同列。"""
+        np_spec = self.spec.get("next_pay")
+        if not np_spec:
+            return y
+        self.box(X0, y, TABLE_W, NEXT_BAR_H, NEXT_FILL, BORDER)
+        label = f"{np_spec.get('label') or '下次需付'}："
+        self.txt(X0 + 12, y - 17, label, S_NEXT, GRAY, "left", True)
+        cny, hkd = np_spec.get("cny"), np_spec.get("hkd")
+        if cny and hkd:
+            self.txt(X0 + 150, y - 17, cny, S_NEXT, GRAY, "left", True)
+            self.txt(X0 + 330, y - 17, hkd, S_NEXT, GRAY, "left", True)
+            w = pdfmetrics.stringWidth(cny, "CJK", S_NEXT + 0.55)
+            self.txt((X0 + 150 + w + X0 + 330) / 2.0, y - 17, "/", S_NEXT + 0.55, GRAY, "center", True)
+        else:
+            self.txt(X0 + 238, y - 17, cny or hkd or "", S_NEXT, GRAY, "center", True)
+        return y - NEXT_H
+
     def draw_today_pay(self, y):
         pay = self.spec.get("today_pay") or {}
         cny = pay.get("cny")
@@ -589,6 +613,7 @@ class Renderer:
         self.draw_table_head()
         y = self.draw_sections()
         y = self.draw_today_pay(y)
+        y = self.draw_next_pay(y)
         y = self.draw_amount_note(y)
         self.draw_accounts(y)
         self.txt(PAGE_W / 2, 10, "明哥中港牌  MING GE CROSS BORDER", S_FOOTER, GRAY, "center")
