@@ -1134,7 +1134,8 @@ const app = createApp({
       "车辆":   ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"],
       "高才":   ["收定金", "收第二期款", "收第三期款", "其他"],
     };
-    const stPresets = computed(() => ST_PRESETS[st.biz] || ST_PRESETS["两地牌"]);
+    const stPresets = computed(() => (ST_PRESETS[st.biz] || ST_PRESETS["两地牌"])
+      .map(p => p === "收尾款" ? ST_TAIL_LABELS[st.biz] : p));   // 「收尾款」槽位＝该业务尾款文案（动态，与默认结算类型一致）
     const ST_PORTS = ["深圳湾", "莲塘", "沙头角", "港珠澳", "皇岗", "文锦渡"];   // 口岸下拉预置
     const stPorts = computed(() =>
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
@@ -1178,9 +1179,12 @@ const app = createApp({
       "高才":   {},   /* 高才移民几乎无杂费：默认全空，特殊客户在杂费区手动加行 */
     };
     /* 未收行默认名随业务类型（2026-11-15 业务反馈）：两地牌最后一步是装卡+通关，
-       车辆业务则是提车，高才最后一笔是第三期款（批准函后）——纸面「結算類型」与行名照显示。 */
-    const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "第三期款" };
-    const stTailType = computed(() => ST_TAIL_LABELS[st.biz]);   // 「收尾款」标签文案随业务类型
+       车辆业务则是提车，高才最后一笔是第三期款（批准函后）——纸面「結算類型」与行名照显示。
+       尾款文案必须与该业务标签组里的选项逐字一致（含「收」字），否则重命名落到不存在的
+       选项上→整组无选中（2026-11-17 用户实测踩到）。 */
+    const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "收第三期款" };
+    /* 各业务进入时的默认结算类型：高才最常见的收款节点是第二期（公司过户后） */
+    const ST_DEFAULT_SETTLE = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "收第二期款" };
     const ST_TAIL_NAMES = Object.values(ST_TAIL_LABELS);
     const stFeeNames = computed(() => Object.keys(ST_FEE_PRESETS[st.biz] || {}));
     function stFeePresetRows(biz) {
@@ -1195,7 +1199,7 @@ const app = createApp({
       st.biz = biz;
       st.fees = stFeePresetRows(biz);   // 切换即重置为该业务默认杂费（业务定稿：清空重置）
       if (st.settle_type === "收尾款" || ST_TAIL_NAMES.includes(st.settle_type)) {
-        st.settle_type = ST_TAIL_LABELS[biz];   // 选中的「收尾款」标签文案随业务换名
+        st.settle_type = ST_DEFAULT_SETTLE[biz];   // 选中的尾款类标签随业务换名（高才默认第二期款）
         stFollowTail();
       }
       const bizName = { "两地牌": "两地牌", "车辆": "车辆", "高才": "高才移民" }[biz] || biz;
@@ -1211,13 +1215,13 @@ const app = createApp({
     }
     function stDefaults() {
       const d = new Date();
-      st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = ST_TAIL_LABELS[st.biz];
+      st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = ST_DEFAULT_SETTLE[st.biz];
       st.settle_custom = "";
       st.vehicle = "";
       st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
       st.tRows = [stBlankRow("总价")];
       st.rRows = [stBlankRow("定金")];
-      st.uRows = [stBlankRow(ST_TAIL_LABELS[st.biz])];
+      st.uRows = [stBlankRow(ST_DEFAULT_SETTLE[st.biz])];
       st.fees = stFeePresetRows(st.biz);
       st.deds = [];   // 减免区：解析到才显示，空则整区隐藏
       st.paid = [{ name: "", amount: null, currency: "HKD" }];
@@ -1530,7 +1534,7 @@ const app = createApp({
       generate, download, openHistory, viewHistoryResult,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stTailType, stFollowTail, stPresets,
+      stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
     };
   },
