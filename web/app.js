@@ -1209,6 +1209,11 @@ const app = createApp({
       return ST_RENEW_FEES.map(f => ({ name: f.name, cny: null, hkd: f.hkd ?? null,
                                        gift: false, cnyAuto: false, hkdAuto: false, base: null, on: false }));
     }
+    function stAddRenew() {
+      // 手动加一项（2026-11-18）：自定义费用同样走勾选逻辑；加即勾（加=要收），不想要就去勾或删行
+      st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false,
+                     base: null, on: true, manual: true });
+    }
     function stSetBiz(biz) {
       if (stBizApplied === biz) return;
       stBizApplied = biz;
@@ -1374,8 +1379,8 @@ const app = createApp({
       const fee = f => {
         const name = String(f.name || "").trim();
         if (!name) return null;
-        // 续期勾选制：未勾的项正式单不落；实时预览出留白模板行（首次进业务右栏即有整张纸）
-        if (isRenew && !f.on) return draft ? { item: name, amount: 0, blank: true } : null;
+        // 续期勾选制（2026-11-18 定稿）：未勾的项不落单不参与计算，纸面只展示勾中的
+        if (isRenew && !f.on) return null;
         const c = num(f.cny), h = num(f.hkd);
         if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
         if (c !== null && h !== null && f.base === "hkd")   // 先手填港币的杂费记港币
@@ -1526,8 +1531,14 @@ const app = createApp({
     let stPvSeq = 0;
     async function stPreview() {
       const seq = ++stPvSeq;
+      const draftPayload = stToEngine(true);
+      // 续期全不勾：没有可出单的内容，右栏不展示成品、提示勾选后出单（2026-11-18 定稿）
+      if (st.biz === "续期" && !(draftPayload.extra_fees || []).length) {
+        if (st.preview) st.preview = null;
+        return;
+      }
       try {
-        const d = await postJSON("/api/settlement/preview", { data: stToEngine(true), ...stRatePayload() });
+        const d = await postJSON("/api/settlement/preview", { data: draftPayload, ...stRatePayload() });
         if (seq !== stPvSeq) return;   // 迟到的旧响应丢弃，别盖住新图
         const t = Date.now();
         // 幕后把新图加载完再原地换 src：img 元素不销毁重建（去掉 :key 后 Vue 原地 patch），
@@ -1606,7 +1617,7 @@ const app = createApp({
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stReset, stFetchRate, saveAs, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stReset, stFetchRate, saveAs, icon,
     };
   },
 
@@ -1780,13 +1791,17 @@ const app = createApp({
           <div class="card-head"><span class="dot" :style="{ background: st.biz !== '续期' && st.fees.length && st.fees.every(f => f.gift) ? 'var(--green)' : '#4a6e8f' }"></span><h3>{{ st.biz === '续期' ? '续期费用' : '合同外杂费' }}</h3></div>
           <div class="card-body">
             <template v-if="st.biz === '续期'">
-              <!-- 续期固定费用清单（2026-11-18）：全部展示、勾选制（勾=本单收取），单港币、不加行不删行 -->
-              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span></div>
-              <div v-for="f in st.fees" :key="'rf' + f.name" class="st-fee renew" :class="{ off: !f.on }">
+              <!-- 续期费用清单（2026-11-18）：固定项全展示、勾选制（勾=本单收取），单港币；
+                   手动加一项同走勾选，可删行。全不勾时右栏不展示成品、提示勾选后出单 -->
+              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span></span></div>
+              <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on }">
                 <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="f.on = !f.on"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
-                <input class="name" v-model.trim="f.name">
+                <input class="name" v-model.trim="f.name" :placeholder="f.manual ? '自定义项目' : ''">
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
+                <button v-if="f.manual" class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+                <span v-else></span>
               </div>
+              <button class="add-row" @click="stAddRenew"><span v-html="icon('plus','st-ic sm')"></span>手动加一项</button>
             </template>
             <template v-else>
             <div class="st-fee">
@@ -2195,6 +2210,10 @@ const app = createApp({
         <template v-else-if="st.preview">
           <img class="st-img st-draft" :src="st.preview.url + '?t=' + st.preview.t" alt="模板预览" />
         </template>
+        <div class="pv-placeholder" v-else-if="st.biz === '续期' && !st.fees.some(f => f.on)">
+          <div class="pv-ph-mark">續</div>
+          <div>勾选续期项目后出单</div>
+        </div>
         <div class="pv-placeholder" v-else>
           <div class="pv-ph-mark">結</div>
           <div>正在渲染模板预览…</div>
