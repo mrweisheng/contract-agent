@@ -703,6 +703,19 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 /* 合同外杂费：清单 + 双币 */
 .st-fee { display: grid; grid-template-columns: minmax(110px, 1.2fr) 1fr 1fr 48px 24px;
           gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 9px; }
+/* 续期收费费用清单（2026-11-18）：勾选制（勾=本单收取、不勾=置灰不落单），单港币列 */
+.st-fee.renew { grid-template-columns: 30px minmax(110px, 1.2fr) 1fr; }
+.st-fee.renew-head { grid-template-columns: 30px minmax(110px, 1.2fr) 1fr; }
+.st-renew-ck { border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted-2);
+               height: 32px; display: grid; place-items: center; user-select: none; cursor: pointer; }
+.st-renew-ck .ck { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px;
+                   display: grid; place-items: center; }
+.st-renew-ck .ck > span { display: flex; line-height: 0; }
+.st-renew-ck .ck .st-ic { width: 10px; height: 10px; stroke-width: 3.2; opacity: 0; }
+.st-renew-ck.on { border-color: var(--green); background: #eef7f0; color: var(--green); }
+.st-renew-ck.on .ck { background: var(--green); border-color: var(--green); color: #fff; }
+.st-renew-ck.on .ck .st-ic { opacity: 1; }
+.st-fee.renew.off .name, .st-fee.renew.off .st-amt { opacity: .38; }
 .st-fee + .st-fee { margin-top: 2px; }
 .st-fee .name { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 12.5px;
                 background: #fff; color: inherit; width: 100%; min-width: 0; }

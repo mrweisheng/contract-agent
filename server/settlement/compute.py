@@ -593,7 +593,15 @@ def build_spec(data: dict) -> tuple:
     biz_text = str(data.get("business") or "")
     is_vehicle_biz = bool(data.get("vehicle")) or "买卖" in biz_text
     is_gaocai_biz = "高才" in biz_text or "移民" in biz_text
-    if is_gaocai_biz:
+    is_renew_biz = "续期" in biz_text
+    if is_renew_biz:
+        # 续期收费（2026-11-18 定稿）：紙面「業務」=续期收费，「結算類型」=下拉所选类型；
+        # 单港币永不换算 → 备注整行不画（含「本單全部款項均為港幣」句，她定稿：不合适）
+        second_label, second_value = "業務", "续期收费"
+        settle_shown = str(data.get("renew_type") or "").strip()
+        note = None
+        amount_note = None
+    elif is_gaocai_biz:
         second_label, second_value = "業務", "高才移民"
     elif is_vehicle_biz:
         second_label, second_value = "購買車輛", data.get("vehicle") or ""
@@ -601,7 +609,8 @@ def build_spec(data: dict) -> tuple:
         second_label, second_value = "申請口岸", data.get("port") or ""
     meta = [
         ["客戶名稱", customer, "群名", group],
-        [second_label, second_value, "結算類型", data.get("settle_type", "")],
+        [second_label, second_value, "結算類型",
+         settle_shown if is_renew_biz else data.get("settle_type", "")],
     ]
 
     # 下次需付（2026-11-17）：收定金/第二期时顺带写明下一期金额。纯展示——
@@ -652,6 +661,7 @@ def build_spec(data: dict) -> tuple:
         "today_pay": today_pay,
         "next_pay": np_spec,
         "amount_note": amount_note,
+        "note_hidden": is_renew_biz,
     }
     if data.get("overrides"):
         spec["overrides"] = data["overrides"]

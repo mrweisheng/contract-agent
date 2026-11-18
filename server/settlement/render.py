@@ -311,6 +311,8 @@ def plan_layout(spec: dict) -> dict:
                                   TABLE_W - 60.0, TABLE_W - 12.0)
                      if amtnote_text else [])
     amtnote_h = max(31.0, len(amtnote_lines) * 15.0 + 16.0)
+    if spec.get("note_hidden"):
+        amtnote_h = 0.0   # 续期收费：备注整行不画，只留与账户区的呼吸间距
     meta_heights, table_top = meta_layout(spec)
     available = table_top - BOTTOM_LIMIT
     accounts_h = sum(ACC_ROW_H)
@@ -530,6 +532,8 @@ class Renderer:
             self.canvas.line(X0, top, X0 + TABLE_W, top)
 
     def draw_amount_note(self, y):
+        if self.spec.get("note_hidden"):
+            return y - 10.0   # 续期收费：无备注，只留呼吸间距
         lines = self.layout.get("amtnote_lines") or []
         h = self.layout.get("amtnote_h", AMTNOTE_H)
         self.txt(X0, y - 17, "備註：", S_AMTNOTE_LABEL, NAVY, "left", True)

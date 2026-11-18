@@ -1123,6 +1123,7 @@ const app = createApp({
       biz: "两地牌", vehicle: "",
       group: "", customer: "", date: "", port: "深圳湾", settle_type: "收尾款",
       settle_custom: "",   // 解析出的结算类型不在快捷选项里时，原样存这里供回显
+      renewType: "两地牌续期",   // 续期收费类型（2026-11-18）：两地牌续期 / 港车维护
       tRows: [], rRows: [], uRows: [], fees: [], deds: [], paid: [],
       /* 下次需付（2026-11-17）：收定金/第二期时顺带写明下一期金额，手填、纯展示，
          不进今日需付与任何合计；联动同普通行（先填边=主币种）。 */
@@ -1136,6 +1137,7 @@ const app = createApp({
       "两地牌": ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"],
       "车辆":   ["收定金", "收第二期款", "收尾款", "杂费结算", "其他"],
       "高才":   ["收定金", "收第二期款", "收第三期款", "其他"],
+      "续期":   ["杂费结算", "其他"],
     };
     const stPresets = computed(() => (ST_PRESETS[st.biz] || ST_PRESETS["两地牌"])
       .map(p => p === "收尾款" ? ST_TAIL_LABELS[st.biz] : p));   // 「收尾款」槽位＝该业务尾款文案（动态，与默认结算类型一致）
@@ -1181,13 +1183,20 @@ const app = createApp({
       "车辆":   { "过户费": { hkd: 1500 }, "牌费": {}, "保险": {} },
       "高才":   {},   /* 高才移民几乎无杂费：默认全空，特殊客户在杂费区手动加行 */
     };
+    /* 续期收费固定费用清单（2026-11-18）：全部展示、勾选制（勾=本单收取），单港币。
+       牌费金额每单不一留空手填；勾选但未填金额 → 预览出留白行、正式生成拦截提示。 */
+    const ST_RENEW_FEES = [
+      { name: "批文卡续期", hkd: 1000 }, { name: "海关备案", hkd: 500 },
+      { name: "禁区纸续期", hkd: 2000 }, { name: "变更司机", hkd: 800 },
+      { name: "过户", hkd: 1500 }, { name: "牌费", hkd: null },
+    ];
     /* 未收行默认名随业务类型（2026-11-15 业务反馈）：两地牌最后一步是装卡+通关，
        车辆业务则是提车，高才最后一笔是第三期款（批准函后）——纸面「結算類型」与行名照显示。
        尾款文案必须与该业务标签组里的选项逐字一致（含「收」字），否则重命名落到不存在的
        选项上→整组无选中（2026-11-17 用户实测踩到）。 */
     const ST_TAIL_LABELS = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "收第三期款" };
-    /* 各业务进入时的默认结算类型：高才最常见的收款节点是第二期（公司过户后） */
-    const ST_DEFAULT_SETTLE = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "收第二期款" };
+    /* 各业务进入时的默认结算类型：高才最常见的收款节点是第二期（公司过户后），续期只有杂费结算 */
+    const ST_DEFAULT_SETTLE = { "两地牌": "装卡通关收尾款", "车辆": "提车收尾款", "高才": "收第二期款", "续期": "杂费结算" };
     const ST_TAIL_NAMES = Object.values(ST_TAIL_LABELS);
     const stFeeNames = computed(() => Object.keys(ST_FEE_PRESETS[st.biz] || {}));
     function stFeePresetRows(biz) {
@@ -1196,16 +1205,40 @@ const app = createApp({
                                gift: false, cnyAuto: false, hkdAuto: false, base: null }));
     }
     let stBizApplied = "两地牌";   // v-model 先改 st.biz，@change 后到——比较"已应用"标记，不能用当前值
+    function stRenewPresetRows() {
+      return ST_RENEW_FEES.map(f => ({ name: f.name, cny: null, hkd: f.hkd ?? null,
+                                       gift: false, cnyAuto: false, hkdAuto: false, base: null, on: false }));
+    }
     function stSetBiz(biz) {
       if (stBizApplied === biz) return;
       stBizApplied = biz;
+      const wasRenew = st.biz === "续期";
       st.biz = biz;
-      st.fees = stFeePresetRows(biz);   // 切换即重置为该业务默认杂费（业务定稿：清空重置）
-      if (st.settle_type === "收尾款" || ST_TAIL_NAMES.includes(st.settle_type)) {
-        st.settle_type = ST_DEFAULT_SETTLE[biz];   // 选中的尾款类标签随业务换名（高才默认第二期款）
-        stFollowTail();
+      if (biz === "续期") {
+        // 续期收费（2026-11-18 纯新增）：无合同内款项、无解析，费用=固定清单勾选制，单港币
+        st.tRows = []; st.rRows = []; st.uRows = []; st.deds = [];
+        st.paid = [{ name: "", amount: null, currency: "HKD" }];
+        st.fees = stRenewPresetRows();
+        st.settle_type = ST_DEFAULT_SETTLE["续期"];
+        st.settle_custom = "";
+      } else {
+        st.fees = stFeePresetRows(biz);   // 切换即重置为该业务默认杂费（业务定稿：清空重置）
+        if (wasRenew) {
+          // 从续期切回：续期不产生行数据，恢复该业务默认行模型与默认结算类型（整体回到默认态）
+          st.tRows = [stBlankRow("总价")];
+          st.rRows = [stBlankRow("定金")];
+          st.uRows = [stBlankRow(ST_DEFAULT_SETTLE[biz] || "收尾款")];
+          st.settle_type = ST_DEFAULT_SETTLE[biz];
+          stFollowTail();
+        }
+        // 当前结算类型不在目标业务标签组里（含从续期带来的「杂费结算」落到高才等）→ 回默认，
+        // 避免整组无选中（6f3c362 同类病根，这里顺手治了）
+        if (!stPresets.value.includes(st.settle_type)) {
+          st.settle_type = ST_DEFAULT_SETTLE[biz];
+          stFollowTail();
+        }
       }
-      const bizName = { "两地牌": "两地牌", "车辆": "车辆", "高才": "高才移民" }[biz] || biz;
+      const bizName = { "两地牌": "两地牌", "车辆": "车辆", "高才": "高才移民", "续期": "续期收费" }[biz] || biz;
       toast(`已切换到${bizName}业务，杂费已重置为该业务默认项`, "ok");
       stSchedulePreview();
     }
@@ -1221,7 +1254,16 @@ const app = createApp({
       st.group = ""; st.customer = ""; st.port = "深圳湾"; st.settle_type = ST_DEFAULT_SETTLE[st.biz];
       st.settle_custom = "";
       st.vehicle = "";
+      st.renewType = "两地牌续期";
       st.date = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+      if (st.biz === "续期") {
+        // 续期收费：无合同内款项，费用=固定清单（默认全不勾）
+        st.tRows = []; st.rRows = []; st.uRows = []; st.deds = [];
+        st.fees = stRenewPresetRows();
+        st.paid = [{ name: "", amount: null, currency: "HKD" }];
+        st.nextPay = { cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null };
+        return;
+      }
       st.tRows = [stBlankRow("总价")];
       st.rRows = [stBlankRow("定金")];
       st.uRows = [stBlankRow(ST_DEFAULT_SETTLE[st.biz])];
@@ -1294,6 +1336,8 @@ const app = createApp({
     /* 双币联动：改一边，另一边为空或仍是自动值时按抬头汇率补齐。
        双向折算一律 ×1.01（与引擎同口径，只做不说）。 */
     function stSync(row, which) {
+      // 续期收费单港币：不联动另一边（隐藏的 cny 保持空，合计/payload 都干净，2026-11-18）
+      if (st.biz === "续期") return;
       row[which + "Auto"] = false;
       const other = which === "cny" ? "hkd" : "cny";
       // 先手填的哪边就是这笔钱的币种（2026-10-21 业务定稿"输什么展示什么"）；本边清空则由对面接棒
@@ -1330,6 +1374,7 @@ const app = createApp({
       const fee = f => {
         const name = String(f.name || "").trim();
         if (!name) return null;
+        if (isRenew && !f.on) return null;   // 续期勾选制：未勾的项完全不落单
         const c = num(f.cny), h = num(f.hkd);
         if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
         if (c !== null && h !== null && f.base === "hkd")   // 先手填港币的杂费记港币
@@ -1345,6 +1390,7 @@ const app = createApp({
         if (draft && a === null) return { item: name || "实收", amount: 0, blank: true };
         return { item: name || "实收", amount: a, currency: p.currency === "CNY" ? "CNY" : "HKD" };
       };
+      const isRenew = st.biz === "续期";
       // 减免行与实收行同落 extra_paid（引擎同一个扣减口径），只是编辑区分开展示
       const ded = d => {
         const name = String(d.name || "").trim();
@@ -1355,12 +1401,19 @@ const app = createApp({
       const data = { group: st.group, customer: st.customer, date: st.date,
                      settle_type: st.settle_type,
                      business: st.biz === "车辆" ? "港车买卖结算单"
-                             : st.biz === "高才" ? "高才移民结算单" : "现牌结算单" };
-      if (st.biz === "车辆") data.vehicle = st.vehicle;   // 引擎纸面自動顯示「購買車輛」行
-      else data.port = st.port;
-      data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
-      data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
-      data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" }, r.base)).filter(Boolean);
+                             : st.biz === "高才" ? "高才移民结算单"
+                             : st.biz === "续期" ? "续期收费结算单" : "现牌结算单" };
+      if (isRenew) {
+        // 续期收费：纸面「結算類型」=所选类型；无合同内款项，费用全在 extra_fees（勾选项、单港币）
+        data.renew_type = st.renewType;
+        data.contract_total = []; data.contract_paid = []; data.contract_unpaid = [];
+      } else {
+        if (st.biz === "车辆") data.vehicle = st.vehicle;   // 引擎纸面自動顯示「購買車輛」行
+        else data.port = st.port;
+        data.contract_total  = st.tRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
+        data.contract_paid   = st.rRows.map(r => pair(r.label, r.cny, r.hkd, null, r.base)).filter(Boolean);
+        data.contract_unpaid = st.uRows.map(r => pair(r.label, r.cny, r.hkd, { status: "today" }, r.base)).filter(Boolean);
+      }
       data.extra_fees      = st.fees.map(fee).filter(Boolean);
       data.extra_paid      = [...st.deds.map(ded), ...st.paid.map(paid)].filter(Boolean);
       // 下次需付：仅高才移民业务（2026-11-17 范围钉死）；填了金额才随单走，纸面窄条展示，不进任何核算
@@ -1375,10 +1428,13 @@ const app = createApp({
       let inC = 0, inH = 0, outC = 0, outH = 0;
       st.rRows.forEach(r => { inC += num(r.cny); inH += num(r.hkd); });
       st.uRows.forEach(r => { outC += num(r.cny); outH += num(r.hkd); });
-      st.fees.forEach(f => { if (!f.gift) { outC += num(f.cny); outH += num(f.hkd); } });
+      // 续期勾选制：未勾项不计（与 payload/纸面同口径，2026-11-18）
+      st.fees.forEach(f => { if (!f.gift && !(st.biz === "续期" && !f.on)) { outC += num(f.cny); outH += num(f.hkd); } });
       st.paid.forEach(p => { if (p.currency === "CNY") inC += num(p.amount); else inH += num(p.amount); });
       // 减免不是收到的现金，不计入「已收」；真正数字以引擎生成为准
       const f2 = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // 续期收费单港币：底栏不出现 ¥ 列（2026-11-18 她定稿）
+      if (st.biz === "续期") return `已收 HK$${f2(inH)} · 应收 HK$${f2(outH)}`;
       return `已收 ¥${f2(inC)} / HK$${f2(inH)} · 应收 ¥${f2(outC)} / HK$${f2(outH)}`;
     });
 
@@ -1464,7 +1520,7 @@ const app = createApp({
       stPvTimer = setTimeout(stPreview, 350);
     }
     watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid, st.nextPay,
-                 st.group, st.customer, st.date, st.port, st.settle_type],
+                 st.group, st.customer, st.date, st.port, st.settle_type, st.renewType],
           stSchedulePreview, { deep: true });
     let stPvSeq = 0;
     async function stPreview() {
@@ -1590,7 +1646,7 @@ const app = createApp({
       <!-- ================ 收款结算单：粘贴 → 解析 → 可改 → 生成 ================ -->
       <!-- ================ 收款结算单：账单式 v6 ================ -->
       <div class="pane-body st-pane" v-if="isSettlement" key="settlement">
-        <div class="card st-src" :class="{ closed: !stSrcOpen }">
+        <div class="card st-src" v-if="st.biz !== '续期'" :class="{ closed: !stSrcOpen }">
           <div class="card-head st-src-head" @click="stSrcOpen = !stSrcOpen">
             <span class="dot"></span><h3>业务资料</h3>
             <span class="st-src-hint" v-if="!stSrcOpen">{{ st.text.trim() ? '已粘贴原文 · 点开查看/重新解析' : '粘贴客户原文，AI 解析填表' }}</span>
@@ -1629,6 +1685,7 @@ const app = createApp({
                 <button type="button" :class="{ on: st.biz === '两地牌' }" @click="stSetBiz('两地牌')">两地牌</button>
                 <button type="button" :class="{ on: st.biz === '车辆' }" @click="stSetBiz('车辆')">车辆</button>
                 <button type="button" :class="{ on: st.biz === '高才' }" @click="stSetBiz('高才')">高才移民</button>
+                <button type="button" :class="{ on: st.biz === '续期' }" @click="stSetBiz('续期')">续期收费</button>
               </span>
             </div>
             <div class="st-head-row">
@@ -1665,7 +1722,10 @@ const app = createApp({
             <div class="st-head-row">
               <span class="hl" title="客户"><span v-html="icon('user','st-ic')" style="color:#3b82f6"></span></span><input v-model.trim="st.customer" style="flex:0.6" placeholder="客户">
               <span class="hl" title="日期"><span v-html="icon('calendar','st-ic')" style="color:#f59e0b"></span></span><input v-model.trim="st.date" style="flex:1" placeholder="日期">
-              <template v-if="st.biz === '两地牌'">
+              <template v-if="st.biz === '续期'">
+                <span class="hl" title="续期类型"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.renewType" style="flex:1.2" title="续期类型"><option>两地牌续期</option><option>港车维护</option></select>
+              </template>
+              <template v-else-if="st.biz === '两地牌'">
                 <span class="hl" title="口岸"><span v-html="icon('anchor','st-ic')" style="color:#0e9aa7"></span></span><select v-model="st.port" style="flex:1.2" title="口岸"><option v-for="p in stPorts" :key="p" :value="p">{{ p }}</option></select>
               </template>
               <template v-else-if="st.biz === '车辆'">
@@ -1675,7 +1735,7 @@ const app = createApp({
           </div>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="st.biz !== '续期'">
           <div class="card-head"><span class="dot" style="background:var(--ink-2)"></span><h3>合同内款项</h3></div>
           <div class="card-body">
             <div class="st-ct">
@@ -1710,8 +1770,18 @@ const app = createApp({
         </div>
 
         <div class="card">
-          <div class="card-head"><span class="dot" :style="{ background: st.fees.length && st.fees.every(f => f.gift) ? 'var(--green)' : '#4a6e8f' }"></span><h3>合同外杂费</h3></div>
+          <div class="card-head"><span class="dot" :style="{ background: st.biz !== '续期' && st.fees.length && st.fees.every(f => f.gift) ? 'var(--green)' : '#4a6e8f' }"></span><h3>{{ st.biz === '续期' ? '续期费用' : '合同外杂费' }}</h3></div>
           <div class="card-body">
+            <template v-if="st.biz === '续期'">
+              <!-- 续期固定费用清单（2026-11-18）：全部展示、勾选制（勾=本单收取），单港币、不加行不删行 -->
+              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span></div>
+              <div v-for="f in st.fees" :key="'rf' + f.name" class="st-fee renew" :class="{ off: !f.on }">
+                <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="f.on = !f.on"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
+                <input class="name" v-model.trim="f.name">
+                <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
+              </div>
+            </template>
+            <template v-else>
             <div class="st-fee">
               <span class="col-h" style="text-align:left">杂费项目</span><span class="col-h">人民币</span><span class="col-h">港币</span><span></span><span></span>
             </div>
@@ -1724,6 +1794,7 @@ const app = createApp({
             </div>
             <datalist id="fee-names"><option v-for="n in stFeeNames" :key="n" :value="n"></option></datalist>
             <button class="add-row" @click="stAddFee"><span v-html="icon('plus','st-ic sm')"></span>加一项杂费</button>
+            </template>
 
             <div class="st-ded-sec" v-if="st.deds.length">
               <div class="st-ded-head"><span class="sdot"></span>减免</div>
