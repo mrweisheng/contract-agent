@@ -1242,6 +1242,9 @@ const app = createApp({
           st.rRows = [stBlankRow("定金")];
           st.uRows = [stBlankRow(ST_DEFAULT_SETTLE[biz] || "收尾款")];
           st.settle_type = ST_DEFAULT_SETTLE[biz];
+          st.paid = [{ name: "", amount: null, currency: "HKD" }];   // 实收/杂费实收共用：续期填的必须带走，不得漏到别的业务
+          st.deds = [];
+          st.nextPay = { cny: null, hkd: null, cnyAuto: false, hkdAuto: false, base: null };
           stFollowTail();
         }
         // 当前结算类型不在目标业务标签组里（含从续期带来的「杂费结算」落到高才等）→ 回默认，
