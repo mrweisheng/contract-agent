@@ -210,6 +210,22 @@ CASES = [
         "client_name": "孙八", "client_id": "H9998887", "client_phone": "97788990",
         "total_fee": 300000,
     }, {"mode": "one_time", "pay_date": "2026-09-20", "pay_event": "", "choice": "较早者"}),
+    # ---- 高新过户：手动赠品（分号拆条 →「附赠：X。」逐条落「甲方服务内容与责任」节末）----
+    ("gx_gift_items", "transfer_gx", {
+        "agreement_no": "", "sign_date": "2026-08-31", "currency": "HKD",
+        "client_name": "张三", "client_id": "H1112223", "client_phone": "93001122",
+        "plate": "粤Z·H123港", "port": "深圳湾口岸", "quota_type": "高新",
+        "target_hk_company": "香港example有限公司",
+        "total_fee": 300000, "exchange_fee": 0,
+        "gift_items": "代缴当年香港牌费；协助预约首次通关",
+    }, {"mode": "default", "pay1": 100000, "pay2": 150000, "pay3": 50000}),
+    # ---- 新办：手动赠品（换行拆条 → 落「八、其他约定」末尾、签署块之前）----
+    ("new_gift_items", "new_port", {
+        "agreement_no": "", "sign_date": "2026-08-31", "currency": "CNY", "port": "莲塘口岸",
+        "client_name": "钱七", "client_id": "4415**********1234", "client_phone": "13800138000",
+        "total_fee": 200000,
+        "gift_items": "首年杂费由乙方承担\n协助预约首次通关",
+    }, {"mode": "default", "pay1": 50000, "pay2": 100000, "pay3": 50000}),
 ]
 
 
@@ -364,6 +380,17 @@ EXPECT_EXTRAS = {
         "六、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
         "十、签署确认  |  SIGNATURES",
     ], "not": ["附赠：本车辆", "售后质保", "甲方陈述并保证"]},
+    # 过户/新办手动赠品：逐条「附赠：X。」+ 节锚点（位置正确性由 check_fingerprint 尾部期望严格把关）
+    "gx_gift_items": {"must": [
+        "附赠：代缴当年香港牌费。",
+        "附赠：协助预约首次通关。",
+        "甲方服务内容与责任",
+    ], "not": []},
+    "new_gift_items": {"must": [
+        "附赠：首年杂费由乙方承担。",
+        "附赠：协助预约首次通关。",
+        "其他约定",
+    ], "not": []},
 }
 EXPECT_PLAIN_HEADINGS = [
     "五、车辆交付与责任  |  DELIVERY AND RESPONSIBILITY",
