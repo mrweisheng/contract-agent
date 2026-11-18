@@ -1374,7 +1374,8 @@ const app = createApp({
       const fee = f => {
         const name = String(f.name || "").trim();
         if (!name) return null;
-        if (isRenew && !f.on) return null;   // 续期勾选制：未勾的项完全不落单
+        // 续期勾选制：未勾的项正式单不落；实时预览出留白模板行（首次进业务右栏即有整张纸）
+        if (isRenew && !f.on) return draft ? { item: name, amount: 0, blank: true } : null;
         const c = num(f.cny), h = num(f.hkd);
         if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
         if (c !== null && h !== null && f.base === "hkd")   // 先手填港币的杂费记港币
@@ -1554,6 +1555,12 @@ const app = createApp({
         return;
       }
       const payload = stToEngine(false);
+      // 续期：实收区有数但一个费用项都没勾 → 会生成只有负数抵扣行的废单，先拦
+      if (st.biz === "续期" && !(payload.extra_fees || []).length) {
+        toast(st.paid.some(p => Number.isFinite(parseFloat(p.amount)))
+          ? "还没勾续期费用项——实收要抵的是勾选项的钱，先去勾" : "先勾选要收的续期费用项", "warn", 4500);
+        return;
+      }
       if (!["contract_total", "contract_paid", "contract_unpaid", "extra_fees", "extra_paid"]
             .some(k => (payload[k] || []).length)) {
         toast("请先填金额，或粘贴资料点「解析」", "warn");
