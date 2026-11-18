@@ -425,6 +425,7 @@ def build_spec(data: dict) -> tuple:
                 )
 
     currencies = [c for c in CUR_ORDER if rows_by_cur.get(c)]
+    is_renew_biz = "续期" in str(data.get("business") or "")
     if not currencies:
         raise ValueError("没有任何带币种的明细，无法核算。")
     due_currencies = [c for c in currencies if abs(due.get(c, 0.0)) > 0.005] or currencies
@@ -438,6 +439,12 @@ def build_spec(data: dict) -> tuple:
         c = currencies[0]
         today_pay = {("cny" if c == "CNY" else "hkd"):
                      f"{CUR_SYMBOL[c]} {floor_amount(due[c]):,.2f}"}
+        # 续期收费（2026-11-18 用户侧要求）：全港币单并列人民币参考口径，港币在前。
+        # 折算照全系统标准：正净额（要收的钱）换算加 1%（静默），负净额足额折不收手续费；
+        # 无汇率时只出单口径不硬算。
+        if is_renew_biz and c == "HKD" and hkd_to_cny:
+            cv = due["HKD"] * hkd_to_cny * (factor if due["HKD"] > 0 else 1.0)
+            today_pay["cny"] = f"¥ {floor_amount(cv):,.2f}"
     else:
         if not cny_to_hkd:
             warnings.append(
@@ -593,14 +600,15 @@ def build_spec(data: dict) -> tuple:
     biz_text = str(data.get("business") or "")
     is_vehicle_biz = bool(data.get("vehicle")) or "买卖" in biz_text
     is_gaocai_biz = "高才" in biz_text or "移民" in biz_text
-    is_renew_biz = "续期" in biz_text
     if is_renew_biz:
         # 续期收费（2026-11-18 定稿）：紙面「業務」=续期收费，「結算類型」=下拉所选类型；
-        # 单港币永不换算 → 备注整行不画（含「本單全部款項均為港幣」句，她定稿：不合适）
+        # 纯港币单备注整行不画（「本單全部款項均為港幣」句她定稿不合适）；
+        # 出现人民币行后备注恢复标准枚举+汇率句（今日需付已并列两口径）
         second_label, second_value = "業務", "续期收费"
         settle_shown = str(data.get("renew_type") or "").strip()
-        note = None
-        amount_note = None
+        if currencies == ["HKD"]:
+            note = None
+            amount_note = None
     elif is_gaocai_biz:
         second_label, second_value = "業務", "高才移民"
     elif is_vehicle_biz:
@@ -661,7 +669,8 @@ def build_spec(data: dict) -> tuple:
         "today_pay": today_pay,
         "next_pay": np_spec,
         "amount_note": amount_note,
-        "note_hidden": is_renew_biz,
+        "note_hidden": is_renew_biz and currencies == ["HKD"],
+        "today_hkd_first": is_renew_biz,
     }
     if data.get("overrides"):
         spec["overrides"] = data["overrides"]

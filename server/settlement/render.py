@@ -567,15 +567,17 @@ class Renderer:
         self.box(X0, y, TABLE_W, TODAY_H, YELLOW, TABLE_BORDER)
         self.txt(X0 + 12, y - 23, "您今日需付：", S_TODAY, NAVY, "left", True)
         if cny and hkd:
-            self.txt(X0 + 150, y - 23, cny, S_TODAY, NAVY, "left", True)
-            self.txt(X0 + 330, y - 23, hkd, S_TODAY, NAVY, "left", True)
+            # 续期收费港币在前（2026-11-18）：hkd 占左槽、cny 占右槽；其余业务人民币在左不变
+            first, second = (hkd, cny) if self.spec.get("today_hkd_first") else (cny, hkd)
+            self.txt(X0 + 150, y - 23, first, S_TODAY, NAVY, "left", True)
+            self.txt(X0 + 330, y - 23, second, S_TODAY, NAVY, "left", True)
             # 铁律（淇淇 2026-10-09 强调）：只要同时有人民币和港币两个付款口径，
             # 中间必须画 "/" 分隔；只有调用方显式传 today_sep="" 才不画。
             sep = self.spec.get("today_sep")
             if sep is None:
                 sep = "/"
             if sep:
-                w = pdfmetrics.stringWidth(cny, "CJK", S_TODAY + 0.55)
+                w = pdfmetrics.stringWidth(first, "CJK", S_TODAY + 0.55)
                 self.txt((X0 + 150 + w + X0 + 330) / 2.0, y - 23, sep,
                          S_TODAY, NAVY, "center", True)
         else:

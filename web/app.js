@@ -1206,8 +1206,16 @@ const app = createApp({
     }
     let stBizApplied = "两地牌";   // v-model 先改 st.biz，@change 后到——比较"已应用"标记，不能用当前值
     function stRenewPresetRows() {
-      return ST_RENEW_FEES.map(f => ({ name: f.name, cny: null, hkd: f.hkd ?? null,
-                                       gift: false, cnyAuto: false, hkdAuto: false, base: null, on: false }));
+      // 预置行人民币侧随建随折（有汇率时），让固定费用打开即见折算值；
+      // base 锁 hkd（预置金额是港币），之后与普通行完全同款走通用联动
+      const rate = parseFloat(st.rate);
+      return ST_RENEW_FEES.map(f => {
+        const hkd = f.hkd ?? null;
+        const cny = hkd !== null && Number.isFinite(rate) && rate > 0
+          ? Math.round(hkd / rate * 1.01 * 100) / 100 : null;
+        return { name: f.name, cny, hkd, gift: false,
+                 cnyAuto: cny !== null, hkdAuto: false, base: "hkd", on: false };
+      });
     }
     function stAddRenew() {
       // 手动加一项（2026-11-18）：自定义费用同样走勾选逻辑；加即勾（加=要收），不想要就去勾或删行
@@ -1341,8 +1349,6 @@ const app = createApp({
     /* 双币联动：改一边，另一边为空或仍是自动值时按抬头汇率补齐。
        双向折算一律 ×1.01（与引擎同口径，只做不说）。 */
     function stSync(row, which) {
-      // 续期收费单港币：不联动另一边（隐藏的 cny 保持空，合计/payload 都干净，2026-11-18）
-      if (st.biz === "续期") return;
       row[which + "Auto"] = false;
       const other = which === "cny" ? "hkd" : "cny";
       // 先手填的哪边就是这笔钱的币种（2026-10-21 业务定稿"输什么展示什么"）；本边清空则由对面接棒
@@ -1434,13 +1440,11 @@ const app = createApp({
       let inC = 0, inH = 0, outC = 0, outH = 0;
       st.rRows.forEach(r => { inC += num(r.cny); inH += num(r.hkd); });
       st.uRows.forEach(r => { outC += num(r.cny); outH += num(r.hkd); });
-      // 续期勾选制：未勾项不计（与 payload/纸面同口径，2026-11-18）
+      // 续期勾选制：未勾项不计（其余与其他业务完全同款双币列，2026-11-18 定稿）
       st.fees.forEach(f => { if (!f.gift && !(st.biz === "续期" && !f.on)) { outC += num(f.cny); outH += num(f.hkd); } });
       st.paid.forEach(p => { if (p.currency === "CNY") inC += num(p.amount); else inH += num(p.amount); });
       // 减免不是收到的现金，不计入「已收」；真正数字以引擎生成为准
       const f2 = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      // 续期收费单港币：底栏不出现 ¥ 列（2026-11-18 她定稿）
-      if (st.biz === "续期") return `已收 HK$${f2(inH)} · 应收 HK$${f2(outH)}`;
       return `已收 ¥${f2(inC)} / HK$${f2(inH)} · 应收 ¥${f2(outC)} / HK$${f2(outH)}`;
     });
 
@@ -1528,6 +1532,17 @@ const app = createApp({
     watch(() => [st.tRows, st.rRows, st.uRows, st.fees, st.deds, st.paid, st.nextPay,
                  st.group, st.customer, st.date, st.port, st.settle_type, st.renewType],
           stSchedulePreview, { deep: true });
+    // 续期固定项：汇率异步到达/切换时，把空着的 ¥ 侧补上折算值（只补空、不碰手填值和手动项）
+    watch(() => st.rate, () => {
+      if (st.biz !== "续期") return;
+      const rate = parseFloat(st.rate);
+      if (!(rate > 0)) return;
+      st.fees.forEach(f => {
+        if (!f.manual && !Number.isFinite(parseFloat(f.cny)) && Number.isFinite(parseFloat(f.hkd))) {
+          f.cny = Math.round(parseFloat(f.hkd) / rate * 1.01 * 100) / 100;
+        }
+      });
+    });
     let stPvSeq = 0;
     async function stPreview() {
       const seq = ++stPvSeq;
@@ -1589,6 +1604,34 @@ const app = createApp({
     }
     function stAddFee() { st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false, base: null }); }
     function stAddPaid() { st.paid.push({ name: "", amount: null, currency: "HKD" }); }
+    /* 续期实收双框（2026-11-18）：方向格=真正入账的币种（载荷/抵扣口径与旧版完全一致），
+       另一格=足额折算展示（实收足额抵扣，不加 1%——1% 只属于"要收的钱"）。
+       清空方向格=两框重置解锁换方向。仅续期收费使用，其他业务实收区原样。 */
+    const paidHasAmt = p => Number.isFinite(parseFloat(p.amount));
+    function paidHkdOf(p) {
+      const a = parseFloat(p.amount);
+      const rate = parseFloat(st.rate);
+      if (!Number.isFinite(a) || !Number.isFinite(rate) || rate <= 0) return null;
+      return p.currency === "HKD" ? a : Math.round(a * rate * 100) / 100;
+    }
+    function paidCnyOf(p) {
+      const a = parseFloat(p.amount);
+      const rate = parseFloat(st.rate);
+      if (!Number.isFinite(a) || !Number.isFinite(rate) || rate <= 0) return null;
+      return p.currency === "CNY" ? a : Math.round(a / rate * 100) / 100;
+    }
+    function paidOnHkd(p, ev) {
+      const v = ev.target.value.trim();
+      if (v === "") { p.amount = null; p.currency = "HKD"; return; }   // 清空=两框重置
+      const n = parseFloat(v);
+      if (Number.isFinite(n)) { p.currency = "HKD"; p.amount = n; }
+    }
+    function paidOnCny(p, ev) {
+      const v = ev.target.value.trim();
+      if (v === "") { p.amount = null; return; }   // 清空=两框重置
+      const n = parseFloat(v);
+      if (Number.isFinite(n)) { p.currency = "CNY"; p.amount = n; }
+    }
     /* 合同内已收支持多笔（定金+二期款…）：引擎/备注/纸面本就按列表处理，这里只补个入口 */
     function stAddRecv() { st.rRows.push(stBlankRow("已收")); }
     function stReset() {
@@ -1617,7 +1660,7 @@ const app = createApp({
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stReset, stFetchRate, saveAs, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
     };
   },
 
@@ -1793,11 +1836,12 @@ const app = createApp({
             <template v-if="st.biz === '续期'">
               <!-- 续期费用清单（2026-11-18）：固定项全展示、勾选制（勾=本单收取），单港币；
                    手动加一项同走勾选，可删行。全不勾时右栏不展示成品、提示勾选后出单 -->
-              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span></span></div>
+              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span class="col-h">人民币</span><span></span></div>
               <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on }">
                 <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="f.on = !f.on"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
                 <input class="name" v-model.trim="f.name" :placeholder="f.manual ? '自定义项目' : ''">
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
+                <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="折算"></span>
                 <button v-if="f.manual" class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
                 <span v-else></span>
               </div>
@@ -1831,12 +1875,25 @@ const app = createApp({
 
             <div class="st-paid-sec">
               <div class="st-paid-head"><span class="sdot"></span>杂费实收<span class="note">只记总收，不逐项对应杂费</span></div>
-              <div v-for="(p, i) in st.paid" :key="'p' + i" class="st-fee paid">
-                <input class="name" v-model.trim="p.name" placeholder="收款方式">
-                <span class="st-amt st-amt-wide"><span class="pfx st-cur-pfx" title="点此切换币种：减免在对应币种的汇总里直接扣" @click="p.currency = p.currency === 'HKD' ? 'CNY' : 'HKD'">{{ p.currency === 'HKD' ? 'HK$' : '¥' }}</span><input type="number" v-model.number="p.amount" placeholder="金额"></span>
-                <span></span>
-                <button class="st-row-x" title="删这一行" @click="st.paid.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
-              </div>
+              <template v-if="st.biz === '续期'">
+                <!-- 续期实收双框（2026-11-18）：先填哪格哪格是方向，另一格自动折算并禁用；
+                     清空方向格=两框重置解锁换方向。抵扣口径不变：填什么币种走什么口径直减 -->
+                <div v-for="(p, i) in st.paid" :key="'rp' + i" class="st-fee paid">
+                  <input class="name" v-model.trim="p.name" placeholder="收款方式">
+                  <span class="st-amt"><span class="pfx">HK$</span><input type="number" :value="paidHkdOf(p)" :disabled="p.currency === 'CNY' && paidHasAmt(p)" @input="paidOnHkd(p, $event)" placeholder="金额"></span>
+                  <span class="st-amt"><span class="pfx">¥</span><input type="number" :value="paidCnyOf(p)" :disabled="p.currency === 'HKD' && paidHasAmt(p)" @input="paidOnCny(p, $event)"></span>
+                  <span></span>
+                  <button class="st-row-x" title="删这一行" @click="st.paid.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+                </div>
+              </template>
+              <template v-else>
+                <div v-for="(p, i) in st.paid" :key="'p' + i" class="st-fee paid">
+                  <input class="name" v-model.trim="p.name" placeholder="收款方式">
+                  <span class="st-amt st-amt-wide"><span class="pfx st-cur-pfx" title="点此切换币种：减免在对应币种的汇总里直接扣" @click="p.currency = p.currency === 'HKD' ? 'CNY' : 'HKD'">{{ p.currency === 'HKD' ? 'HK$' : '¥' }}</span><input type="number" v-model.number="p.amount" placeholder="金额"></span>
+                  <span></span>
+                  <button class="st-row-x" title="删这一行" @click="st.paid.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
+                </div>
+              </template>
               <button class="add-row" @click="stAddPaid"><span v-html="icon('plus','st-ic sm')"></span>加一笔实收</button>
             </div>
           </div>
