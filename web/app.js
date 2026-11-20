@@ -150,11 +150,11 @@ const app = createApp({
       return `（约合${lab}${other === "HKD" ? "HK$" : "¥"}${commas(amt)}）`;
     }
 
-    /* ---------- 侧栏导航 ---------- */
+    /* ---------- 顶部导航 ---------- */
     const menu = computed(() => {
       const get = k => types.value.find(t => t.key === k);
       const items = [];
-      if (get("car")) items.push({ title: "车辆买卖", list: [{ key: "car", port: "", label: "车务" }] });
+      if (get("car")) items.push({ title: "车务", list: [{ key: "car", port: "", label: "车务" }] });
       if (get("transfer_gx") && get("transfer_ns")) items.push({
         title: "现牌过户", list: [
           { key: "transfer_gx", port: "", label: "高新现牌" },
@@ -163,10 +163,10 @@ const app = createApp({
       });
       const np = get("new_port");
       if (np && np.ports) items.push({
-        title: "粤 Z 新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
+        title: "粤Z新办", list: np.ports.map(p => ({ key: "new_port", port: p, label: p.replace("口岸", "").replace("大桥", "") }))
       });
-      if (get("immigration")) items.push({ title: "移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
-      items.push({ title: "文职", list: [{ key: "settlement", port: "", label: "收款结算单" }] });
+      if (get("immigration")) items.push({ title: "高才移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
+      items.push({ title: "结算单", list: [{ key: "settlement", port: "", label: "结算单" }] });
       return items;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
@@ -1669,27 +1669,36 @@ const app = createApp({
 
   template: /* html */ `
   <div class="app">
-    <!-- ================= 侧栏 ================= -->
-    <aside class="side">
+    <!-- ================= 顶部导航条 ================= -->
+    <header class="topbar">
       <div class="brand">
         <div class="logo">華星</div>
         <div class="sub">CONTRACT · AGENT</div>
       </div>
-      <div class="side-scroll">
+      <nav class="nav">
         <template v-for="g in menu" :key="g.title">
-          <div class="side-label">{{ g.title }}</div>
-          <div v-for="(it, ii) in g.list" :key="it.key + it.port"
-               class="side-item" :class="{active: isActive(it)}" :title="it.label" @click="selectMenu(it)">
-            <span class="num">{{ String(ii + 1).padStart(2, '0') }}</span>
-            <span>{{ it.label }}</span>
+          <div class="nav-item" :class="{active: g.list.some(it => isActive(it))}"
+               @click="g.list.some(it => isActive(it)) || selectMenu(g.list[0])">
+            <span>{{ g.title }}</span>
+            <template v-if="g.list.length > 1">
+              <span class="caret">▾</span>
+              <div class="dropdown">
+                <div v-for="(it, ii) in g.list" :key="it.key + it.port"
+                     class="dd-item" :class="{active: isActive(it)}" :title="it.label"
+                     @click.stop="selectMenu(it)">
+                  <span class="num">{{ String(ii + 1).padStart(2, '0') }}</span>
+                  <span>{{ it.label }}</span>
+                </div>
+              </div>
+            </template>
           </div>
         </template>
-      </div>
-      <div class="side-foot">
+      </nav>
+      <div class="top-right">
         <div class="today-dot"><i></i>{{ todayISO() }}</div>
         <button class="side-btn" @click="openHistory">生成历史</button>
       </div>
-    </aside>
+    </header>
 
     <!-- ================= 录入核对栏 ================= -->
     <section class="pane"
@@ -2048,7 +2057,7 @@ const app = createApp({
                 <div class="fee-cn lp-cn" v-if="form[feeMain.key] > 0">{{ currencyLabel(form.currency).split(' ')[0] }}{{ toCN(form[feeMain.key]) }}{{ fxAbout(form[feeMain.key]) }}</div>
               </div>
 
-              <div class="led-body">
+              <div class="led-body" v-if="feeRest.length">
                 <div class="led-row" :class="rowIssue({ facts: feeRest }) ? 'has-' + rowIssue({ facts: feeRest }) : ''">
                   <div class="led-row-label"><span class="led-ico" v-html="rowIcon('其他费用')" title="其他费用"></span></div>
                   <div class="led-facts">
@@ -2080,7 +2089,7 @@ const app = createApp({
                      :class="{open: openPay === idx, 'step-issue': stepIssue(it)}" :data-n="idx + 1">
                   <div class="led-step-main" @click="togglePay(idx)">
                     <input class="led-step-name" v-model="it.label" maxlength="6" placeholder="款项名"
-                           data-pfield="label" @click.stop/>
+                           data-pfield="label" @focus="openPay = idx" @click.stop/>
                     <input class="led-step-amount" type="number" min="0" step="1000" v-model.number="it.amount"
                            placeholder="金额" data-pfield="amount" @input="onAmount(idx)" @focus="openPay = idx" @click.stop/>
                     <span class="led-step-cond" :title="condText(it)">{{ condText(it) }}</span>

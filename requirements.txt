@@ -5,3 +5,5 @@ python-docx==1.2.0
 requests==2.34.2
 reportlab==5.0.1
 pypdfium2==5.11.0
+pillow==12.3.0
+python-multipart==0.0.34

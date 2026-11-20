@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 
 from api import store
 from api.routes import router
+from api.open_api import router as open_router
+from api.users_api import router as users_router
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -18,6 +20,8 @@ mimetypes.add_type("font/woff2", ".woff2")
 
 app = FastAPI(title="华星智能合同生成系统")
 app.include_router(router)
+app.include_router(open_router)
+app.include_router(users_router)
 store.init()
 
 

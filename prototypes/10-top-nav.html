@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>華星 · 顶部导航原型</title>
+<style>
+  /* 设计变量与 web/workbench.css 完全一致，仅把 128px 侧栏换成顶部导航条 */
+  :root {
+    --ink: #1d3a2f;
+    --ink-2: #31503f;
+    --paper: #fdfcf8;
+    --bg: #f1efe8;
+    --line: #ddd6c8;
+    --muted: #8a8276;
+    --gold: #f0d9a0;
+    --serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+    --sans: 'Noto Sans SC', -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: var(--sans); background: var(--bg); color: #2b2b28; font-size: 14px; }
+
+  /* 布局：顶栏一行 + 下面双栏（原 .app 三栏去掉第一列） */
+  .shell { display: grid; grid-template-rows: 56px minmax(0, 1fr); height: 100vh; }
+  .work  { display: grid; grid-template-columns: minmax(430px, 1fr) minmax(520px, 54%);
+           grid-template-rows: minmax(0, 1fr); min-height: 0; }
+
+  /* ================= 顶部导航条（原侧栏的墨绿+金） ================= */
+  .topbar { background: var(--ink); color: #dfe8e2; display: flex; align-items: stretch; padding: 0 16px; }
+  .brand { display: flex; flex-direction: column; justify-content: center; margin-right: 28px; flex-shrink: 0; }
+  .brand .logo { font-family: var(--serif); font-size: 19px; font-weight: 700; color: var(--gold); letter-spacing: 2px; line-height: 1.15; }
+  .brand .sub  { font-size: 8px; letter-spacing: 3px; color: rgba(255,255,255,.4); margin-top: 2px; }
+
+  .nav { display: flex; align-items: stretch; flex: 1; min-width: 0; }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 5px; padding: 0 18px;
+              cursor: pointer; font-size: 14px; color: #dfe8e2; border-bottom: 2px solid transparent;
+              border-top: 2px solid transparent; user-select: none; white-space: nowrap; }
+  .nav-item:hover { background: rgba(255,255,255,.05); color: #fff; }
+  .nav-item.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .nav-item .caret { font-size: 10px; opacity: .55; transform: translateY(1px); }
+
+  /* 二级菜单：沿用侧栏条目的排版（序号 + 名称），墨绿底 */
+  .dropdown { position: absolute; top: 100%; left: 0; min-width: 168px; z-index: 30;
+              background: var(--ink-2); border: 1px solid rgba(255,255,255,.08);
+              box-shadow: 0 10px 24px rgba(0,0,0,.28); padding: 6px 0;
+              display: none; }
+  .nav-item:hover .dropdown, .nav-item.open .dropdown { display: block; }
+  .dd-item { display: flex; gap: 10px; padding: 9px 16px; cursor: pointer; font-size: 13.5px; color: #dfe8e2; }
+  .dd-item:hover { background: rgba(255,255,255,.05); color: #fff; }
+  .dd-item.active { color: var(--gold); }
+  .dd-item .num { font-family: var(--serif); opacity: .5; font-size: 11px; }
+
+  /* 右侧：日期 + 生成历史（原侧栏底部的两件东西） */
+  .top-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .today-dot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,.55); }
+  .today-dot i { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+  .side-btn { background: rgba(255,255,255,.08); color: #dfe8e2; border: none; cursor: pointer;
+              font-size: 12.5px; padding: 7px 14px; letter-spacing: 1px; }
+  .side-btn:hover { background: rgba(255,255,255,.16); }
+
+  /* ================= 下方双栏占位（示意比例，非本次改动内容） ================= */
+  .pane { background: var(--bg); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .pane:last-child { border-right: none; }
+  .pane-top { display: flex; align-items: baseline; gap: 12px; padding: 14px 18px 10px; }
+  .pane-top h2 { font-family: var(--serif); font-size: 19px; font-weight: 700; color: var(--ink); }
+  .pane-top .tpl { font-size: 11px; color: var(--muted); }
+  .pane-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 18px; }
+  .card { background: #fff; border: 1px solid var(--line); padding: 14px 16px; margin-bottom: 12px; }
+  .card h3 { font-size: 12px; color: var(--ink); letter-spacing: 2px; margin-bottom: 10px; }
+  .ph-row { display: grid; grid-template-columns: 96px 1fr; gap: 12px; margin-bottom: 8px; align-items: center; }
+  .ph-k { font-size: 12px; color: var(--muted); }
+  .ph-v { height: 26px; background: var(--bg); border: 1px solid var(--line); }
+  .paper { background: var(--paper); border: 1px solid var(--line); min-height: 60%;
+           display: flex; align-items: center; justify-content: center; color: #c9c2b2;
+           font-family: var(--serif); letter-spacing: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ================= 顶部导航条 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">華星</div>
+      <div class="sub">CONTRACT · AGENT</div>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="top-right">
+      <div class="today-dot"><i></i>2026-11-18</div>
+      <button class="side-btn" onclick="alert('生成历史')">生成历史</button>
+    </div>
+  </header>
+
+  <!-- ================= 双栏工作台（占位） ================= -->
+  <div class="work">
+    <section class="pane">
+      <div class="pane-top"><h2 id="paneTitle">高新现牌</h2><span class="tpl">模板 · 现牌过户合约</span></div>
+      <div class="pane-body">
+        <div class="card"><h3>委托方信息</h3>
+          <div class="ph-row"><span class="ph-k">客户名称</span><span class="ph-v"></span></div>
+          <div class="ph-row"><span class="ph-k">车牌号码</span><span class="ph-v"></span></div>
+        </div>
+        <div class="card"><h3>费用与付款</h3>
+          <div class="ph-row"><span class="ph-k">服务费用</span><span class="ph-v"></span></div>
+        </div>
+      </div>
+    </section>
+    <section class="pane">
+      <div class="pane-top"><h2>合同预览</h2></div>
+      <div class="pane-body"><div class="paper">合 同 预 览</div></div>
+    </section>
+  </div>
+</div>
+
+<script>
+  // 菜单数据与 web/app.js 的 menu computed 一一对应，只是换了外壳
+  const MENU = [
+    { title: "车务",  items: [{ key: "car", port: "", label: "车务" }] },
+    { title: "现牌过户", items: [
+      { key: "transfer_gx", port: "", label: "高新现牌" },
+      { key: "transfer_ns", port: "", label: "纳税现牌" },
+    ]},
+    { title: "粤Z新办", items: [
+      { key: "new_port", port: "莲塘口岸",     label: "莲塘" },
+      { key: "new_port", port: "深圳湾口岸",   label: "深圳湾" },
+      { key: "new_port", port: "港珠澳大桥口岸", label: "港珠澳" },
+      { key: "new_port", port: "沙头角口岸",   label: "沙头角" },
+    ]},
+    { title: "高才移民", items: [{ key: "immigration", port: "", label: "高才移民" }] },
+    { title: "结算单",  items: [{ key: "settlement", port: "", label: "结算单" }] },
+  ];
+
+  let sel = { key: "transfer_gx", port: "" };
+  const nav = document.getElementById('nav');
+
+  function render() {
+    nav.innerHTML = '';
+    MENU.forEach(g => {
+      const isActiveGroup = g.items.some(it => it.key === sel.key && it.port === sel.port);
+      const item = document.createElement('div');
+      item.className = 'nav-item' + (isActiveGroup ? ' active' : '');
+      const single = g.items.length === 1;
+      item.innerHTML = `<span>${g.title}</span>` + (single ? '' : `<span class="caret">▾</span>`);
+      if (!single) {
+        const dd = document.createElement('div');
+        dd.className = 'dropdown';
+        g.items.forEach((it, i) => {
+          const d = document.createElement('div');
+          d.className = 'dd-item' + (it.key === sel.key && it.port === sel.port ? ' active' : '');
+          d.innerHTML = `<span class="num">${String(i + 1).padStart(2, '0')}</span><span>${it.label}</span>`;
+          d.onclick = e => { e.stopPropagation(); pick(it); };
+          dd.appendChild(d);
+        });
+        item.appendChild(dd);
+        item.onclick = () => {           // 点组名本身：默认进第一项
+          if (!isActiveGroup) pick(g.items[0]);
+        };
+      } else {
+        item.onclick = () => pick(g.items[0]);
+      }
+      nav.appendChild(item);
+    });
+    const cur = MENU.flatMap(g => g.items).find(it => it.key === sel.key && it.port === sel.port);
+    document.getElementById('paneTitle').textContent =
+      cur.key === 'settlement' ? '收款结算单' : cur.label;
+  }
+  function pick(it) { sel = { key: it.key, port: it.port }; render(); }
+  render();
+</script>
+</body>
+</html>
