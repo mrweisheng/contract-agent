@@ -104,7 +104,7 @@ r2 = build_contract("immigration", form_imm, pay_imm, "T002", out_imm)
 check(r2.get("company_sealed") is True, "移民 report.company_sealed=True")
 doc_i = Document(out_imm)
 comp_i, cli_i = seal_mod.locate(doc_i)
-check("华星" in comp_i.text and pics(comp_i) == 2, "移民公司格（乙方侧）2 图")
+check("华星" in comp_i.text and pics(comp_i) == 1, "移民公司格（乙方侧）1 图（签字章合成）")
 check(pics(cli_i) == 0 and "华星" not in cli_i.text and "____" in cli_i.text,
       "移民客户格=下划线签名栏且无图（非华星格）")
 # 客户签名回传 → 落客户格（旧逻辑按「乙方」找会错盖进华星格）
@@ -115,7 +115,7 @@ signed_i = os.path.join(TMP, "移民-已签.docx")
 open_api.apply_signature(out_imm, signed_i, base64.b64decode(sig_b64.split(",")[1]))
 doc_s = Document(signed_i)
 c2, cli2 = seal_mod.locate(doc_s)
-check(pics(c2) == 2 and pics(cli2) == 1, f"已签版：公司格 2 图+客户格 1 图（{pics(c2)}/{pics(cli2)}）")
+check(pics(c2) == 1 and pics(cli2) == 1, f"已签版：公司格 1 图（合成）+客户格 1 图（{pics(c2)}/{pics(cli2)}）")
 check("华星" in c2.text and "华星" not in cli2.text, "客户签名落在客户格而非华星格")
 
 # 3) 缺印信文件 → 跳过注入，文档零图不报错

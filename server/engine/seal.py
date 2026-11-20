@@ -10,8 +10,8 @@
   客户格：抬头 → 签署／授权代表签署：→ ____ → [透明占位] → [透明占位] → 日期
 两格段落序列完全对称，日期永远同一水平线；各模板签署区原本的空行/软换行差异
 在重建时全部抹平，不再按业务写适配。软换行段先按 w:br 拆成独立段再重建。
-高才移民签署表是四列+通栏行结构，公司格只有公司名段——签字/章插在公司名段后，
-通栏行整体下移，日期天然对齐（B 路径）。
+高才移民签署表是四列两行（甲方签字/盖章行+日期行）结构，公司格只有公司名段——
+签字/章合成一张图（章压签尾）插在公司名段后，整行随之下移，日期天然对齐（B 路径）。
 印信文件 = data/seals/sign.png + seal.png，缺失时跳过注入（模板保持无章，不报错）。
 """
 import copy
@@ -26,6 +26,10 @@ from docx.table import _Cell
 COMPANY_NAME = "华星资源开发有限公司"
 SIGN_W = Inches(1.6)   # 签字条宽
 SEAL_W = Inches(1.3)   # 公章宽
+CELL_MARGIN_IN = 0.075   # Word 默认单元格左右内边距
+DPI = 300                # 合成图画布分辨率
+SIGN_DROP_IN = 0.37      # 签名相对章的下沉量：章贴右上、签名落左下成对角，
+                         # 笔画只擦过章的下缘弧线，不穿章心文字；总高与竖排紧凑版持平
 
 
 def seals_dir() -> str:
@@ -51,8 +55,8 @@ def locate(doc: _Doc):
     """→ (公司格, 客户格) 或 None。
 
     签署块表识别：含公司名且含签署特征（签署/签名/盖章/下划线栏）——车/过户/新办的
-    签署表是「甲方…签署…｜乙方…签署…」，高才移民是「甲方：____｜乙方：华星 /
-    签名：/代表签名/盖章：」没有「签署」二字；公司格=含公司名的格；客户格优先取
+    签署表是「甲方…签署…｜乙方…签署…」，高才移民是「甲方签字/盖章：____｜
+    乙方：华星」没有「签署」二字；公司格=含公司名的格；客户格优先取
     下划线签名栏，否则取含签署/签名字样的另一格。"""
     for t in doc.tables:
         txt = " ".join(c.text for r in t.rows for c in r.cells)
@@ -106,6 +110,41 @@ def first_para_with(cell: _Cell, *keys):
         if any(k in p.text for k in keys):
             return p
     return None
+
+
+def cell_content_width(cell: _Cell) -> float:
+    """格内可用宽度（英寸）：tcW 减去默认左右内边距；取不到宽度时给 0。"""
+    try:
+        return cell.width.inches - 2 * CELL_MARGIN_IN
+    except (AttributeError, TypeError):
+        return 0.0
+
+
+def compose_sign_seal(sign_path: str, seal_path: str, avail_in: float):
+    """签字+章合成一张图 → (png 字节流, 高英寸)；格太窄放不下并排时返回 None。
+
+    对角布局：章贴右上（顶端对齐）、签名沉到左下（底端对齐）——横向仍压住签名
+    尾部（骑章观感），纵向笔画只擦过章的下缘弧线、避开章心密集文字；
+    两张图的显示宽度（SIGN_W/SEAL_W）不变，高度按各自原图纵横比换算。"""
+    import io as _io
+    from PIL import Image
+    if avail_in < SEAL_W.inches + 0.3:
+        return None
+    px = lambda inch: round(inch * DPI)
+    sign = Image.open(sign_path).convert("RGBA")
+    seal = Image.open(seal_path).convert("RGBA")
+    sign = sign.resize((px(SIGN_W.inches),
+                        round(sign.height * px(SIGN_W.inches) / sign.width)), Image.LANCZOS)
+    seal = seal.resize((px(SEAL_W.inches),
+                        round(seal.height * px(SEAL_W.inches) / seal.width)), Image.LANCZOS)
+    canvas_h = max(px(SIGN_DROP_IN) + sign.height, seal.height)
+    canvas = Image.new("RGBA", (px(avail_in), canvas_h), (0, 0, 0, 0))
+    canvas.alpha_composite(sign, (0, canvas_h - sign.height))   # 底端对齐：沉到左下
+    canvas.alpha_composite(seal, (px(avail_in - SEAL_W.inches), 0))   # 顶端对齐：贴右上
+    buf = _io.BytesIO()
+    canvas.save(buf, "PNG")
+    buf.seek(0)
+    return buf, canvas.height / DPI
 
 
 def _transparent_png(w_px: int, h_px: int):
@@ -177,8 +216,8 @@ def _stamp_para_before(date_para):
 def apply_company_seal(doc: _Doc) -> bool:
     """公司签字+公章合成进公司格，并把两格重建成统一签署骨架（各业务只保留
     自己的抬头文字与日期）——构图全业务一致，甲乙日期同一水平线。
-    高才移民签署表为四列+通栏行结构：签字/章插在公司名段后，通栏行整体下移，
-    日期天然对齐。印信文件缺失或找不到签署格 → False，文档零改动。"""
+    高才移民签署表为四列两行结构：签字/章合成一张图（章压签尾）插在公司名段后，
+    整行随之下移，日期天然对齐。印信文件缺失或找不到签署格 → False，文档零改动。"""
     assets = _assets()
     if not assets:
         return False
@@ -191,10 +230,17 @@ def apply_company_seal(doc: _Doc) -> bool:
     seal_h = _img_height_in(seal_path, SEAL_W.inches)
 
     # 高才移民（B 路径）：公司格只有公司名段、无授权代表签署行 → 签字/章插在其后，
-    # 签名/代表签名/盖章/日期均为通栏共享行，整表随之下移，日期天然对齐
+    # 甲方/乙方行与日期行均为通栏共享行，整行随之下移，日期天然对齐。
+    # 优先合成一张图（章压签尾，签署区高度减半）；格太窄放不下并排再退回竖排两图
     if first_para_with(comp, "授权代表签署") is None and \
             first_para_with(comp, "____") is None:
         p_name = first_para_with(comp, COMPANY_NAME) or comp.paragraphs[0]
+        composed = compose_sign_seal(sign_path, seal_path, cell_content_width(comp))
+        if composed is not None:
+            png, h = composed
+            p_img = blank_para_after(p_name, h)
+            p_img.add_run().add_picture(png, width=Inches(cell_content_width(comp)))
+            return True
         p_sign = blank_para_after(p_name, sign_h)
         p_sign.add_run().add_picture(sign_path, width=SIGN_W)
         p_seal = blank_para_after(p_sign, seal_h)

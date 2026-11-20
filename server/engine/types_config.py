@@ -427,7 +427,7 @@ TYPES = {
         "payment_section": ("三", "四"),
         "fee_rows_default": ["服务费"],
         "exchange_fee": False,
-        "signature_anchor": "代表签名",
+        "signature_anchor": "甲方签字/盖章",
         "field_anchors": {
             "client_name": {"table": "@party", "row": "甲方（委托方）", "col": 1},
             "client_id": {"table": "@party", "row": "证件", "col": 1},
@@ -440,7 +440,7 @@ TYPES = {
             "total_applicants": {"table": "为主申请人", "row": "共计", "col": 0},
             "total_fee": {"table": "@fee", "row": "甲方需支付乙方服务费", "col": 1},
             "currency": {"table": "@fee", "row": "甲方需支付乙方服务费", "col": 1},
-            "sign_date": {"table": "代表签名"},
+            "sign_date": {"table": "甲方签字/盖章"},
             # 分期散文表：行即条款（时点+金额都在行内），各子字段统一高亮对应行
             "installment": {"table": "元整（"},
         },
