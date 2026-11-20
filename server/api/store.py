@@ -57,7 +57,8 @@ def init():
             created_at TEXT
         )""")
         # LLM 语义复核改为后台异步后，结果落库供历史/轮询查询（旧库增量迁移）
-        for col in ("review_status", "review_issues"):
+        # signed_path/signed_at：客户在小程序手写签名回传后的已签版存档（对外查询接口 2026-11-18）
+        for col in ("review_status", "review_issues", "signed_path", "signed_at", "sealed_at"):
             try:
                 c.execute(f"ALTER TABLE gens ADD COLUMN {col} TEXT DEFAULT ''")
             except Exception:
@@ -79,6 +80,23 @@ def init():
             source TEXT,
             fetched_at TEXT,
             PRIMARY KEY(base, quote, day)
+        )""")
+        # 小程序用户（微信一键登录 2026-11-20）：openid 唯一定户，手机号用于关联合同客户
+        c.execute("""CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid TEXT UNIQUE,
+            unionid TEXT DEFAULT '',
+            phone TEXT DEFAULT '',
+            nickname TEXT DEFAULT '',
+            avatar_path TEXT DEFAULT '',
+            avatar_ver INTEGER DEFAULT 0,
+            created_at TEXT,
+            last_login_at TEXT
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER,
+            expires_at TEXT
         )""")
 
 
@@ -230,6 +248,82 @@ def history(limit: int = 50):
 
 def set_review(no: str, review_status: str, review_issues: str):
     """后台复核完成：落库结论（pass/warn/skip），供历史与前端轮询查询。"""
-    with _lock, _conn() as c:
+    with _conn() as c:
         c.execute("UPDATE gens SET review_status=?, review_issues=? WHERE no=?",
                   (review_status, review_issues, no))
+
+
+def set_signed(no: str, signed_path: str):
+    """客户在小程序手写签名回传后：落已签版存档路径与时间（对外查询接口 2026-11-18）。"""
+    with _lock, _conn() as c:
+        c.execute("UPDATE gens SET signed_path=?, signed_at=? WHERE no=?",
+                  (signed_path, _now(), no))
+
+
+def mark_sealed(no: str):
+    """用印日志：该合同生成时已合成公司印信（图片章方案的留痕生命线）。"""
+    with _lock, _conn() as c:
+        c.execute("UPDATE gens SET sealed_at=? WHERE no=? AND status='ok'", (_now(), no))
+
+
+# ---------- 小程序用户（微信一键登录 2026-11-20） ----------
+
+def user_upsert_by_openid(openid: str, unionid: str = "") -> dict:
+    """按 openid 定户：首登建户，老户刷新 unionid 与登录时间。"""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE openid=?", (openid,)).fetchone()
+        if row:
+            c.execute("UPDATE users SET unionid=?, last_login_at=? WHERE id=?",
+                      (unionid or row["unionid"] or "", _now(), row["id"]))
+            return dict(c.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone())
+        cur = c.execute(
+            "INSERT INTO users(openid,unionid,created_at,last_login_at) VALUES(?,?,?,?)",
+            (openid, unionid, _now(), _now()),
+        )
+        return dict(c.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone())
+
+
+def user_get(uid: int):
+    with _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+        return dict(row) if row else None
+
+
+def user_update(uid: int, **fields):
+    """白名单字段更新（phone/nickname/avatar_path/avatar_ver）。"""
+    allowed = {"phone", "nickname", "avatar_path", "avatar_ver", "unionid"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return user_get(uid)
+    with _lock, _conn() as c:
+        assign = ",".join(f"{k}=?" for k in sets)
+        c.execute(f"UPDATE users SET {assign} WHERE id=?", (*sets.values(), uid))
+    return user_get(uid)
+
+
+SESSION_DAYS = 30
+
+
+def session_create(uid: int, days: int = SESSION_DAYS) -> str:
+    """发不透明会话 token，入库可吊销；过期由校验时惰性比较。"""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    with _lock, _conn() as c:
+        c.execute("INSERT INTO user_sessions(token,user_id,expires_at) VALUES(?,?,?)",
+                  (token, uid, expires))
+    return token
+
+
+def session_user(token: str):
+    """token → 用户 dict；不存在/过期/用户已删一律 None。顺带清已过期行。"""
+    if not token:
+        return None
+    with _conn() as c:
+        c.execute("DELETE FROM user_sessions WHERE expires_at < ?", (_now(),))
+        row = c.execute(
+            "SELECT u.* FROM user_sessions s JOIN users u ON u.id=s.user_id "
+            "WHERE s.token=? AND s.expires_at >= ?",
+            (token, _now()),
+        ).fetchone()
+        return dict(row) if row else None

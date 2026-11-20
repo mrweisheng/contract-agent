@@ -279,6 +279,11 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         issues.append(msg)
     report["signature_dates"] = filled
 
+    # 8. 公司印信：签字+公章合成进签署块公司格（生成即盖章，与纸质流程一致；
+    #    印信文件缺失则跳过，开发/测试环境模板保持无章）
+    from engine import seal as seal_mod
+    report["company_sealed"] = seal_mod.apply_company_seal(doc)
+
     doc.save(out_path)
     report["template"] = tpl
     report["output"] = out_path

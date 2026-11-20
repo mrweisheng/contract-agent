@@ -322,6 +322,18 @@ def generate(req: GenerateReq, background_tasks: BackgroundTasks):
     status = "ok" if not errors else "failed"
     store.confirm_no(no, req.type, form.get("client_name") or "", payment.get("mode", ""),
                      form.get("currency", ""), filename, status)
+    # 用印日志：生成即合成公司印信（engine.seal），留痕到 gens.sealed_at
+    if report.get("company_sealed"):
+        store.mark_sealed(no)
+    # 对外查询接口（2026-11-18）：表单结构化数据随生成存档，供 /api/open 查询吐内容
+    try:
+        form_path = os.path.join(store.OUT_DIR, filename.rsplit(".docx", 1)[0] + ".form.json")
+        with open(form_path, "w", encoding="utf-8") as fh:
+            json.dump({"no": no, "type": req.type, "form": form, "payment": payment,
+                       "filename": filename, "status": status, "created_at": store._now()},
+                      fh, ensure_ascii=False)
+    except OSError:
+        pass
     # LLM 语义复核改后台异步：不阻塞生成主流程（原先同步等待 20~60 秒、最坏数分钟），
     # 结论写 gens 表供历史与 /api/review/{no} 轮询查询；failed 单已被拦截下载，无需复核
     if status == "ok":
@@ -396,6 +408,17 @@ def download(no: str):
     return FileResponse(path, filename=None,
                         headers={"content-disposition": disposition},
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@router.get("/seals/{name}")
+def seal_asset(name: str):
+    """公司印信图（仅允许 seal.png/sign.png 两个固定名，供工作台预览签署块显示）。"""
+    if name not in ("seal.png", "sign.png"):
+        raise HTTPException(404, "文件不存在")
+    path = os.path.join(store.DATA_DIR, "seals", name)
+    if not os.path.exists(path):
+        raise HTTPException(404, "印信文件未配置")
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/history")
