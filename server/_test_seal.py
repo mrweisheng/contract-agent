@@ -57,8 +57,9 @@ seal_h = seal_mod._img_height_in(os.path.join(TMP, "seals", "seal.png"), 1.3)
 paras = comp.paragraphs
 pic_idx = [i for i, p in enumerate(paras) if p._p.xpath(".//pic:pic")]
 date_idx = next(i for i, p in enumerate(paras) if "日期" in p.text)
-check(pic_idx == [date_idx - 2, date_idx - 1],
-      f"签字段+章段紧贴日期段之前（pic 段 {pic_idx}，日期段 {date_idx}）")
+stamp_idx = next(i for i, p in enumerate(paras) if "公司印章" in p.text)
+check(pic_idx == [stamp_idx - 1, date_idx - 1] and stamp_idx == date_idx - 2,
+      f"统一骨架 线→签字→公司印章→章→日期（pic {pic_idx} 印章 {stamp_idx} 日期 {date_idx}）")
 spacers = [p for p in cli.paragraphs
            if p.paragraph_format.line_spacing_rule == WD_LINE_SPACING.EXACTLY
            and p.paragraph_format.line_spacing is not None]
@@ -78,21 +79,14 @@ r_gx = build_contract("transfer_gx", dict(form_gx), {"mode": "default"}, "T004",
 check(r_gx.get("company_sealed") is True, "过户 report.company_sealed=True")
 doc_g = Document(out_gx)
 comp_g, cli_g = seal_mod.locate(doc_g)
-soft_p = next(p for p in comp_g.paragraphs if "日期" in p.text and "____" in p.text)
-soft_cli = next(p for p in cli_g.paragraphs if "日期" in p.text and "____" in p.text)
-check(len(soft_p._p.xpath(".//pic:pic")) == 2, "过户公司段含签字+章 2 图")
-check(len(soft_cli._p.xpath(".//pic:pic")) == 2, "过户客户段含 2 张透明占位图")
-# 段内顺序：____ → 签字图 → 公司印章 → 章图 → 日期
-seq = []
-for node in soft_p._p.iter():
-    ln = node.tag.rsplit("}", 1)[-1]
-    if ln == "t" and node.text:
-        seq.append(node.text[:4])
-    elif ln == "pic":
-        seq.append("PIC")
-joined = "|".join(seq)
-check(joined.find("PIC") < joined.find("公司印章") < joined.rfind("PIC") < joined.find("日期"),
-      f"段内顺序 线→签字→印章标签→章→日期（{joined[:80]}）")
+paras_g = comp_g.paragraphs
+pic_idx_g = [i for i, p in enumerate(paras_g) if p._p.xpath(".//pic:pic")]
+stamp_idx_g = next(i for i, p in enumerate(paras_g) if "公司印章" in p.text)
+date_idx_g = next(i for i, p in enumerate(paras_g) if "日期" in p.text)
+check(pic_idx_g == [stamp_idx_g - 1, date_idx_g - 1] and stamp_idx_g == date_idx_g - 2,
+      f"过户统一骨架（pic {pic_idx_g} 印章 {stamp_idx_g} 日期 {date_idx_g}）")
+cli_pics = [i for i, p in enumerate(cli_g.paragraphs) if p._p.xpath(".//pic:pic")]
+check(len(cli_pics) == 2, "过户客户格 2 张透明占位图")
 store.confirm_no("T004", "transfer_gx", "测试委托方", "default", "CNY", "过户.docx", "ok")
 
 # 2) 高才移民：公司是乙方格，同样盖进公司格；客户签名（角色修正）落甲方客户格

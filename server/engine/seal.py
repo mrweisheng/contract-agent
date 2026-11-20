@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-"""公司印信：签字+公章定位与注入。
+"""公司印信：签字+公章定位与注入（统一签署块骨架）。
 
 定位规则：公司恒为「华星资源开发有限公司」，签署块表（含签署特征）里含公司名的格
 就是公司格、另一格是客户格——不按甲/乙关键字定位，因为各业务里公司可能是
-甲方（卖车/过户）也可能是乙方（新办/高才移民），客户侧角色随业务翻转。
+甲方（卖车/过户）也可能是乙方（新办），客户侧角色随业务翻转。
 
-注入方式＝内嵌图+对称占位：公司格在签名线之后、日期段之前插「签字段」「章段」；
-客户格同位置插两个等高空段——两边日期同步下移，同一水平线（docx-preview 与
-Word 行为一致；浮动图在预览库会占流式空间且偏移不生效，弃用）。
-高才移民签署表的日期在通栏共享行，公司格加图整行一起下移，天然对齐。
+注入方式＝重建统一骨架：两格各自保留抬头段，其余段重建成同一序列——
+  公司格：抬头 → 授权代表签署：→ ____ → [签字图] → 公司印章：→ [章图] → 日期
+  客户格：抬头 → 签署／授权代表签署：→ ____ → [透明占位] → [透明占位] → 日期
+两格段落序列完全对称，日期永远同一水平线；各模板签署区原本的空行/软换行差异
+在重建时全部抹平，不再按业务写适配。软换行段先按 w:br 拆成独立段再重建。
+高才移民签署表是四列+通栏行结构，公司格只有公司名段——签字/章插在公司名段后，
+通栏行整体下移，日期天然对齐（B 路径）。
 印信文件 = data/seals/sign.png + seal.png，缺失时跳过注入（模板保持无章，不报错）。
 """
 import copy
@@ -49,8 +52,8 @@ def locate(doc: _Doc):
 
     签署块表识别：含公司名且含签署特征（签署/签名/盖章/下划线栏）——车/过户/新办的
     签署表是「甲方…签署…｜乙方…签署…」，高才移民是「甲方：____｜乙方：华星 /
-    签名：/代表签名/盖章：」，特征词不同。公司格=含公司名的格；客户格优先取下划线
-    签名栏，否则取含签署/签名字样的另一格。"""
+    签名：/代表签名/盖章：」没有「签署」二字；公司格=含公司名的格；客户格优先取
+    下划线签名栏，否则取含签署/签名字样的另一格。"""
     for t in doc.tables:
         txt = " ".join(c.text for r in t.rows for c in r.cells)
         if COMPANY_NAME not in txt:
@@ -71,16 +74,17 @@ def locate(doc: _Doc):
     return None
 
 
-def blank_para_before(ref_para, height_in: float):
-    """在 ref_para 前插一个继承其样式的空段，行高锁定 height_in 英寸，返回该段。"""
+def blank_para_before(ref_para, height_in: float = None):
+    """在 ref_para 前插一个继承其样式的空段；height_in 给定时锁定行高。"""
     p = copy.deepcopy(ref_para._p)
     for r in p.findall(qn("w:r")):
         p.remove(r)
     ref_para._p.addprevious(p)
     para = ref_para.__class__(p, ref_para._parent)
-    pf = para.paragraph_format
-    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-    pf.line_spacing = Pt(height_in * 72)
+    if height_in is not None:
+        pf = para.paragraph_format
+        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        pf.line_spacing = Pt(height_in * 72)
     return para
 
 
@@ -104,7 +108,7 @@ def first_para_with(cell: _Cell, *keys):
     return None
 
 
-def _transparent_png(w_px: int, h_px: int) -> "io.BytesIO":
+def _transparent_png(w_px: int, h_px: int):
     """透明占位图（与签字/章同显示尺寸）——客户格里放同尺寸透明图占位，
     与公司格真实图片走完全相同的渲染路径，任何渲染器里两边高度都一致。"""
     import io as _io
@@ -124,51 +128,57 @@ def transparent_spacer_para_before(ref_para, width, height_in: float):
     return p
 
 
-def _pic_runs_after_softbreak(p, after_key: str, images: list) -> bool:
-    """软换行单段版式：在含 after_key 文本的 run 之后的首个换行（w:br）处，
-    依序插入图片 run（图片之间补换行）。images = [(路径或 BytesIO, 宽), ...]。
-    失败时移除已插入的 run 并返回 False，段落零改动。"""
-    runs_before = list(p._p.findall(qn("w:r")))
-    new_elems = []
-    first = True
-    for src, width in images:
-        if not first:
-            br_run = p.add_run()
-            br_run._r.append(br_run._r.makeelement(qn("w:br"), {}))
-            new_elems.append(br_run._r)
-        r = p.add_run()
-        r.add_picture(src, width=width)
-        new_elems.append(r._r)
-        first = False
-    target_idx = None
-    for i, r in enumerate(runs_before):
-        t = "".join(n.text or "" for n in r.findall(qn("w:t")))
-        if after_key in t:
-            target_idx = i
-    anchor = None
-    if target_idx is not None:
-        for i in range(target_idx, len(runs_before)):
-            if runs_before[i].find(qn("w:br")) is not None:
-                anchor = runs_before[i]
-                break
-    if anchor is None:
-        for el in new_elems:
-            el.getparent().remove(el)
-        return False
-    prev = anchor
-    for el in new_elems:
-        prev.addnext(el)
-        prev = el
-    return True
+def _split_softbreaks(cell: _Cell):
+    """把格内含软换行（w:br）的段拆成多个独立段：换行后各段继承原段样式与文字。"""
+    for p in list(cell.paragraphs):
+        if p._p.find(".//" + qn("w:br")) is None:
+            continue
+        segments = [[]]   # 每段 = run 子元素列表；遇 br 开新段
+        orig_first_r = p._p.find(qn("w:r"))
+        for r in p._p.findall(qn("w:r")):
+            for sub in list(r):
+                if sub.tag == qn("w:br"):
+                    segments.append([])
+                else:
+                    segments[-1].append(sub)
+        new_ps = []
+        for seg in segments:
+            np = copy.deepcopy(p._p)
+            for ch in list(np):
+                if ch.tag != qn("w:pPr"):
+                    np.remove(ch)
+            r_el = np.makeelement(qn("w:r"), {})
+            if orig_first_r is not None:
+                r_pr = orig_first_r.find(qn("w:rPr"))
+                if r_pr is not None:
+                    r_el.append(copy.deepcopy(r_pr))
+            for el in seg:
+                r_el.append(copy.deepcopy(el))
+            np.append(r_el)
+            new_ps.append(np)
+        prev = p._p
+        for np in new_ps:
+            prev.addnext(np)
+            prev = np
+        p._p.getparent().remove(p._p)
+
+
+def _stamp_para_before(date_para):
+    """在日期段前插「公司印章：」段（克隆日期段样式、替换文字），返回该段。"""
+    p = copy.deepcopy(date_para._p)
+    for r in p.findall(qn("w:r")):
+        p.remove(r)
+    date_para._p.addprevious(p)
+    para = date_para.__class__(p, date_para._parent)
+    para.add_run("公司印章：")
+    return para
 
 
 def apply_company_seal(doc: _Doc) -> bool:
-    """公司签字+公章合成进公司格：签名线之后、日期之前插「签字段」「章段」
-    （签字贴签名线下缘、章压日期上方，与真实签字页同序）；客户格同位插同尺寸
-    透明占位图，两边日期保持同一水平线。高才移民版式公司格只有公司名段、日期在
-    通栏共享行——签字/章段插在公司名段之后，整表行随之下移，日期天然对齐。
-    软换行单段版式（过户：签署文字挤在一个段落、行间 w:br 分隔）按段内换行位插图。
-    印信文件缺失或找不到签署格 → False，文档零改动。"""
+    """公司签字+公章合成进公司格，并把两格重建成统一签署骨架（各业务只保留
+    自己的抬头文字与日期）——构图全业务一致，甲乙日期同一水平线。
+    高才移民签署表为四列+通栏行结构：签字/章插在公司名段后，通栏行整体下移，
+    日期天然对齐。印信文件缺失或找不到签署格 → False，文档零改动。"""
     assets = _assets()
     if not assets:
         return False
@@ -180,29 +190,10 @@ def apply_company_seal(doc: _Doc) -> bool:
     sign_h = _img_height_in(sign_path, SIGN_W.inches)
     seal_h = _img_height_in(seal_path, SEAL_W.inches)
 
-    p_date = first_para_with(comp, "日期")
-    # 软换行单段版式（过户）：签署文字与日期挤在同一段落、行间 w:br 分隔——
-    # 签字插在签名线换行后、章插在「公司印章」换行后；客户格同位插透明占位
-    soft_p = None
-    for p in comp.paragraphs:
-        if "日期" in p.text and ("____" in p.text or "签署" in p.text):
-            soft_p = p
-            break
-    if soft_p is not None:
-        import io as _io
-        dpi = 200
-        ok_sign = _pic_runs_after_softbreak(soft_p, "____", [(sign_path, SIGN_W)])
-        ok_seal = _pic_runs_after_softbreak(soft_p, "公司印章", [(seal_path, SEAL_W)]) or \
-            _pic_runs_after_softbreak(soft_p, "____", [(seal_path, SEAL_W)])
-        spacers = [(_transparent_png(int(SIGN_W.inches * dpi), int(sign_h * dpi)), SIGN_W),
-                   (_transparent_png(int(SEAL_W.inches * dpi), int(seal_h * dpi)), SEAL_W)]
-        for p in cli.paragraphs:
-            if "日期" in p.text and ("____" in p.text or "签署" in p.text):
-                _pic_runs_after_softbreak(p, "____", spacers)
-                break
-        return ok_sign and ok_seal
-    if p_date is None:
-        # B 路径（高才移民）：公司格只有公司名段 → 签字/章段插在其后
+    # 高才移民（B 路径）：公司格只有公司名段、无授权代表签署行 → 签字/章插在其后，
+    # 签名/代表签名/盖章/日期均为通栏共享行，整表随之下移，日期天然对齐
+    if first_para_with(comp, "授权代表签署") is None and \
+            first_para_with(comp, "____") is None:
         p_name = first_para_with(comp, COMPANY_NAME) or comp.paragraphs[0]
         p_sign = blank_para_after(p_name, sign_h)
         p_sign.add_run().add_picture(sign_path, width=SIGN_W)
@@ -210,14 +201,53 @@ def apply_company_seal(doc: _Doc) -> bool:
         p_seal.add_run().add_picture(seal_path, width=SEAL_W)
         return True
 
-    # A 路径（车/过户/新办）：签字段插在「公司印章」标签（无则日期段）之前，
-    # 章段插在标签之后——章贴标签、压日期上方；客户格对称插同尺寸透明占位图
-    p_stamp = first_para_with(comp, "公司印章", "盖章")
-    p_sign = blank_para_before(p_stamp or p_date, sign_h)
-    p_sign.add_run().add_picture(sign_path, width=SIGN_W)
-    p_seal = blank_para_before(p_date, seal_h)
-    p_seal.add_run().add_picture(seal_path, width=SEAL_W)
-    if first_para_with(cli, "日期") is not None:
-        transparent_spacer_para_before(first_para_with(cli, "日期"), SIGN_W, sign_h)
-        transparent_spacer_para_before(first_para_with(cli, "日期"), SEAL_W, seal_h)
-    return True
+    # 统一骨架（A 路径：车/过户/新办）
+    _split_softbreaks(comp)
+    _split_softbreaks(cli)
+
+    def canonicalize(cell: _Cell, real: bool) -> bool:
+        paras = cell.paragraphs
+        p_label = paras[0]
+        p_sign_label = first_para_with(cell, "授权代表签署", "签署／授权代表签署")
+        p_line = first_para_with(cell, "____")
+        p_date = first_para_with(cell, "日期")
+        p_stamp = first_para_with(cell, "公司印章")
+        if not (p_sign_label and p_line and p_date) or p_label is p_date:
+            return False
+        # 删除骨架之外的段（空行、姓名行等模板杂项）
+        keep = {id(p._p) for p in (p_label, p_sign_label, p_line, p_stamp, p_date) if p}
+        for p in list(cell.paragraphs):
+            if id(p._p) not in keep:
+                p._p.getparent().remove(p._p)
+        # 排序：抬头 → 授权代表签署 → ____ → [公司印章] → 日期
+        seq = [p_label._p, p_sign_label._p, p_line._p]
+        if p_stamp is not None:
+            seq.append(p_stamp._p)
+        seq.append(p_date._p)
+        for i in range(len(seq) - 1):
+            seq[i].addnext(seq[i + 1])
+        # 刷新引用后插图/占位：签字段在线后、章段紧贴日期前
+        p_sign_label = first_para_with(cell, "授权代表签署", "签署／授权代表签署")
+        p_line = first_para_with(cell, "____")
+        p_date = first_para_with(cell, "日期")
+        p_stamp = first_para_with(cell, "公司印章")
+        if real:
+            p_sig = blank_para_before(p_date, sign_h)
+            p_sig.add_run().add_picture(sign_path, width=SIGN_W)
+            # 统一骨架：公司印章标签段紧跟签字图之后（过户模板原有则挪位，其余新建）
+            if p_stamp is None:
+                p_stamp = _stamp_para_before(p_date)
+            else:
+                p_sig._p.addnext(p_stamp._p)
+            p_seal = blank_para_before(p_date, seal_h)
+            p_seal.add_run().add_picture(seal_path, width=SEAL_W)
+        else:
+            transparent_spacer_para_before(p_date, SIGN_W, sign_h)
+            blank_para_before(p_date)   # 对应公司格「公司印章：」行的自然高度
+            transparent_spacer_para_before(p_date, SEAL_W, seal_h)
+        return True
+
+    ok = canonicalize(comp, real=True)
+    if ok:
+        canonicalize(cli, real=False)
+    return ok
