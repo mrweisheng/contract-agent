@@ -526,7 +526,9 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         """签署表日期归一化：模板空位与填充后的日期视为同一设计内变更。
         覆盖两种形态：「日期：X年X月X日」同段；高才移民的空位独立格「2026年__月__日」。"""
         s = re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", s)
-        return re.sub(r"(?:\d{4}|_{2,})年(?:\d{1,2}|_{2,})月(?:\d{1,2}|_{2,})日", "<日期>", s)
+        s = re.sub(r"(?:\d{4}|_{2,})年(?:\d{1,2}|_{2,})月(?:\d{1,2}|_{2,})日", "<日期>", s)
+        # 空行归一：公司印信/客户签名会在格内插等高空段（仅多出空行，无文字）
+        return re.sub(r"\n+", "\n", s).strip()
 
     for t_t in tpl.tables:
         t_all = _tbl_alltext(t_t)

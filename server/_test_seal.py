@@ -41,15 +41,59 @@ form_car = {"agreement_no": "", "sign_date": "2026-11-20", "currency": "HKD",
 pay_car = {"mode": "default", "deposit_amount": 100000, "deposit_date": "2026-11-20",
            "balance_date": "2026-12-20", "choice": "较早者"}
 
-# 1) 卖车：生成即盖章（公司=甲方格），客户格零图片
+# 1) 卖车：生成即盖章（公司=甲方格），客户格零图片；落位=签字/章段紧贴日期段之前，
+#    客户格对称插等高空段（两边日期同一水平线）
 out_car = os.path.join(TMP, "车.docx")
 report = build_contract("car", dict(form_car), pay_car, "T001", out_car)
 check(report.get("company_sealed") is True, "卖车 report.company_sealed=True")
 from docx import Document
-comp, cli = seal_mod.locate(Document(out_car))
+from docx.enum.text import WD_LINE_SPACING
+doc_car = Document(out_car)
+comp, cli = seal_mod.locate(doc_car)
 check("华星" in comp.text and pics(comp) == 2, f"公司格含华星且 2 图（实际 {pics(comp)}）")
-check(pics(cli) == 0, "客户格无图（公司印信不进客户格）")
+check(pics(cli) == 2, "客户格含 2 张透明占位图（与公司格渲染路径一致）")
+sign_h = seal_mod._img_height_in(os.path.join(TMP, "seals", "sign.png"), 1.6)
+seal_h = seal_mod._img_height_in(os.path.join(TMP, "seals", "seal.png"), 1.3)
+paras = comp.paragraphs
+pic_idx = [i for i, p in enumerate(paras) if p._p.xpath(".//pic:pic")]
+date_idx = next(i for i, p in enumerate(paras) if "日期" in p.text)
+check(pic_idx == [date_idx - 2, date_idx - 1],
+      f"签字段+章段紧贴日期段之前（pic 段 {pic_idx}，日期段 {date_idx}）")
+spacers = [p for p in cli.paragraphs
+           if p.paragraph_format.line_spacing_rule == WD_LINE_SPACING.EXACTLY
+           and p.paragraph_format.line_spacing is not None]
+hs = sorted([round(p.paragraph_format.line_spacing.pt, 1) for p in spacers], reverse=True)
+expect = sorted([round(sign_h * 72, 1), round(seal_h * 72, 1)], reverse=True)
+check(len(spacers) == 2 and all(abs(a - b) < 0.5 for a, b in zip(hs, expect)),
+      f"客户格两个等高占位段 ({hs} ≈ {expect})")
 store.confirm_no("T001", "car", "测试买方", "default", "HKD", "车.docx", "ok")
+
+# 1b) 过户（软换行单段版式）：签字/章插在段内签名线/公司印章换行处，客户格透明占位
+form_gx = {"agreement_no": "", "sign_date": "2026-11-20", "currency": "CNY",
+           "client_name": "测试委托方", "client_id": "H9(8)", "client_phone": "13900000000",
+           "plate": "粤Z1234", "port": "莲塘口岸", "target_hk_company": "测试香港公司",
+           "quota_type": "高新", "total_fee": 250000, "exchange_fee": 0}
+out_gx = os.path.join(TMP, "过户.docx")
+r_gx = build_contract("transfer_gx", dict(form_gx), {"mode": "default"}, "T004", out_gx)
+check(r_gx.get("company_sealed") is True, "过户 report.company_sealed=True")
+doc_g = Document(out_gx)
+comp_g, cli_g = seal_mod.locate(doc_g)
+soft_p = next(p for p in comp_g.paragraphs if "日期" in p.text and "____" in p.text)
+soft_cli = next(p for p in cli_g.paragraphs if "日期" in p.text and "____" in p.text)
+check(len(soft_p._p.xpath(".//pic:pic")) == 2, "过户公司段含签字+章 2 图")
+check(len(soft_cli._p.xpath(".//pic:pic")) == 2, "过户客户段含 2 张透明占位图")
+# 段内顺序：____ → 签字图 → 公司印章 → 章图 → 日期
+seq = []
+for node in soft_p._p.iter():
+    ln = node.tag.rsplit("}", 1)[-1]
+    if ln == "t" and node.text:
+        seq.append(node.text[:4])
+    elif ln == "pic":
+        seq.append("PIC")
+joined = "|".join(seq)
+check(joined.find("PIC") < joined.find("公司印章") < joined.rfind("PIC") < joined.find("日期"),
+      f"段内顺序 线→签字→印章标签→章→日期（{joined[:80]}）")
+store.confirm_no("T004", "transfer_gx", "测试委托方", "default", "CNY", "过户.docx", "ok")
 
 # 2) 高才移民：公司是乙方格，同样盖进公司格；客户签名（角色修正）落甲方客户格
 form_imm = {"agreement_no": "", "sign_date": "2026-11-20", "currency": "CNY",
