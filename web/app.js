@@ -120,7 +120,8 @@ const app = createApp({
 
     const cfg = computed(() => types.value.find(t => t.key === selected.type) || null);
     const currencyLabel = c => ({ HKD: "港币 HK$", CNY: "人民币 ¥" }[c] || c);
-    const totalKey = computed(() => selected.type === "car" ? "total_price" : "total_fee");
+    const totalKey = computed(() =>
+      selected.type === "car" || selected.type === "car_buy" ? "total_price" : "total_fee");
     const total = computed(() => parseInt(form[totalKey.value]) || 0);
     const paneKey = computed(() => selected.type + "|" + selected.port);  // 切换业务时录入栏淡出淡入
 
@@ -143,9 +144,12 @@ const app = createApp({
     function fxAbout(v) {
       const n = parseInt(v);
       if (!fxRate.value || isNaN(n) || n <= 0) return "";
+      // 收车式对外付款（pay_markup_free）按实汇率足额折，不加 1.01 加成
+      const markupFree = !!types.value.find(t => t.key === selected.type)?.pay_markup_free;
+      const k = markupFree ? 1 : 1.01;
       const other = form.currency === "HKD" ? "CNY" : "HKD";
-      const amt = other === "HKD" ? Math.floor(n / fxRate.value * 1.01 + 0.5)
-                                  : Math.floor(n * fxRate.value * 1.01 + 0.5);
+      const amt = other === "HKD" ? Math.floor(n / fxRate.value * k + 0.5)
+                                  : Math.floor(n * fxRate.value * k + 0.5);
       const lab = currencyLabel(other).split(" ")[0];
       return `（约合${lab}${other === "HKD" ? "HK$" : "¥"}${commas(amt)}）`;
     }
@@ -154,7 +158,10 @@ const app = createApp({
     const menu = computed(() => {
       const get = k => types.value.find(t => t.key === k);
       const items = [];
-      if (get("car")) items.push({ title: "车务", list: [{ key: "car", port: "", label: "车务" }] });
+      const carItems = [];
+      if (get("car")) carItems.push({ key: "car", port: "", label: "卖车" });
+      if (get("car_buy")) carItems.push({ key: "car_buy", port: "", label: "收车" });
+      if (carItems.length) items.push({ title: "车务", list: carItems });
       if (get("transfer_gx") && get("transfer_ns")) items.push({
         title: "现牌过户", list: [
           { key: "transfer_gx", port: "", label: "高新现牌" },
@@ -186,6 +193,19 @@ const app = createApp({
       }));
       c.fee_fields.forEach(f => { form[f.key] = f.default !== undefined ? f.default : null; });
       form.port = selected.port;
+      // 收车（对外付款散文条款）：交付日期默认当天、过户期限默认当天+2 个月（条款=签署日起两个月内），均可手改
+      if (c.prose_money) {
+        form.delivery_date = todayISO();
+        form.transfer_deadline = addMonthsISO(todayISO(), 2);
+      }
+    }
+    // ISO 日期加 N 个自然月（末日钳制，与引擎 _add_months_iso 同口径）
+    function addMonthsISO(iso, months) {
+      const [y, m, d] = iso.split("-").map(Number);
+      const t = y * 12 + (m - 1) + months;
+      const y2 = Math.floor(t / 12), m2 = (t % 12) + 1;
+      const d2 = Math.min(d, new Date(y2, m2, 0).getDate());
+      return `${String(y2).padStart(4, "0")}-${String(m2).padStart(2, "0")}-${String(d2).padStart(2, "0")}`;
     }
     // 按合同模板预置分期行（金额待填；签约当日期预填签署日期，非卖车定金行锁定为签署日期）
     function mkPresetRows(fill) {
@@ -496,9 +516,10 @@ const app = createApp({
     }
     function resetPayRows() { initPayment(); schedulePreview(0); }
     function onAmount(i) {
-      // 卖车预设两期：改订金后尾款自动 = 总费用 − 订金
+      // 卖车/收车预设两期：改第一期后余款自动 = 总价 − 首期款
       const r = payment.rows;
-      if (cfg.value?.car_default && r.length === 2 && i === 0 && (parseInt(r[0].amount) > 0)) {
+      if ((cfg.value?.car_default || cfg.value?.prose_money) &&
+          r.length === 2 && i === 0 && (parseInt(r[0].amount) > 0)) {
         r[1].amount = total.value - parseInt(r[0].amount);
       }
     }
@@ -506,7 +527,8 @@ const app = createApp({
     const payOk = computed(() =>
       payment.rows.length > 0 && total.value > 0 && paySum.value === total.value &&
       payment.rows.every(r => (parseInt(r.amount) || 0) > 0 &&
-        (String(r.date || "").trim() || String(r.event || "").trim()))
+        (cfg.value?.prose_money ||
+         (String(r.date || "").trim() || String(r.event || "").trim())))
     );
 
     /* ---------- 事实台账（ui_mode=ledger，试点：高新现牌 · 原型 06） ----------
@@ -591,7 +613,7 @@ const app = createApp({
         const w = noAmt.map(n => `第${SEQ_CN(n)}期`).join("、");
         return { text: `${w}还没填金额`, short: `${w}未填金额` };
       }
-      const noWhen = rows.map((r, i) => (r.lockDate || String(r.date || "").trim() || String(r.event || "").trim()) ? null : i + 1).filter(Boolean);
+      const noWhen = rows.map((r, i) => (r.lockDate || String(r.date || "").trim() || String(r.event || "").trim() || cfg.value?.prose_money) ? null : i + 1).filter(Boolean);
       if (noWhen.length) {
         const w = noWhen.map(n => `第${SEQ_CN(n)}期`).join("、");
         return { text: `${w}还没填付款日期或事件条件`, short: `${w}缺日期/事件` };
@@ -812,8 +834,14 @@ const app = createApp({
       if (!sheet || !a) return null;
       const paras = a.para === undefined ? null : (Array.isArray(a.para) ? a.para : [a.para]);
       try {
-        if (paras) {
-          for (const kw of paras)
+        if (paras || a.para_by_idx) {
+          // para_by_idx：按期号直达正文落位段（instIdx 1=第一期…；越界回落 para 整段锚）
+          let kws = paras || [];
+          if (a.para_by_idx) {
+            const pick = a.para_by_idx[Math.max(0, (instIdx ?? 1) - 1)];
+            if (pick) kws = [pick];
+          }
+          for (const kw of kws)
             for (const p of sheet.querySelectorAll("p"))
               if ((p.textContent || "").includes(kw)) return p;
           return null;
@@ -883,6 +911,7 @@ const app = createApp({
         }
       }
       if (!el) return false;   // 目标还没渲染出来（如刚勾选）：pending 保持，等内容出现的那次带滚动
+      sheetEl.value?.querySelectorAll(".pv-hit").forEach(e => e.classList.remove("pv-hit"));   // 重贴前清旧标记
       el.classList.add("pv-hit");
       pinBeacon(el);
       if (scroll) pvScrollTo(el);
@@ -1106,7 +1135,7 @@ const app = createApp({
         if (el && el.tagName === "INPUT" && el.type === "number" && document.activeElement === el) el.blur();
       }, { passive: true });
       try {
-        const r = await fetch("/api/types");
+        const r = await fetch("/api/types?t=" + Date.now());   // 缓存戳：配置改动即时生效
         const d = await r.json();
         types.value = d.types;
         currencies.value = d.currencies;
@@ -2004,6 +2033,8 @@ const app = createApp({
                         <option value="" disabled>请选择</option>
                         <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
                       </select>
+                      <input v-else-if="f.type === 'date'" :id="'f-' + f.key" class="lf-in lf-date" type="date"
+                             v-model="form[f.key]" @change="onFieldInput(f.key)"/>
                       <input v-else :id="'f-' + f.key" class="lf-in" v-model="form[f.key]"
                              :size="inpSize(form[f.key])"
                              :placeholder="fieldState(f) === 'miss' ? '必填 · 待填' : (f.hint || '待填')"
@@ -2107,9 +2138,9 @@ const app = createApp({
               </div>
 
               <div class="led-pay-hint">
-                <span>付款顺序＝实际履约顺序，点某一期展开编辑</span>
+                <span>{{ cfg.prose_money ? '首期款 + 余款 = 购买总价；时点按模板条款固定' : '付款顺序＝实际履约顺序，点某一期展开编辑' }}</span>
                 <span class="spacer"></span>
-                <button class="text-act edit-only" @click="addRow">＋ 加一期</button>
+                <button v-if="!cfg.prose_money" class="text-act edit-only" @click="addRow">＋ 加一期</button>
                 <button class="text-act edit-only" @click="resetPayRows">恢复模板预设</button>
               </div>
               <div class="led-timeline">
@@ -2121,10 +2152,18 @@ const app = createApp({
                     <input class="led-step-amount" type="number" min="0" step="1000" v-model.number="it.amount"
                            placeholder="金额" data-pfield="amount" @input="onAmount(idx)" @focus="openPay = idx" @click.stop/>
                     <span class="led-step-cond" :title="condText(it)">{{ condText(it) }}</span>
-                    <button class="led-step-x edit-only" title="删除这一期" @click.stop="delRow(idx)">✕</button>
+                    <button v-if="!cfg.prose_money" class="led-step-x edit-only" title="删除这一期" @click.stop="delRow(idx)">✕</button>
                     <span class="led-chev">⌄</span>
                   </div>
                   <div class="led-step-detail">
+                    <!-- 收车式散文条款：付款时点为模板固定句式，只读展示（金额合计须=总价） -->
+                    <template v-if="cfg.prose_money">
+                      <div class="lsd-row">
+                        <label>付款时点（模板固定）</label>
+                        <span class="lsd-fixed">{{ it.event || '按模板条款执行' }}</span>
+                      </div>
+                    </template>
+                    <template v-else>
                     <div class="lsd-row">
                       <label>付款日期{{ it.lockDate ? '（锁定签约当日）' : '' }}</label>
                       <input v-if="it.lockDate" type="date" :value="form.sign_date" disabled/>
@@ -2134,6 +2173,7 @@ const app = createApp({
                       <label>付款事件条件</label>
                       <textarea v-model="it.event" :placeholder="eventPlaceholder(it, idx)" data-pfield="event" rows="2"></textarea>
                     </div>
+                    </template>
                   </div>
                 </div>
               </div>

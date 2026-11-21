@@ -597,6 +597,8 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .lsd-row input:focus, .lsd-row textarea:focus { outline: none; border-color: var(--ink-2); }
 .lsd-row input:disabled { background: #f4f2ec; color: var(--muted); }
 .lsd-row textarea { resize: vertical; min-height: 52px; line-height: 1.5; }
+.lsd-fixed { font-size: 13px; color: var(--ink-2, #35523f); background: #f4f2ec;
+             border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; line-height: 1.5; }
 .led-sec .total-line { margin: 4px 20px 12px; }
 .led-sec .note-strip { margin: 0 16px 14px; }
 .led-sign { margin: 14px 16px 16px; }

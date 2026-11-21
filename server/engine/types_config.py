@@ -138,6 +138,116 @@ TYPES = {
         ],
     },
 
+    # ============ 收车 ============
+    "car_buy": {
+        "label": "收车（香港车辆购买）",
+        "short": "收车",
+        "template": "8-收车-香港车辆购买合约.docx",
+        "currency_default": "HKD",
+        "client_side": "甲方（卖方）",
+        "payer": "乙方",           # 收车=华星对外付款（条款行文用）
+        "payee": "甲方",
+        # 模板锚点（合同双方=卖车式四列双栏表：标签0/客户值1/买方标签2/华星值3）
+        "party_table_anchor": "卖方（甲方）",
+        "party_label_col": 0, "party_value_col": 1,
+        "kv_tables": [  # 标签-值 两列表格（车辆详情）
+            {"anchor": "车牌号码", "map": {
+                "车牌号码": "plate",
+                "车身底盘号码": "vin",
+                "签约时里程表读数": "mileage",
+            }},
+        ],
+        # 金额为散文空位条款（三、购买价及付款方式），无费用表：builder 走
+        # _car_buy_mode 逐空位填值；fee_table_anchor 仅为哨兵（不存在，查找即 None）
+        "prose_money": True,
+        "fee_table_anchor": "该车辆的购买总价",
+        "fee_cell_style": "single",
+        "fee_total_label": "车辆购买总价",
+        "payment_section": ("三", "四"),
+        "car_buy_2part": True,             # 首期款／余款两期，合计=总价
+        "pay_markup_free": True,           # 付款对外：双币换算按实汇率，不加 1.01 加成
+        # 付款计划预设（模板固定两期；时点为条款固定句式，卡片只读展示、不参与落盘——
+        # 条款原文：签署起三个工作日内付首期款；交付并完成过户后三个工作日内付余款）
+        "pay_preset": [
+            {"label": "首期款", "event": "签署之日起3个工作日内支付"},
+            {"label": "余款", "event": "车辆交付并完成过户登记后3个工作日内支付"},
+        ],
+        "fee_rows_default": ["车辆购买总价", "首期款", "余款"],
+        "exchange_fee": False,
+        # 前端「聚焦字段 → 预览联动定位」（散文条款用段落子串锚）
+        "field_anchors": {
+            **_client_anchors("@party", "卖方（甲方）", 1),
+            # 行关键词按本模板措辞覆写（身份证明／联系电话与通用「证件／联络电话」不同）
+            "client_id": {"table": "@party", "row": "身份证明", "col": 1},
+            "client_phone": {"table": "@party", "row": "联系电话", "col": 1},
+            "seller_rep": {"table": "@party", "row": "授权代表", "col": 1},
+            "plate": {"table": "@kv", "row": "车牌号码", "col": 1},
+            "vin": {"table": "@kv", "row": "车身底盘", "col": 1},
+            "mileage": {"table": "@kv", "row": "里程表", "col": 1},
+            "total_price": {"para": ["购买总价为港币", "购买总价"]},
+            "currency": {"para": ["购买总价为港币", "购买总价"]},
+            "deposit": {"para": ["支付首期款", "首期款"]},
+            "balance": {"para": ["向卖方支付余款", "余款"]},
+            "delivery_date": {"para": ["卖方应于", "交付予买方"]},
+            "actual_delivery": {"para": ["实际交付日期及时间"]},
+            "transfer_deadline": {"para": ["或之前", "两个月内"]},
+            "reg_number": {"para": ["现有登记号码", "登记号码安排"]},
+            "reg_keep": {"para": ["随车辆一并转让", "登记号码安排"]},
+            "sign_date": {"table": "授权代表签署"},
+            # 分期卡片→正文金额句：para_by_idx 按期号（1=首期款句、2=余款句）直达落位段落，
+            # 越界回落 para 标题锚（收车卡片只编金额，时点为模板固定只读）
+            "installment": {"para_by_idx": ["支付首期款", "支付余款"],
+                            "para": ["购买价及付款方式"]},
+        },
+        # 表单结构
+        "ui_mode": "ledger",
+        "ledger_rows": [
+            {"title": "卖方信息（甲方）", "en": "Seller", "rows": [
+                {"label": "主体", "fields": ["client_name", "client_id"]},
+                {"label": "联络", "fields": ["client_phone", "client_address"]},
+                {"label": "授权代表", "fields": ["seller_rep"]},
+            ]},
+            {"title": "车辆数据", "en": "Vehicle", "rows": [
+                {"label": "车辆", "fields": ["plate", "vin"]},
+                {"label": "里程与号码", "fields": ["mileage", "reg_number"]},
+            ]},
+            {"title": "款项与交付", "en": "Payment", "rows": [
+                {"label": "交资料", "fields": ["delivery_date", "transfer_deadline"]},
+                {"label": "实际交车", "fields": ["actual_delivery"]},
+                {"label": "登记号码", "fields": ["reg_keep"]},
+            ]},
+        ],
+        "groups": [
+            {"title": "卖方信息（甲方）", "fields": [
+                {"key": "client_name", "label": "卖方姓名／公司名称", "type": "text", "required": True},
+                {"key": "client_id", "label": "身份证明／公司注册编号", "type": "text", "required": True},
+                {"key": "client_phone", "label": "联系电话", "type": "text", "required": True},
+                {"key": "client_address", "label": "地址", "type": "text", "required": False},
+                {"key": "seller_rep", "label": "授权代表及职务（如适用）", "type": "text", "required": False},
+            ]},
+            {"title": "车辆数据", "fields": [
+                {"key": "plate", "label": "车牌号码", "type": "text", "required": True},
+                {"key": "vin", "label": "车身底盘号码（VIN/Chassis）", "type": "text", "required": True},
+                {"key": "mileage", "label": "签约时里程表读数（公里）", "type": "text", "required": False},
+                {"key": "reg_number", "label": "现有登记号码", "type": "text", "required": False,
+                 "hint": "空=按车牌号码自动带出"},
+            ]},
+            {"title": "款项与交付", "fields": [
+                {"key": "delivery_date", "label": "交资料日期", "type": "date", "required": True,
+                 "hint": "卖方交车钥匙及全部过户文件予买方的日期（条款四.1）"},
+                {"key": "transfer_deadline", "label": "过户期限（空=签署日+2个月）", "type": "date", "required": False},
+                {"key": "actual_delivery", "label": "实际交付日期", "type": "date", "required": False,
+                 "hint": "条款四.3双方确认的实际交车时间；选日期后时分按当天24:00记，留空=打印后手写"},
+                {"key": "reg_keep", "label": "登记号码安排", "type": "select",
+                 "options": ["随车辆一并转让", "卖方保留或更换"], "default": "随车辆一并转让",
+                 "required": False},
+            ]},
+        ],
+        "fee_fields": [
+            {"key": "total_price", "label": "车辆购买总价", "type": "number", "required": True},
+        ],
+    },
+
     # ============ 现牌过户 · 高新 ============
     "transfer_gx": {
         "label": "现牌过户 · 高新",

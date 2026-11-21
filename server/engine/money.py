@@ -132,23 +132,25 @@ def other_currency(code: str) -> str:
     return "CNY" if code == "HKD" else "HKD"
 
 
-def convert_amount(amount, code: str, rate: float) -> int:
+def convert_amount(amount, code: str, rate: float, markup: bool = True) -> int:
     """主币种金额换算到另一币种：汇率 × 加成系数，四舍五入到整数元（合同为「元整」格式）。
-    rate 为 1 港元兑人民币汇率（fx.get_hkd_cny 提供，构建时取一次贯穿全程）。"""
+    rate 为 1 港元兑人民币汇率（fx.get_hkd_cny 提供，构建时取一次贯穿全程）。
+    markup=False 按实汇率足额折（对外付款场景——收车是华星付钱出去，不加成）。"""
     n = int(amount)
     v = n * rate if code == "HKD" else n / rate
-    v *= CONV_MARKUP
+    if markup:
+        v *= CONV_MARKUP
     return int(v + 0.5)  # floor(v+0.5)：显式四舍五入，避开 round() 的银行家舍入
 
 
-def dual_numeric(amount, code: str, rate: float) -> str:
+def dual_numeric(amount, code: str, rate: float, markup: bool = True) -> str:
     """主币种数字写法在前、换算币种在后，如「HK$500,000 / ¥440,000」。
     主币种在前保证核对器取第一个数字即主币种金额。"""
     return (f"{currency_symbol(code)}{with_commas(amount)}"
-            f" / {currency_symbol(other_currency(code))}{with_commas(convert_amount(amount, code, rate))}")
+            f" / {currency_symbol(other_currency(code))}{with_commas(convert_amount(amount, code, rate, markup))}")
 
 
-def amount_phrase_dual(amount, code: str, rate: float) -> str:
+def amount_phrase_dual(amount, code: str, rate: float, markup: bool = True) -> str:
     """费用表金额格落字：主币种大写 + 双币数字写法，
     如「港币（大写）伍拾万元整（HK$500,000 / ¥440,000）」。"""
-    return f"{currency_label(code)}（大写）{to_cn_upper(amount)}（{dual_numeric(amount, code, rate)}）"
+    return f"{currency_label(code)}（大写）{to_cn_upper(amount)}（{dual_numeric(amount, code, rate, markup)}）"

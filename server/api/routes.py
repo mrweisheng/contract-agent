@@ -9,7 +9,7 @@ import tempfile
 import traceback
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
@@ -87,6 +87,20 @@ def get_fx():
     return {"rate": info["rate"], "source": info["source"]}
 
 
+def _resolve_anchors(cfg) -> dict:
+    """field_anchors 下发前把 @party/@kv/@fee 占位表锚替换为该业务真实锚文本。"""
+    kv_anchor = (cfg.get("kv_tables") or [{}])[0].get("anchor")
+    table_map = {"@party": cfg["party_table_anchor"], "@fee": cfg["fee_table_anchor"]}
+    if kv_anchor:
+        table_map["@kv"] = kv_anchor
+    out = {}
+    for key, a in (cfg.get("field_anchors") or {}).items():
+        if isinstance(a, dict) and isinstance(a.get("table"), str) and a["table"] in table_map:
+            a = {**a, "table": table_map[a["table"]]}
+        out[key] = a
+    return out
+
+
 @router.get("/types")
 def get_types():
     out = []
@@ -102,14 +116,20 @@ def get_types():
             "groups": cfg["groups"],
             "fee_fields": cfg["fee_fields"],
             "pay_preset": cfg.get("pay_preset", []),
-            "field_anchors": cfg.get("field_anchors"),  # 前端「聚焦字段→预览联动定位」锚点
+            # 前端「聚焦字段→预览联动定位」锚点：@party/@kv/@fee 是占位符，此处替换为
+            # 各业务真实表锚文本（前端不认识占位符，直接下发会导致联动静默失效）
+            "field_anchors": _resolve_anchors(cfg),
             "ui_mode": cfg.get("ui_mode", ""),          # ledger＝事实台账布局（试点：高新现牌）
             "ledger_rows": cfg.get("ledger_rows"),      # 台账行组织（ui_mode=ledger 时用）
             "client_side": cfg["client_side"],
             "car_default": bool(cfg.get("car_default")),
+            "prose_money": bool(cfg.get("prose_money")),        # 收车式散文金额条款（无费用表/分期卡免日期事件）
+            "pay_markup_free": bool(cfg.get("pay_markup_free")),  # 付款对外：约合提示不加 1.01
             "imm_fee": bool(cfg.get("installment_table")),  # 移民式分期散文表：行号=期号（无总费用行）
         })
-    return {"types": out, "currencies": CURRENCY_OPTIONS}
+    # no-cache：配置（表单结构/锚点）改动必须即时生效，不吃浏览器启发式缓存
+    return JSONResponse({"types": out, "currencies": CURRENCY_OPTIONS},
+                        headers={"cache-control": "no-cache"})
 
 
 class ExtractReq(BaseModel):

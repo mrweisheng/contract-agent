@@ -18,18 +18,23 @@ from engine.money import (to_cn_upper, with_commas, currency_label, currency_sym
                           clean_amount, clean_currency)
 
 PARTY_LABEL_MAP = [
+    ("姓名／公司名称", "client_name"),   # 收车合同卖方表首行（「卖方姓名／公司名称」）
     ("证件", "client_id"),
+    ("身份证明", "client_id"),           # 收车合同卖方证件行（「身份证明／公司注册编号」）
     ("联络人", "client_contact"),
     ("联系人", "client_contact"),
     ("联络电话", "client_phone"),
     ("电话", "client_phone"),
     ("联络地址", "client_address"),
     ("地址", "client_address"),
+    ("授权代表及职务", "seller_rep"),
 ]
 
 
 def _party_label_to_field(label_text: str):
     if "买方" in label_text or "委托方" in label_text or "甲方（委托方" in label_text:
+        return "client_name"
+    if "卖方（甲方" in label_text:          # 收车合同双栏表卖方行（客户=卖方）
         return "client_name"
     for kw, field in PARTY_LABEL_MAP:
         if kw in label_text:
@@ -199,6 +204,8 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
                     val = form.get(field)
                     if field == "quota_type":
                         val = cfg["quota_auto"]
+                    if field == "mileage" and str(val or "").strip():
+                        val = f"{str(val).strip()} 公里"   # 收车里程格已去单位后缀，填值带单位
                     W.set_cell_text(row.cells[1], str(val or "").strip() or "—")
 
     # 3.5 申请人信息表（高才移民）：整行重写为模板同款句式；
@@ -237,24 +244,30 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
             report["exchange_label"] = xlabel
 
     # 5. 付款计划 → 条款区 + 费用表
-    fee_tbl = W.find_table(doc, cfg["fee_table_anchor"])
-    if fee_tbl is None:
-        raise ValueError("找不到费用表")
-    report["total"] = total  # total 已在函数开头严格解析（P1-4：绝不静默截断）
-    mode = payment.get("mode", "default")
-    report["mode"] = mode
-    sec_no, next_no = cfg["payment_section"]
-
-    if cfg.get("installment_table"):
-        _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, rate, mode)
-    elif mode == "default":
-        _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate)
-    elif mode == "one_time":
-        _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
-    elif mode == "custom":
-        _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
+    if cfg.get("prose_money"):
+        # 收车式散文金额条款：无费用表，逐空位填值（见 _car_buy_mode）
+        report["total"] = total
+        report["mode"] = "car_buy"
+        _car_buy_mode(doc, cfg, form, payment, cur, total, rate, sign_date, draft, issues, report)
     else:
-        raise ValueError(f"未知付款模式 {mode}")
+        fee_tbl = W.find_table(doc, cfg["fee_table_anchor"])
+        if fee_tbl is None:
+            raise ValueError("找不到费用表")
+        report["total"] = total  # total 已在函数开头严格解析（P1-4：绝不静默截断）
+        mode = payment.get("mode", "default")
+        report["mode"] = mode
+        sec_no, next_no = cfg["payment_section"]
+
+        if cfg.get("installment_table"):
+            _immigration_fee(doc, cfg, fee_tbl, payment, cur, total, report, draft, issues, rate, mode)
+        elif mode == "default":
+            _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn, draft, issues, rate)
+        elif mode == "one_time":
+            _one_time_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
+        elif mode == "custom":
+            _custom_mode(doc, cfg, fee_tbl, payment, cur, total, report, sec_no, next_no, draft, issues, rate)
+        else:
+            raise ValueError(f"未知付款模式 {mode}")
 
     # 6. 卖车可选内容：附赠项 / 发动机质保（客户信息提到才落盘，默认全无）
     if type_key == "car":
@@ -466,8 +479,29 @@ def derive_payment(type_key: str, payment: dict, total: int = None,
     if total is not None and not draft:
         s = sum(x["amount"] for x in inst)
         if s != total:
+            if cfg.get("prose_money"):
+                raise ValueError(
+                    f"首期款 + 余款 = {s} ≠ 购买总价（{total}），请核对各期金额")
             raise ValueError(
                 f"分期合计（{s}）与总费用（{total}）不一致，请核对各期金额")
+    if cfg.get("prose_money"):
+        # 收车式散文条款：金额空位与期数一一对应（首期款／余款两期），合计=总价；
+        # 付款时点为模板固定句式（签署起 N 个工作日／过户完成后 N 个工作日），无需日期/事件
+        if len(inst) != 2:
+            msg = f"收车付款须为首期款／余款两期（当前 {len(inst)} 期），请调整付款计划"
+            if not draft:
+                raise ValueError(msg)
+            issues.append(msg)
+        elif total is not None:
+            s = inst[0]["amount"] + inst[1]["amount"]
+            if s != total:
+                msg = (f"首期款（{inst[0]['amount']}）+ 余款（{inst[1]['amount']}）＝ {s}"
+                       f" ≠ 购买总价（{total}），请核对各期金额")
+                if not draft:
+                    raise ValueError(msg)
+                issues.append(msg)
+        return {"mode": "car_buy", "installments": inst[:2],
+                "source_text": payment.get("source_text")}
     for i, x in enumerate(inst):
         if not (W.is_valid_iso_date(x["trigger_date"]) or x["trigger"]):
             msg = f"第{i + 1}期缺少付款日期／事件条件"
@@ -640,6 +674,125 @@ def _default_mode(doc, cfg, fee_tbl, form, payment, cur, total, report, sign_cn,
 
 def BLANK_LEFT(p) -> bool:
     return bool(re.search(r"_{2,}", "".join(r.text for r in p.runs)))
+
+
+def _add_months_iso(iso: str, months: int) -> str:
+    """ISO 日期加 N 个自然月（末日钳制，如 11-30 + 1月 → 12-31）。"""
+    import calendar
+    y, m, d = (int(x) for x in W.iso_date_parts(iso))
+    total = y * 12 + (m - 1) + months
+    y2, m0 = divmod(total, 12)
+    m2 = m0 + 1
+    d2 = min(d, calendar.monthrange(y2, m2)[1])
+    return f"{y2:04d}-{m2:02d}-{d2:02d}"
+
+
+def _car_buy_mode(doc, cfg, form, payment, cur, total, rate, sign_date, draft, issues, report):
+    """收车散文金额条款落位（prose_money）：逐空位填值 + 登记号码二选一。
+
+    模板固定句式（付款时点无空位，随签署日/过户自动成立）：
+      三.1 购买总价为港币＿元整（HK$＿）
+      三.2 签署起三个工作日内支付首期款港币＿元（HK$＿）
+      三.3 过户完成后三个工作日内向卖方支付余款港币＿元（HK$＿）
+      四.1 交资料日期（卖方交车钥匙及过户文件）＿＿年＿月＿日
+      五.1 过户期限两个月内（即于＿年＿月＿日或之前；默认=签署日+2个月，可手改）
+      六   现有登记号码 ＿＿ ＋ 随车转让/卖方保留 二选一（落盘删未选项、选中项去框）
+    双币换算按实汇率（pay_markup_free：收车是华星对外付款，不加 1.01 加成）。"""
+    inst = payment.get("installments") or []
+    dep = inst[0]["amount"] if len(inst) > 0 else 0
+    bal = inst[1]["amount"] if len(inst) > 1 else 0
+    markup = not cfg.get("pay_markup_free")
+
+    def _cn(amount):
+        cn = to_cn_upper(amount)
+        return cn[:-2] if cn.endswith("元整") else cn   # 模板空位后自带「元整/元」
+
+    paras = doc.paragraphs
+
+    def _para(*keys):
+        for p in paras:
+            if any(k in p.text for k in keys):
+                return p
+        return None
+
+    # 金额三句：空位=大写主体 + 双币数字（模板句自带「港币/元整/元/HK$」字面量）
+    money_fill = [
+        (_para("购买总价"), "购买总价句", total),
+        (_para("首期款"), "首期款句", dep),
+        (_para("支付余款", "余款"), "余款句", bal),
+    ]
+    for p, name, amount in money_fill:
+        if p is None:
+            raise ValueError(f"收车合同缺少{name}（模板锚点失配），请检查模板")
+        dual = dual_numeric(amount, cur, rate, markup=markup)
+        # 模板第二空位自带主币符号字面量「（HK$____）」，填充值去掉重复前缀
+        sym = currency_symbol(cur)
+        if dual.startswith(sym):
+            dual = dual[len(sym):]
+        if W.fill_blanks_in_paragraph(p, [_cn(amount), dual]) < 2 or BLANK_LEFT(p):
+            raise ValueError(f"收车{name}空位数量异常或填空后仍有残留，请检查模板")
+    report["fee_rows"] = ["车辆购买总价", "首期款", "余款"]
+    report["amounts"] = [total, dep, bal]
+
+    # 四.1 交资料日期（表单必填；draft 缺省=签署日期占位并提示）
+    dd = str(form.get("delivery_date") or "").strip()
+    if not W.is_valid_iso_date(dd):
+        msg = "收车须填写交资料日期"
+        if not draft:
+            raise ValueError(msg)
+        issues.append(msg + "，暂按签署日期占位")
+        dd = sign_date if W.is_valid_iso_date(str(sign_date)) else \
+            datetime.date.today().isoformat()
+    y, m, d = W.iso_date_parts(dd)
+    p_dd = _para("卖方应于")
+    if p_dd is None or W.fill_blanks_in_paragraph(p_dd, [y, m, d]) < 3 or BLANK_LEFT(p_dd):
+        raise ValueError("收车交付日期句空位异常，请检查模板")
+
+    # 四.3 实际交付日期时间（可选）：选了日期→年月日落值，时分按用户口径记当天 24:00；
+    # 留空→全部空位保留（实际交车时打印件手写签注）
+    ad = str(form.get("actual_delivery") or "").strip()
+    p_ad = _para("实际交付日期及时间")
+    if p_ad is None:
+        raise ValueError("收车合同缺少实际交付日期句（模板锚点失配），请检查模板")
+    if W.is_valid_iso_date(ad):
+        ay, am, aday = W.iso_date_parts(ad)
+        if W.fill_blanks_in_paragraph(p_ad, [ay, am, aday, "24", "00"]) < 5 or BLANK_LEFT(p_ad):
+            raise ValueError("收车实际交付日期句空位异常，请检查模板")
+
+    # 五.1 过户期限：条款=「自本合同签署之日起计两个月内」→ 默认签署日+2个月，表单可手改
+    base_dl = sign_date if W.is_valid_iso_date(str(sign_date)) else dd
+    dl = str(form.get("transfer_deadline") or "").strip()
+    if not W.is_valid_iso_date(dl):
+        dl = _add_months_iso(base_dl, 2)
+    y, m, d = W.iso_date_parts(dl)
+    p_dl = _para("或之前")
+    if p_dl is None or W.fill_blanks_in_paragraph(p_dl, [y, m, d]) < 3:
+        raise ValueError("收车过户期限句空位异常，请检查模板")
+
+    # 六 现有登记号码：默认随车牌号码带出
+    reg = str(form.get("reg_number") or "").strip() or str(form.get("plate") or "").strip()
+    p_reg = _para("现有登记号码")
+    if p_reg is None:
+        raise ValueError("收车合同缺少现有登记号码句（模板锚点失配），请检查模板")
+    if not reg:
+        msg = "收车须填写车牌号码或现有登记号码"
+        if not draft:
+            raise ValueError(msg)
+        issues.append(msg + "，暂留空位（可打印后手写）")
+    elif W.fill_blanks_in_paragraph(p_reg, [reg]) < 1:
+        raise ValueError("收车登记号码空位异常，请检查模板")
+
+    # 登记号码二选一：删未选项，选中项去框（☐）
+    pA = _para("随车辆一并转让")
+    pB = _para("不包括在本次交易内")
+    if pA is None or pB is None:
+        raise ValueError("收车合同缺少登记号码二选一复选项，请检查模板")
+    keep = str(form.get("reg_keep") or "").strip() or "随车辆一并转让"
+    sel, drop = (pA, pB) if "随车辆一并转让" in keep else (pB, pA)
+    W.set_paragraph_text(sel, re.sub(r"^[☐☑\s]+", "", sel.text))
+    drop._p.getparent().remove(drop._p)
+    report["reg_keep"] = keep
+    report["section_paras"] = None   # 条款区散文已重写，指纹按条款区外比对
 
 
 def _ot_desc(payment, draft, issues) -> str:

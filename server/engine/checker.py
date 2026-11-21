@@ -470,6 +470,27 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
                     if _run_sig(b) != _run_sig(tp[base]):
                         issues.append("可选条款段落样式与模板不一致")
                         break
+    elif cfg.get("prose_money") and form is not None:
+        # 收车尾段归一比对：交付/实际交付/过户期限日期与登记号码落值为设计内变更
+        # （空位形态与落值形态归一为同一占位）；登记号码二选一按表单删未选项，
+        # 模板侧同步剔除该段后再比序列（☐ 前缀两侧剥除）
+        def _cb_norm(t):
+            t = re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", t)
+            t = re.sub(r"(?:\d{4}|_{2,})年(?:\d{1,2}|_{2,})月(?:\d{1,2}|_{2,})日", "<日期>", t)
+            t = re.sub(r"(?:\d{1,2}|_{2,})时(?:\d{1,2}|_{2,})分", "<时间>", t)
+            t = re.sub(r"登记号码为：(?:_{2,}|[^。\n]{1,24})。", "登记号码为：<号码>。", t)
+            return re.sub(r"^[☐☑\s]+", "", t)
+        keep = str(form.get("reg_keep") or "").strip() or "随车辆一并转让"
+        drop_kw = "不包括在本次交易内" if "随车辆一并转让" in keep else "随车辆一并转让"
+        a = [_cb_norm(p.text) for p in tpl_tail if drop_kw not in p.text]
+        b = [_cb_norm(p.text) for p in out_tail]
+        if a != b:
+            msg = None
+            for x, y in zip(a, b):
+                if x != y:
+                    msg = f"条款区之后段落被改动：「{x[:20]}…」"
+                    break
+            issues.append(msg or "条款区之后段落数量与模板不一致")
     elif len(tpl_tail) != len(out_tail):
         issues.append("条款区之后段落数量与模板不一致")
     elif any(a.text != b.text for a, b in zip(tpl_tail, out_tail)):
@@ -529,8 +550,10 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         覆盖两种形态：「日期：X年X月X日」同段；高才移民的空位独立格「2026年__月__日」。"""
         s = re.sub(r"日期：[^年]{1,12}年[^月]{1,6}月[^日]{1,6}日", "日期：<日期>", s)
         s = re.sub(r"(?:\d{4}|_{2,})年(?:\d{1,2}|_{2,})月(?:\d{1,2}|_{2,})日", "<日期>", s)
-        # 统一骨架：公司印章标签行为设计内新增（部分模板原本没有），两侧剔除后比对
+        # 统一骨架：公司印章标签行为设计内新增（部分模板原本没有），两侧剔除后比对；
+        # 「姓名：」行同属骨架外杂项（统一骨架重建时删除），两侧剔除
         s = re.sub(r"\n?公司印章：[ \t]*(?=\n|$)", "", s)
+        s = re.sub(r"\n?姓名：[ \t]*(?=\n|$)", "", s)
         # 空行归一：公司印信/客户签名会在格内插等高空段（仅多出空行，无文字）
         return re.sub(r"\n+", "\n", s).strip()
 
@@ -562,6 +585,10 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
         if _tbl_texts(t_t) != _tbl_texts(t_o):
             issues.append(f"表格内容被意外改动：{t_first[:15]}")
 
+    # 费用表：prose_money（收车）无费用表——金额句落位由 builder 强校验（残留空位即抛错），
+    # 金额算术由 check_rules 的分期合计兜底，指纹比对到此为止
+    if cfg.get("prose_money"):
+        return issues
     # 费用表：custom 日期列模式下允许列数 +1；行样式签名=模板同标签行（无同标签时回退模板第1数据行）；标签符合预期
     tpl_fee = W.find_table(tpl, cfg["fee_table_anchor"])
     out_fee = W.find_table(out, cfg["fee_table_anchor"])
