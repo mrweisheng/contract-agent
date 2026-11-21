@@ -1059,7 +1059,35 @@ const app = createApp({
       a.remove();
     }
     function download() { if (result.value?.download_url) saveAs(result.value.download_url, result.value.filename); }
+    // PDF 下载：fetch 先探测（soffice 未就绪/转换失败时服务端回 JSON 503，直接另存会下到错误文件）；
+    // 全程按钮转「生成中…」加载态，首次转换 3~10 秒，给用户明确反馈
+    const pdfBusy = ref(false);
+    async function downloadPdf(url, name) {
+      if (pdfBusy.value) return;
+      pdfBusy.value = true;
+      try {
+        const r = await fetch(url);
+        const ct = r.headers.get("content-type") || "";
+        if (!r.ok || ct.includes("json")) {
+          const d = await r.json().catch(() => ({}));
+          toast(d.detail || `PDF 生成失败（HTTP ${r.status}），可先下载 Word 版`, "error");
+          return;
+        }
+        const blob = await r.blob();
+        const objUrl = URL.createObjectURL(blob);
+        saveAs(objUrl, name);
+        setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+        toast("PDF 已开始下载");
+      } catch (e) { toast("PDF 下载失败，可先下载 Word 版", "error"); }
+      finally { pdfBusy.value = false; }
+    }
+    const pdfNameOf = f => String(f || "").replace(/\.docx$/i, ".pdf");
+    function downloadPdfNow() {
+      const r = result.value;
+      if (r?.download_url) downloadPdf(r.download_url + "?format=pdf", pdfNameOf(r.filename));
+    }
     function viewHistoryResult(h) { saveAs(`/api/download/${h.no}`, h.filename); }
+    function viewHistoryPdf(h) { downloadPdf(`/api/download/${h.no}?format=pdf`, pdfNameOf(h.filename)); }
 
     async function openHistory() {
       historyOpen.value = true;
@@ -1659,7 +1687,7 @@ const app = createApp({
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
       onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
       isToday, setSignToday,
-      generate, download, openHistory, viewHistoryResult,
+      generate, download, downloadPdfNow, viewHistoryResult, viewHistoryPdf, pdfBusy,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
@@ -2312,7 +2340,9 @@ const app = createApp({
         <span class="spacer"></span>
         <span v-if="generating" class="gb-timer">生成中 {{ elapsed.gen }}s</span>
         <span v-else-if="reviewPending" class="gb-timer">AI 复核中…（不挡下载）</span>
-        <button v-if="result && result.ok" class="btn gold" @click="download()">✓ 下载合同</button>
+        <button v-if="result && result.ok" class="btn gold" @click="download()">✓ 下载 Word</button>
+        <button v-if="result && result.ok" class="btn ghost" :disabled="pdfBusy" @click="downloadPdfNow()">
+          <span v-if="pdfBusy" class="spin"></span>{{ pdfBusy ? '生成中…' : '下载 PDF' }}</button>
         <!-- 必填齐了就可点；付款没对齐不禁用——点了弹窗说明，不实际生成 -->
         <button v-else class="btn accent" :disabled="missing.length > 0 || generating || extracting || parsing" @click="tryGenerate">
           <span v-if="generating" class="spin light"></span>{{ generating ? '生成中…' : '生成合同 →' }}
@@ -2349,7 +2379,7 @@ const app = createApp({
                 <td><span class="tag" :class="h.status === 'ok' ? 'ok' : 'bad'">{{ h.status === 'ok' ? '通过' : '失败' }}</span>
                     <span v-if="h.review_status === 'warn'" class="tag warn" title="AI 复核有提示">复核提醒</span>
                     <span v-else-if="h.review_status === 'pass'" class="tag ok" title="AI 复核通过">复核过</span></td>
-                <td><button v-if="h.status==='ok'" class="btn sm" @click="viewHistoryResult(h)">下载</button></td>
+                <td><template v-if="h.status==='ok'"><button class="btn sm" @click="viewHistoryResult(h)">Word</button> <button class="btn sm ghost" :disabled="pdfBusy" @click="viewHistoryPdf(h)">{{ pdfBusy ? '…' : 'PDF' }}</button></template></td>
               </tr>
             </tbody>
           </table>
@@ -2386,6 +2416,7 @@ const app = createApp({
         </div>
         <div class="modal-foot">
           <button v-if="result.ok" class="btn primary" @click="download">下载合同 (.docx)</button>
+          <button v-if="result.ok" class="btn ghost" :disabled="pdfBusy" @click="downloadPdfNow">{{ pdfBusy ? '生成中…' : '下载合同 (.pdf)' }}</button>
           <button class="btn ghost" @click="resultModal = false">关闭</button>
         </div>
       </div>

@@ -390,7 +390,7 @@ def preview(req: PreviewReq):
 
 
 @router.get("/download/{no}")
-def download(no: str):
+def download(no: str, format: str = "docx"):
     rec = store.get_gen(no)
     if not rec:
         raise HTTPException(404, "记录不存在")
@@ -399,15 +399,29 @@ def download(no: str):
     path = os.path.join(store.OUT_DIR, rec["filename"])
     if not os.path.exists(path):
         raise HTTPException(404, "文件不存在")
+
     # 中文文件名双格式：filename* (RFC 5987) 供现代浏览器，ASCII 回退 filename 供
     # 部分 macOS/iOS Safari 与下载工具（Starlette 只发 filename*，回退缺失时名称乱码或下载失败）
     from urllib.parse import quote
-    fallback = f"{no}{os.path.splitext(rec['filename'])[1]}"
+    want_pdf = (format or "").lower() == "pdf"
+    if want_pdf:
+        # PDF 按需转换+缓存；soffice 未装/转换失败 → 503，前端提示改下 Word 版
+        from engine import pdf as pdf_mod
+        try:
+            path = pdf_mod.ensure_pdf(path)
+        except pdf_mod.PdfError as ex:
+            raise HTTPException(503, f"PDF 生成失败：{ex}（Word 版下载不受影响）")
+        filename = os.path.splitext(rec["filename"])[0] + ".pdf"
+        media_type = "application/pdf"
+    else:
+        filename = rec["filename"]
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    fallback = f"{no}{os.path.splitext(filename)[1]}"
     disposition = (f'attachment; filename="{fallback}"; '
-                   f"filename*=utf-8''{quote(rec['filename'])}")
+                   f"filename*=utf-8''{quote(filename)}")
     return FileResponse(path, filename=None,
                         headers={"content-disposition": disposition},
-                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        media_type=media_type)
 
 
 @router.get("/seals/{name}")

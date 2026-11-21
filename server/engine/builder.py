@@ -157,8 +157,8 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         rate = fx_rate
         report["fx_rate"], report["fx_source"] = rate, "fixed"
 
-    # 1. 顶部编号/日期行（meta_number_line：编号独立成段且无日期空位，只填编号；
-    #    签署日期只落在签署确认块，与 _fill_signature_dates 同源）
+    # 1. 顶部编号/日期行（meta_number_line：编号行独立成段但不在首段（移民模板标题在前），
+    #    空位结构与车/过户/新办同款：编号+签署日期两个空位）
     sign_date = str(form.get("sign_date") or "").strip()
     if sign_date and draft and not W.is_valid_iso_date(sign_date):
         issues.append(f"签署日期「{sign_date}」无法识别，预览按今日显示")
@@ -167,8 +167,8 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
         sign_cn = W.date_cn(sign_date) if sign_date else W.today_cn()
     if cfg.get("meta_number_line"):
         meta = W.find_paragraph(doc, cfg["meta_number_line"])
-        if meta is None or W.fill_blanks_in_paragraph(meta, [agreement_no]) < 1:
-            raise ValueError("模板编号行缺少空位，请检查模板")
+        if meta is None or W.fill_blanks_in_paragraph(meta, [agreement_no, sign_cn]) < 2:
+            raise ValueError("模板编号/日期行缺少空位，请检查模板")
     else:
         meta = doc.paragraphs[0]
         n = W.fill_blanks_in_paragraph(meta, [agreement_no, sign_cn])

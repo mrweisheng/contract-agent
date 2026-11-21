@@ -205,7 +205,7 @@ build_contract("immigration", form_imm, pay_imm, "20261118991", imm_path)
 bi = open_api.extract_blocks(imm_path)
 ki = [b["kind"] for b in bi]
 check(bi[0]["kind"] == "title" and "高端人才" in bi[0]["text"], "immigration 首块=主标题（编号行在标题后）")
-check(any(b["kind"] == "meta" and "合同编号" in b["text"] for b in bi), "immigration 编号行块")
+check(any(b["kind"] == "meta" and "合约编号" in b["text"] for b in bi), "immigration 编号行块")
 check(any(b["kind"] == "h" and b["text"].startswith("一、甲方的责任及义务") for b in bi),
       "Normal 样式「一、」标题识别为条款标题块")
 check(ki[-1] == "sign" and ki.count("sign") == 1, "immigration 末块=签署块且唯一")

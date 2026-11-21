@@ -264,6 +264,11 @@ select.f-inp { appearance: auto; }
 .btn.gold:hover { background: #e8cd8d; }
 .btn.ghost { background: transparent; border: 1px solid var(--line); color: #5c564c; }
 .btn.ghost:hover { background: #f7f4ec; }
+/* 深色底栏上的 ghost 变体：浅描边+米白文字，避免与深绿背景融为一体 */
+.gen-bar .btn.ghost { border-color: rgba(243,237,224,.5); color: #f3ede0; }
+.gen-bar .btn.ghost:hover { background: rgba(243,237,224,.14); }
+.gen-bar .btn.ghost:disabled { opacity: .6; cursor: default; }
+.gen-bar .btn.ghost:disabled:hover { background: transparent; }
 .btn.sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.35);
         border-top-color: #fff; border-radius: 50%; animation: rot .8s linear infinite;

@@ -397,8 +397,9 @@ TYPES = {
         "party_label_col": 0, "party_value_col": 1,
         "kv_tables": [],
         "fee_total_label": "服务费",
-        # 顶部编号行：编号在含「合同编号」的段落里，只有编号一个空位（无日期）
-        "meta_number_line": "合同编号",
+        # 顶部编号行：在标题后的独立段里（与他业务同款「合约编号 / AGREEMENT NO. +
+        # 签署日期 / DATE」双空位，只是不在首段，故单独给锚点）
+        "meta_number_line": "合约编号",
         # 申请人信息表（留空处打印后可手写：空值一律落全角空位）
         "applicant_table": {
             "anchor": "为主申请人",

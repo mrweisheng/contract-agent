@@ -61,10 +61,11 @@ stamp_idx = next(i for i, p in enumerate(paras) if "公司印章" in p.text)
 check(pic_idx == [stamp_idx - 1, date_idx - 1] and stamp_idx == date_idx - 2,
       f"统一骨架 线→签字→公司印章→章→日期（pic {pic_idx} 印章 {stamp_idx} 日期 {date_idx}）")
 spacers = [p for p in cli.paragraphs
-           if p.paragraph_format.line_spacing_rule == WD_LINE_SPACING.EXACTLY
+           if p.paragraph_format.line_spacing_rule == WD_LINE_SPACING.AT_LEAST
            and p.paragraph_format.line_spacing is not None]
 hs = sorted([round(p.paragraph_format.line_spacing.pt, 1) for p in spacers], reverse=True)
-expect = sorted([round(sign_h * 72, 1), round(seal_h * 72, 1)], reverse=True)
+expect = sorted([round(sign_h * 72 + seal_mod.LINE_PAD_PT, 1),
+                 round(seal_h * 72 + seal_mod.LINE_PAD_PT, 1)], reverse=True)
 check(len(spacers) == 2 and all(abs(a - b) < 0.5 for a, b in zip(hs, expect)),
       f"客户格两个等高占位段 ({hs} ≈ {expect})")
 store.confirm_no("T001", "car", "测试买方", "default", "HKD", "车.docx", "ok")

@@ -30,6 +30,9 @@ CELL_MARGIN_IN = 0.075   # Word 默认单元格左右内边距
 DPI = 300                # 合成图画布分辨率
 SIGN_DROP_IN = 0.37      # 签名相对章的下沉量：章贴右上、签名落左下成对角，
                          # 笔画只擦过章的下缘弧线，不穿章心文字；总高与竖排紧凑版持平
+LINE_PAD_PT = 12         # 图片段行高余量：Word 行内图坐在基线上，行高恰好=图高时图片会
+                         # 向上顶进上一行（盖住「公司印章：」标签）/向下被裁；图片段与占位段
+                         # 同加此量，甲乙两侧高度仍然对称，日期对齐不受影响
 
 
 def seals_dir() -> str:
@@ -79,7 +82,11 @@ def locate(doc: _Doc):
 
 
 def blank_para_before(ref_para, height_in: float = None):
-    """在 ref_para 前插一个继承其样式的空段；height_in 给定时锁定行高。"""
+    """在 ref_para 前插一个继承其样式的空段；height_in 给定时设最小行高（含 LINE_PAD_PT 余量）。
+
+    用 AT_LEAST 而非 EXACTLY：固定行高会把高出部分直接裁掉，而各机器 Word 的
+    基线度量不同（同一 docx 有的机器裁有的不裁）；最小行高只会撑开、永不裁切，
+    图片段与占位段同源同规则，甲乙两侧高度依旧对称。"""
     p = copy.deepcopy(ref_para._p)
     for r in p.findall(qn("w:r")):
         p.remove(r)
@@ -87,21 +94,21 @@ def blank_para_before(ref_para, height_in: float = None):
     para = ref_para.__class__(p, ref_para._parent)
     if height_in is not None:
         pf = para.paragraph_format
-        pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-        pf.line_spacing = Pt(height_in * 72)
+        pf.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
+        pf.line_spacing = Pt(height_in * 72 + LINE_PAD_PT)
     return para
 
 
 def blank_para_after(ref_para, height_in: float):
-    """在 ref_para 后插一个继承其样式的空段，行高锁定 height_in 英寸，返回该段。"""
+    """在 ref_para 后插一个继承其样式的空段，最小行高 height_in 英寸（含 LINE_PAD_PT 余量）。"""
     p = copy.deepcopy(ref_para._p)
     for r in p.findall(qn("w:r")):
         p.remove(r)
     ref_para._p.addnext(p)
     para = ref_para.__class__(p, ref_para._parent)
     pf = para.paragraph_format
-    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-    pf.line_spacing = Pt(height_in * 72)
+    pf.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
+    pf.line_spacing = Pt(height_in * 72 + LINE_PAD_PT)
     return para
 
 

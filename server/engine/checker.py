@@ -59,9 +59,11 @@ def check_rules(type_key: str, form: dict, payment: dict, report: dict, doc) -> 
         errors.append("必填项缺失：口岸")
 
     # 2. 残留空位（编号行/双方表/数据表/费用表/条款区）
-    meta = doc.paragraphs[0].text
-    if BLANK_RE.search(meta):
-        errors.append("顶部编号/签署日期行仍有空位未填")
+    # 编号行=首段（车/过户/新办）或第2段（移民：标题在前）；前两段都不应留空位
+    for p in doc.paragraphs[:2]:
+        if BLANK_RE.search(p.text):
+            errors.append("顶部编号/签署日期行仍有空位未填")
+            break
 
     fee_tbl = W.find_table(doc, cfg["fee_table_anchor"])
     for tbl_anchor in [cfg["party_table_anchor"]] + [kv["anchor"] for kv in cfg.get("kv_tables", [])]:
@@ -416,8 +418,8 @@ def check_fingerprint(template_path: str, out_path: str, type_key: str, report: 
     for i in range(ts - 1):
         if i == 0:
             continue  # 首段为编号/日期行（设计内填充）
-        if "合同编号" in tp[i].text:
-            continue  # 编号行（移民模板独立成段，设计内填充编号）
+        if "编号" in tp[i].text:
+            continue  # 编号行（移民模板独立成段，设计内填充编号与日期）
         if i >= len(op):
             issues.append(f"段落缺失（第{i + 1}段）")
             break
