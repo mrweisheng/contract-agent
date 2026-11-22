@@ -1279,6 +1279,18 @@ const app = createApp({
       st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false,
                      base: null, on: true, manual: true });
     }
+    /* 续期勾选（2026-11-22）：取消勾选＝这单根本不提这一项，赠送标记一并清掉，
+       不留「勾了赠送却不上单」的矛盾态 */
+    function stRenewOn(f) {
+      f.on = !f.on;
+      if (!f.on) f.gift = false;
+    }
+    /* 续期赠送（2026-11-22）：赠送隐含要上单展示（金额照列、不进任何合计），
+       所以点赠送自动把该项勾上；再点一次取消赠送、恢复为正常收取 */
+    function stRenewGift(f) {
+      f.gift = !f.gift;
+      if (f.gift) f.on = true;
+    }
     function stSetBiz(biz) {
       if (stBizApplied === biz) return;
       stBizApplied = biz;
@@ -1720,7 +1732,7 @@ const app = createApp({
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
     };
   },
 
@@ -1904,13 +1916,15 @@ const app = createApp({
           <div class="card-body">
             <template v-if="st.biz === '续期'">
               <!-- 续期费用清单（2026-11-18）：固定项全展示、勾选制（勾=本单收取），单港币；
-                   手动加一项同走勾选，可删行。全不勾时右栏不展示成品、提示勾选后出单 -->
-              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span class="col-h">人民币</span><span></span></div>
-              <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on }">
-                <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="f.on = !f.on"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
+                   手动加一项同走勾选，可删行。全不勾时右栏不展示成品、提示勾选后出单；
+                   2026-11-22：行尾加「赠」——勾=上单展示但不计入应收（同车辆业务） -->
+              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span class="col-h">人民币</span><span></span><span></span></div>
+              <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on, gifted: f.gift }">
+                <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="stRenewOn(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
                 <input class="name" v-model.trim="f.name" :placeholder="f.manual ? '自定义项目' : ''">
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="折算"></span>
+                <button type="button" class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="stRenewGift(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
                 <button v-if="f.manual" class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
                 <span v-else></span>
               </div>

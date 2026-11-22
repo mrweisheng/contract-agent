@@ -576,9 +576,9 @@ def build_spec(data: dict) -> tuple:
             note = None
 
     amount_note = data.get("amount_note")
+    # 有赠送行时备注里点明性质（纸面绿字+〔贈送〕标，客户一眼分清收不收钱）
+    has_gift = any(e.get("gift") for e in data.get("extra_fees") or [])
     if amount_note is None:
-        # 有赠送行时备注里点明性质（纸面绿字+〔贈送〕标，客户一眼分清收不收钱）
-        has_gift = any(e.get("gift") for e in data.get("extra_fees") or [])
         gift_clause = "贈送項目由本公司承擔，僅列示價值、不計入應收；" if has_gift else ""
         if bits:
             amount_note = (f"{gift_clause}負數表示已付款或扣減。人民幣與港幣分開核算，"
@@ -608,7 +608,10 @@ def build_spec(data: dict) -> tuple:
         settle_shown = str(data.get("renew_type") or "").strip()
         if currencies == ["HKD"]:
             note = None
-            amount_note = None
+            # 2026-11-22：有赠送项时必须点明「只展示、不收钱」，只出这一句，
+            # 不把「本單全部款項均為港幣」那句带回来
+            amount_note = ("贈送項目由本公司承擔，僅列示價值、不計入應收。"
+                           if has_gift else None)
     elif is_gaocai_biz:
         second_label, second_value = "業務", "高才移民"
     elif is_vehicle_biz:
@@ -669,7 +672,7 @@ def build_spec(data: dict) -> tuple:
         "today_pay": today_pay,
         "next_pay": np_spec,
         "amount_note": amount_note,
-        "note_hidden": is_renew_biz and currencies == ["HKD"],
+        "note_hidden": is_renew_biz and currencies == ["HKD"] and not has_gift,
         "today_hkd_first": is_renew_biz,
     }
     if data.get("overrides"):
