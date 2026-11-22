@@ -19,7 +19,7 @@ Linux 服务器：`cd server && python3 -m uvicorn main:app --host 0.0.0.0 --por
 
 ## 二、使用流程
 
-1. **选业务类型**：卖车 / 现牌过户·高新 / 现牌过户·纳税 / 粤Z新办（选口岸：莲塘、深圳湾、港珠澳大桥、沙头角）；
+1. **选业务类型**：卖车 / 收车 / 现牌过户·高新 / 现牌过户·纳税 / 粤Z新办（选口岸：莲塘、深圳湾、港珠澳大桥、沙头角）/ 高才移民；
 2. **录入信息**（表单与智能录入两种方式可结合；右侧栏全程**实时预览真实 docx**，所见即所得，未填项以占位显示并在「预览提示」中列出）：
    - 表单录入：逐项填写，金额自动显示大写；
    - 智能录入：一段自然语言 → AI 提取回填表单（AI 回填字段显示金色「AI·未核」徽标，点一下或手动修改即视为已核对）→ 核对修改；
@@ -48,7 +48,7 @@ contract-agent/
 ├─ web/                # 前端（Vue3 本地单页；vendor 含 vue/docx-preview/jszip，自托管思源宋体/黑体，无需联网CDN）
 ├─ server/
 │  ├─ main.py          # 服务入口（uvicorn server.main:app）
-│  ├─ templates/       # 7 份合同模板母版（只读，勿改）
+│  ├─ templates/       # 合同模板母版 8 份编号业务 + 高才移民（只读，勿改）
 │  ├─ engine/          # 落盘(builder) / 格式指纹+规则核对(checker) / 类型配置(types_config) / 金额大写(money) / docx底层操作(writer)
 │  ├─ llm/             # LLM 客户端(client)与提示词(prompts)
 │  ├─ api/             # 路由(routes) + 编号流水+SQLite历史(store)
