@@ -222,6 +222,53 @@ for b in bi:
 miss_i = [p.text.strip() for p in doc_i.paragraphs if p.text.strip() and p.text.strip() not in ti]
 check(not miss_i, f"immigration 段落逐字一致（缺 {len(miss_i)} 段: {miss_i[:2]}）")
 
+# 13b) 收车：车式版式抽取 + 列表 type 过滤 + 详情结构 + 签名落甲方（客户=卖方）格
+form_cb = {"agreement_no": "", "sign_date": "2026-11-18", "currency": "HKD",
+           "client_name": "测试卖方", "client_id": "ID8888(1)", "client_phone": "13700000000",
+           "plate": "AB 1234", "vin": "WBA00000000001", "mileage": "45000",
+           "total_price": 300000, "delivery_date": "2026-11-30",
+           "actual_delivery": "2026-12-05", "reg_keep": "随车辆一并转让"}
+pay_cb = {"mode": "car_buy", "installments": [
+    {"seq": 1, "label": "首期款", "amount": 100000},
+    {"seq": 2, "label": "余款", "amount": 200000}]}
+cb_file = "20261118测试卖方收车.docx"
+cb_path = os.path.join(TMP, cb_file)
+build_contract("car_buy", form_cb, pay_cb, "20261118992", cb_path)
+form_doc_cb = {"no": "20261118992", "type": "car_buy", "form": form_cb, "payment": pay_cb,
+               "filename": cb_file, "status": "ok", "created_at": "2026-11-18 00:00:00"}
+with open(open_api._form_path({"filename": cb_file}), "w", encoding="utf-8") as fh:
+    json.dump(form_doc_cb, fh, ensure_ascii=False)
+store.confirm_no("20261118992", "car_buy", "测试卖方", "car_buy", "HKD", cb_file, "ok")
+bc = open_api.extract_blocks(cb_path)
+kc = [b["kind"] for b in bc]
+check(bc[0]["kind"] == "meta" and "合约编号" in bc[0]["text"], "car_buy blocks 首块=编号行")
+check(any(b["kind"] == "title" and "车辆买卖" in b["text"] for b in bc), "car_buy 主标题块")
+check(any(b["kind"] == "h" and "购买价及付款方式" in b["text"] for b in bc), "car_buy 付款条款标题块")
+check(any(b["kind"] == "p" and "购买总价" in b.get("text", "") for b in bc), "car_buy 散文金额条款进 blocks")
+check(kc[-1] == "sign" and kc.count("sign") == 1, "car_buy 末块=签署块且唯一")
+t_cb = "\n".join((b.get("text") or "") for b in bc)
+check("附赠" not in t_cb and "售后质保" not in t_cb, "car_buy 无勾选条款（附赠/质保不出现）")
+d_cb = open_api.contract_detail("20261118992")
+check(d_cb["type_label"] == "收车（香港车辆购买）", "详情 type_label 随收车配置")
+check(isinstance(d_cb["blocks"], list) and d_cb["blocks"], "car_buy 详情 blocks 可用")
+check(d_cb["content"]["payment"]["mode"] == "car_buy"
+      and len(d_cb["content"]["payment"]["installments"]) == 2, "car_buy 详情带固定两期付款结构")
+rows_cb = open_api.list_contracts(type="car_buy")
+check(rows_cb["total"] >= 1 and all(i["type"] == "car_buy" for i in rows_cb["items"]),
+      "列表接口 type=car_buy 过滤")
+cb_signed = os.path.join(TMP, "20261118测试卖方收车-已签.docx")
+open_api.apply_signature(cb_path, cb_signed, sig_bytes)
+doc_cb_d = Document(cb_signed)
+cb_target = False
+for t in doc_cb_d.tables:
+    txt = " ".join(c.text for r in t.rows for c in r.cells)
+    if "签署" in txt and "华星" in txt:
+        for r in t.rows:
+            for cc in r.cells:
+                if "华星" not in cc.text and "卖方" in cc.text and cc._tc.xpath(".//pic:pic"):
+                    cb_target = True
+check(cb_target, "car_buy 客户签名图落甲方（卖方）签署格")
+
 # 14) 签名图接口：未签 404 → 有签名图文件后可取
 # （签名 PNG 由 POST 路由落盘，这里直接模拟该动作；路由语义已在第 7/12 步覆盖）
 from fastapi import HTTPException as _HE
