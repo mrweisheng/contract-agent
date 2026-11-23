@@ -285,6 +285,41 @@ try:
 except _HE:
     check(False, "已签后签名图应可取")
 
+# 15) 对外可见范围：只出 2026-11-22（含当天）及以后生成的单，更早的按「不存在」处理
+OLD_NO, EDGE_NO = "20261121001", "20261122001"
+for _no, _created, _client in ((OLD_NO, "2026-11-21 23:59:59", "历史客户"),
+                               (EDGE_NO, "2026-11-22 00:00:00", "边界客户")):
+    with store._conn() as _c:
+        _c.execute(
+            "INSERT INTO gens(no,type,client,mode,currency,filename,status,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (_no, "car", _client, "default", "HKD", filename, "ok", _created))
+    # 文件与存档都指向真实存在的同一份，确保 404 是「可见范围」拦下而不是文件缺失
+    with open(open_api._form_path({"filename": filename}), "w", encoding="utf-8") as fh:
+        json.dump({"form": form, "payment": payment}, fh, ensure_ascii=False)
+
+lst = open_api.list_contracts(limit=200)
+nos = [i["no"] for i in lst["items"]]
+check(OLD_NO not in nos, "列表不返回 11-21 的历史单")
+check(EDGE_NO in nos, "列表返回 11-22 当天的边界单（含当天）")
+check(all(i["created_at"][:10] >= "2026-11-22" for i in lst["items"]), "列表全部落在可见起始日之后")
+check(lst["total"] == len(nos), "total 与返回条数一致（下限截断前）")
+
+for label, fn in (("详情", lambda: open_api.contract_detail(OLD_NO)),
+                  ("下载", lambda: open_api.contract_file(OLD_NO)),
+                  ("签名图", lambda: open_api.contract_signature_image(OLD_NO)),
+                  ("签名回传", lambda: open_api.contract_signature(OLD_NO, {"image": "data:image/png;base64,AAAA"}))):
+    try:
+        fn(); check(False, f"历史单{label}应 404")
+    except _HE as ex:
+        check(ex.status_code == 404, f"历史单{label} → 404（与不存在同语义）")
+
+# 边界单正常可用
+try:
+    check(open_api.contract_detail(EDGE_NO)["no"] == EDGE_NO, "边界单详情可取")
+except _HE as ex:
+    check(False, f"边界单详情应可取: {ex}")
+
 print()
 print("总体:", "全部通过" if not FAIL else f"存在失败 {len(FAIL)} 项")
 sys.exit(1 if FAIL else 0)

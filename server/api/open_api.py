@@ -33,9 +33,20 @@ def _guard(x_api_key: str | None = Header(default=None), key: str | None = None)
 router = APIRouter(prefix="/api/open", dependencies=[Depends(_guard)])
 
 
+# 对外可见起始日（含当天）：只对外提供 2026-11-22 及以后生成的合同。
+# 历史单不对外——对外接口的 key 是全局共享的，收敛可见范围即收敛客户隐私暴露面。
+# 要放开更早历史，只改这一处；比较取 created_at 的 YYYY-MM-DD 部分。
+VISIBLE_FROM = "2026-11-22"
+
+
+def _visible(rec: dict) -> bool:
+    return (rec.get("created_at") or "")[:10] >= VISIBLE_FROM
+
+
 def _gen(no: str) -> dict:
     rec = store.get_gen(no)
-    if not rec or rec.get("status") != "ok":
+    # 早于可见起始日一律按「不存在」处理：不暴露历史单是否存在（编号可按日期枚举）
+    if not rec or rec.get("status") != "ok" or not _visible(rec):
         raise HTTPException(404, "合同不存在")
     return rec
 
@@ -212,13 +223,14 @@ def _decode_sig(image: str) -> bytes:
 
 @router.get("/contracts")
 def list_contracts(client: str | None = None, type: str | None = None, limit: int = 50):
-    rows = [r for r in store.history(limit=500) if r.get("status") == "ok"]
-    if client:
-        rows = [r for r in rows if client in (r.get("client") or "")]
-    if type:
-        rows = [r for r in rows if r.get("type") == type]
-    rows = rows[: max(1, min(limit, 200))]
-    return {"total": len(rows), "items": [{
+    # 只列可见范围内的 ok 单（SQL 层按 created_at 日期过滤），按生成时间倒序
+    total, rows = store.contracts_query(
+        date_from=VISIBLE_FROM,
+        client=(client or "").strip(),
+        type_key=(type or "").strip(),
+        limit=max(1, min(limit, 200)),
+    )
+    return {"total": total, "items": [{
         "no": r["no"], "type": r["type"], "client": r["client"], "mode": r["mode"],
         "currency": r["currency"], "filename": r["filename"], "created_at": r["created_at"],
         "review_status": r.get("review_status") or "",
