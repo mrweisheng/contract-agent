@@ -876,6 +876,11 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .ct-empty { text-align: center; color: var(--muted); padding: 56px 0; font-size: 13px; }
 .ct-empty-mark { font-family: var(--serif); font-size: 30px; color: #d9d2c2; margin-bottom: 8px; }
 .ct-err { color: var(--bad); font-size: 12.5px; padding: 10px 0; }
+/* 用户管理：头像（无头像时首字占位） */
+.um-av { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; display: block;
+         background: #f0ece1; border: 1px solid var(--line); }
+.um-av.ph { display: grid; place-items: center; font-family: var(--serif); font-size: 14px;
+            color: var(--muted); background: #f7f4ec; }
 @media (max-width: 1100px) {
   .ct-client { width: 160px; }
   .ct-table th, .ct-table td { padding: 8px; }

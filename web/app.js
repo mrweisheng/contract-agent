@@ -175,6 +175,7 @@ const app = createApp({
       if (get("immigration")) items.push({ title: "高才移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
       items.push({ title: "结算单", list: [{ key: "settlement", port: "", label: "结算单" }] });
       items.push({ title: "合同管理", list: [{ key: "contracts", port: "", label: "合同管理" }] });
+      items.push({ title: "用户管理", list: [{ key: "users", port: "", label: "用户管理" }] });
       return items;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
@@ -235,6 +236,7 @@ const app = createApp({
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       if (it.key === "contracts") { ctFetch(); return; }   // 合同管理：独立列表页，不碰表单/预览/付款
+      if (it.key === "users") { umFetch(); return; }        // 用户管理：同上，只读列表
       initForm(); initPayment();
       onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
@@ -1252,6 +1254,35 @@ const app = createApp({
     function ctReset() { ct.from = ""; ct.to = ""; ct.client = ""; ct.type = ""; ctFetch(); }
     function ctWord(h) { saveAs(`/api/download/${h.no}`, h.filename); }
     function ctPdf(h) { downloadPdf(`/api/download/${h.no}?format=pdf`, pdfNameOf(h.filename)); }
+
+    /* ---------- 用户管理（小程序登录用户，只读） ----------
+     * 数据来自 users 表：小程序每登录一次就 upsert 落库（首登建户、复登刷新登录时间），
+     * 昵称/手机号/头像由用户端接口写入，这里只展示，不提供任何编辑动作。
+     * 账号＝系统用户编号；openid 已由后端脱敏，仅作对账参考。 */
+    const isUsers = computed(() => selected.type === "users");
+    const isFullPage = computed(() => isContracts.value || isUsers.value);
+    const um = reactive({ keyword: "", loading: false, error: "", items: [], total: 0, fetched: false });
+    const umEmpty = computed(() => um.fetched && !um.loading && !um.error && !um.items.length);
+    async function umFetch() {
+      um.loading = true; um.error = "";
+      const q = new URLSearchParams();
+      if (String(um.keyword).trim()) q.set("keyword", String(um.keyword).trim());
+      q.set("limit", "500");
+      try {
+        const r = await fetch("/api/users?" + q.toString());
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const d = await r.json();
+        um.items = d.items || []; um.total = d.total || 0;
+      } catch (e) {
+        um.items = []; um.total = 0;
+        um.error = "查询失败：" + (e.message || e);
+      } finally {
+        um.loading = false; um.fetched = true;
+      }
+    }
+    function umReset() { um.keyword = ""; umFetch(); }
+    // 无头像时用昵称首字占位
+    function umInitial(u) { return String(u.nickname || u.account || "?").slice(0, 1); }
     const stPlaceholder = `业务类型：现牌结算单
 群名：0908许兰坛深圳湾现牌粤ZLT27港
 客户：许兰坛
@@ -1784,6 +1815,7 @@ const app = createApp({
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
+      isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial,
     };
   },
 
@@ -1890,8 +1922,50 @@ const app = createApp({
       </div>
     </section>
 
+    <!-- ================= 用户管理：小程序登录用户（只读，版式复用合同管理的列表骨架） ================= -->
+    <section class="pane ct-pane" v-if="isUsers">
+      <div class="pane-top ct-top">
+        <h2>用户管理</h2>
+        <span class="tpl-name">小程序登录用户 · 按最近登录倒序 · 只读</span>
+      </div>
+      <div class="ct-filters">
+        <input class="f-inp ct-client" v-model.trim="um.keyword"
+               placeholder="昵称 / 手机号（模糊）" @keyup.enter="umFetch">
+        <button class="btn primary" @click="umFetch">查询</button>
+        <button class="btn ghost" @click="umReset">重置</button>
+        <span class="spacer"></span>
+        <span class="ct-count" v-if="um.fetched && !um.loading">共 {{ um.total }} 位用户</span>
+      </div>
+      <div class="pane-body ct-body">
+        <div class="ct-err" v-if="um.error">⚠ {{ um.error }}</div>
+        <div class="ct-loading" v-else-if="um.loading"><span class="spin dark"></span> 查询中…</div>
+        <table class="ct-table" v-else-if="um.items.length">
+          <thead><tr>
+            <th>账号</th><th>昵称</th><th>头像</th><th>授权手机号</th><th>最近登录</th><th>注册时间</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="u in um.items" :key="u.id">
+              <td class="mono" :title="'openid ' + (u.openid || '—')">{{ u.account }}</td>
+              <td class="ct-name">{{ u.nickname || '—' }}</td>
+              <td>
+                <img v-if="u.avatar_url" class="um-av" :src="u.avatar_url" :alt="u.nickname || u.account">
+                <span v-else class="um-av ph">{{ umInitial(u) }}</span>
+              </td>
+              <td class="mono">{{ u.phone || '未授权' }}</td>
+              <td class="dim">{{ u.last_login_at || '—' }}</td>
+              <td class="dim">{{ u.created_at || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="ct-empty" v-else-if="umEmpty">
+          <div class="ct-empty-mark">户</div>
+          <div>{{ um.keyword ? '没有匹配的用户' : '还没有小程序用户登录' }}</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane" v-if="!isContracts"
+    <section class="pane" v-if="!isFullPage"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
         <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
@@ -2451,7 +2525,7 @@ const app = createApp({
     </section>
 
     <!-- ================= 成品栏：结算单成品 / 合同实时预览 ================= -->
-    <section class="pane preview-pane" v-if="!isContracts" @pointerdown="onPreviewPanePointerdown">
+    <section class="pane preview-pane" v-if="!isFullPage" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
         <b>{{ isSettlement ? '结算单成品' : '合同实时预览' }}</b>
         <span class="pv-sub" v-if="!isSettlement">与下载文件 1:1 同源</span>

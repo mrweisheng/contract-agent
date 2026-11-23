@@ -179,6 +179,32 @@ def get_me(user: dict = Depends(_current_user), request: Request = None):
     return _public_user(user, _base(request))
 
 
+def _mask_openid(openid: str) -> str:
+    """openid 只用于内部对账，列表里脱敏展示（前 6 + 后 4），前端不需要完整值。"""
+    o = openid or ""
+    return f"{o[:6]}…{o[-4:]}" if len(o) > 12 else o
+
+
+@router.get("/api/users")
+def list_users(request: Request = None, keyword: str = "", limit: int = 200):
+    """用户管理（内部只读）：小程序登录过的用户列表，按最近登录倒序。
+
+    账号＝系统用户编号（openid 脱敏附录）；头像走已有 /api/users/{id}/avatar，
+    不在本接口暴露服务器路径。支持昵称/手机号模糊搜索。暂不提供任何编辑入口。
+    """
+    limit = max(1, min(int(limit), 500))
+    total, rows = store.users_list(keyword.strip(), limit)
+    items = []
+    for r in rows:
+        items.append({
+            **_public_user(r, _base(request)),
+            "account": f"#{r['id']}",
+            "openid": _mask_openid(r.get("openid") or ""),
+            "last_login_at": r.get("last_login_at") or "",
+        })
+    return {"total": total, "items": items}
+
+
 @router.patch("/api/users/me")
 def patch_me(body: dict, user: dict = Depends(_current_user), request: Request = None):
     nickname = str(body.get("nickname") or "").strip()

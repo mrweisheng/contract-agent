@@ -322,6 +322,28 @@ def user_get(uid: int):
         return dict(row) if row else None
 
 
+def users_list(keyword: str = "", limit: int = 200):
+    """用户管理（内部只读）：小程序登录过的用户，按最近登录倒序。
+
+    keyword 同时模糊匹配昵称与手机号；返回 (总户数, 当前页行)。
+    只读：不提供任何改写入口，登录/改资料仍走 users_api 自身动作。
+    """
+    where, args = [], []
+    if keyword:
+        where.append("(nickname LIKE ? OR phone LIKE ?)")
+        args += [f"%{keyword}%", f"%{keyword}%"]
+    cond = (" WHERE " + " AND ".join(where)) if where else ""
+    with _conn() as c:
+        total = c.execute(f"SELECT COUNT(*) FROM users{cond}", args).fetchone()[0]
+        rows = c.execute(
+            "SELECT id,openid,phone,nickname,avatar_path,avatar_ver,created_at,last_login_at "
+            f"FROM users{cond} "
+            "ORDER BY COALESCE(NULLIF(last_login_at,''), created_at) DESC, id DESC LIMIT ?",
+            (*args, limit),
+        ).fetchall()
+        return total, [dict(r) for r in rows]
+
+
 def user_update(uid: int, **fields):
     """白名单字段更新（phone/nickname/avatar_path/avatar_ver）。"""
     allowed = {"phone", "nickname", "avatar_path", "avatar_ver", "unionid"}

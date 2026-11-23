@@ -214,6 +214,29 @@ try:
 except Exception as ex:
     check(getattr(ex, "status_code", None) == 404, "用户不存在 → 404")
 
+# 19) 用户管理列表（只读）：字段、排序、模糊搜索、脱敏
+with store._conn() as c:
+    c.execute("UPDATE users SET last_login_at=? WHERE id=?", ("2026-01-01 00:00:00", u1["id"]))
+r = users_api.list_users()
+check(r["total"] == 2, f"用户总数（实际 {r['total']}）")
+check([i["id"] for i in r["items"]][0] == r3["user"]["id"], "按最近登录倒序（新用户在前）")
+first = r["items"][0]
+check(first["account"] == f"#{first['id']}", "账号＝系统用户编号")
+check(all(k in first for k in ("account", "nickname", "avatar_url", "phone", "last_login_at", "created_at")),
+      "四个展示字段 + 时间都在")
+check(not any("uploads" in str(i) or "avatar_path" in i for i in r["items"]), "不泄漏服务器路径")
+check(all("…" in i["openid"] or len(i["openid"]) <= 12 for i in r["items"] if i["openid"]), "openid 已脱敏")
+check(users_api._mask_openid("oTEST-abcdefghijklmn") == "oTEST-…klmn", "脱敏规则：前6+后4")
+
+check([i["id"] for i in users_api.list_users(keyword="陈")["items"]] == [u1["id"]], "昵称模糊搜索")
+check([i["id"] for i in users_api.list_users(keyword="1380")["items"]] == [u1["id"]], "手机号模糊搜索")
+check(users_api.list_users(keyword="不存在的人")["total"] == 0, "无匹配 → 0")
+
+# 头像在列表里也是绝对地址（有 request 时）
+ra = users_api.list_users(request=_req)
+u1_row = [i for i in ra["items"] if i["id"] == u1["id"]][0]
+check(u1_row["avatar_url"].startswith("https://contract.eazycar.top/api/users/"), "列表头像 URL 为绝对地址")
+
 print()
 print("总体:", "全部通过" if not FAIL else f"存在失败 {len(FAIL)} 项")
 sys.exit(1 if FAIL else 0)
