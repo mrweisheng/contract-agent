@@ -127,9 +127,15 @@ LLM_MODEL=MiniMax-M3
 # 服务配置（systemd 启动参数已显式指定，这里的 HOST/PORT 仅直跑时生效）
 HOST=127.0.0.1
 PORT=8300
+
+# 对外合同查询接口（小程序）：配置后启用 /api/open/*（不配置=对外关闭，返回 403）
+# 仅在对接小程序等外部系统时需要；Key 用随机长串，与小程序侧约定一致
+OPEN_API_KEY=<随机长串，不启用对外查询可删掉此行>
 EOF
 chmod 600 /opt/contract-agent/.env
 ```
+
+**公司印信图（按需）**：公司「生成即盖章」需要两张透明 PNG 放在 `server/data/seals/`（`sign.png` 签字条 + `seal.png` 公章，git 不收录，向开发负责人索取）。缺失时系统不报错，但**新生成**的合同不带章，对外接口的合同详情里 `stamped` 为 `false`。
 
 ### 4. 目录属主（应用运行用户必须可写 data 目录）
 
@@ -392,3 +398,5 @@ htpasswd -c /etc/nginx/.htpasswd huaxing        # 输入两遍密码，即全员
 - [ ] 生成历史抽屉里能看到刚才那单，可重新下载
 - [ ] `ls /backup/` 有当日备份包，cron 已生效
 - [ ] Basic Auth 或 IP 白名单已配置（第十章，必做）
+- [ ] （如启用小程序对外查询）`.env` 已配 `OPEN_API_KEY`：`curl -s -H "X-API-Key: <key>" https://contract.eazycar.top/api/open/contracts` 返回 JSON；未配置时该地址返回 403（对外关闭，属正常）
+- [ ] `server/data/seals/` 下已有 `sign.png` + `seal.png`（缺失则新合同不带章）
