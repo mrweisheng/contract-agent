@@ -1305,6 +1305,31 @@ const app = createApp({
     }
     // 无头像时用昵称首字占位
     function umInitial(u) { return String(u.nickname || u.account || "?").slice(0, 1); }
+    /* 微信标识（2026-11-23）：列表正文默认只显示脱敏 openid（前6…后4），
+       点一下展开完整值并复制到剪贴板，再点收回——后台主要用来跟微信侧对账。 */
+    async function umRevealOpenid(u) {
+      const full = String(u.openid_full || "");
+      if (!full) return;
+      u._reveal = !u._reveal;
+      if (!u._reveal) return;
+      try {
+        await navigator.clipboard.writeText(full);
+        toast("完整 openid 已复制");
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = full;
+        ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+          toast("完整 openid 已复制");
+        } catch {
+          toast("已展开，请手动选中复制", "warn");
+        }
+        ta.remove();
+      }
+    }
     const stPlaceholder = `业务类型：现牌结算单
 群名：0908许兰坛深圳湾现牌粤ZLT27港
 客户：许兰坛
@@ -1837,7 +1862,7 @@ const app = createApp({
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
-      isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial, umSetRole,
+      isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial, umSetRole, umRevealOpenid,
     };
   },
 
@@ -1969,11 +1994,14 @@ const app = createApp({
         <div class="ct-loading" v-else-if="um.loading"><span class="spin dark"></span> 查询中…</div>
         <table class="ct-table" v-else-if="um.items.length">
           <thead><tr>
-            <th>账号</th><th>昵称</th><th>头像</th><th>授权手机号</th><th>角色</th><th>最近登录</th><th>注册时间</th>
+            <th>账号</th><th>微信标识</th><th>昵称</th><th>头像</th><th>授权手机号</th><th>角色</th><th>最近登录</th><th>注册时间</th>
           </tr></thead>
           <tbody>
             <tr v-for="u in um.items" :key="u.id">
-              <td class="mono" :title="'openid ' + (u.openid || '—')">{{ u.account }}</td>
+              <td class="mono">{{ u.account }}</td>
+              <td class="mono um-oid" :class="{ open: u._reveal }"
+                  :title="u.openid_full ? '完整 openid：' + u.openid_full + '（点击复制）' : '未记录 openid'"
+                  @click="umRevealOpenid(u)">{{ u._reveal ? (u.openid_full || '—') : (u.openid || '—') }}</td>
               <td class="ct-name">{{ u.nickname || '—' }}</td>
               <td>
                 <img v-if="u.avatar_url" class="um-av" :src="u.avatar_url" :alt="u.nickname || u.account">

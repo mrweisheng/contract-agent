@@ -226,6 +226,7 @@ check(all(k in first for k in ("account", "nickname", "avatar_url", "phone", "la
       "四个展示字段 + 时间都在")
 check(not any("uploads" in str(i) or "avatar_path" in i for i in r["items"]), "不泄漏服务器路径")
 check(all("…" in i["openid"] or len(i["openid"]) <= 12 for i in r["items"] if i["openid"]), "openid 已脱敏")
+check(first["openid_full"] == "oTEST-login-2", "另附完整 openid 供后台点击复制（正文仍脱敏）")
 check(users_api._mask_openid("oTEST-abcdefghijklmn") == "oTEST-…klmn", "脱敏规则：前6+后4")
 
 check([i["id"] for i in users_api.list_users(keyword="陈")["items"]] == [u1["id"]], "昵称模糊搜索")

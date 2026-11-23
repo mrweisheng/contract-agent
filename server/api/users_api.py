@@ -196,8 +196,9 @@ def _mask_openid(openid: str) -> str:
 def list_users(request: Request = None, keyword: str = "", limit: int = 200):
     """用户管理（内部只读）：小程序登录过的用户列表，按最近登录倒序。
 
-    账号＝系统用户编号（openid 脱敏附录）；头像走已有 /api/users/{id}/avatar，
-    不在本接口暴露服务器路径。支持昵称/手机号模糊搜索。暂不提供任何编辑入口。
+    账号＝系统用户编号；openid 正文脱敏展示（前 6 + 后 4），另附 openid_full
+    供后台点击复制/核对（前端默认不显示完整值）。支持昵称/手机号模糊搜索。
+    暂不提供任何编辑入口。
     """
     limit = max(1, min(int(limit), 500))
     total, rows = store.users_list(keyword.strip(), limit)
@@ -207,6 +208,7 @@ def list_users(request: Request = None, keyword: str = "", limit: int = 200):
             **_public_user(r, _base(request)),
             "account": f"#{r['id']}",
             "openid": _mask_openid(r.get("openid") or ""),
+            "openid_full": r.get("openid") or "",
             "last_login_at": r.get("last_login_at") or "",
         })
     return {"total": total, "items": items, "roles": ROLES, "default_role": DEFAULT_ROLE}

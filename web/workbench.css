@@ -886,6 +886,10 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .um-role { width: 118px; font-size: 12px; padding: 4px 6px; }
 .um-role.r-admin { border-color: #bfd9c9; color: #2f6b4f; }
 .um-role.r-super { border-color: #d9c08a; background: #fffdf6; color: #8a6d1b; font-weight: 500; }
+/* 微信标识：默认脱敏，点击展开完整值并复制（再点收回） */
+.um-oid { cursor: pointer; white-space: nowrap; border-bottom: 1px dashed transparent; }
+.um-oid:hover { border-bottom-color: currentColor; }
+.um-oid.open { color: var(--ink); user-select: all; }
 @media (max-width: 1100px) {
   .ct-client { width: 160px; }
   .ct-table th, .ct-table td { padding: 8px; }
