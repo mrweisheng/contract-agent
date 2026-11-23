@@ -58,11 +58,18 @@ def init():
         )""")
         # LLM 语义复核改为后台异步后，结果落库供历史/轮询查询（旧库增量迁移）
         # signed_path/signed_at：客户在小程序手写签名回传后的已签版存档（对外查询接口 2026-11-18）
-        for col in ("review_status", "review_issues", "signed_path", "signed_at", "sealed_at"):
+        # bound_at：签字即绑定登录用户的时间（我的合同 2026-11-23）
+        for col in ("review_status", "review_issues", "signed_path", "signed_at", "sealed_at", "bound_at"):
             try:
                 c.execute(f"ALTER TABLE gens ADD COLUMN {col} TEXT DEFAULT ''")
             except Exception:
                 pass  # 列已存在
+        # 签署归属：signed_user_id 必须是 INTEGER——TEXT 亲和性会把绑定的 int 存成 '5'，
+        # 之后 WHERE signed_user_id=? 传 int 就永远匹配不上
+        try:
+            c.execute("ALTER TABLE gens ADD COLUMN signed_user_id INTEGER DEFAULT NULL")
+        except Exception:
+            pass  # 列已存在
         c.execute("""CREATE TABLE IF NOT EXISTS fx_rate (
             base TEXT,
             quote TEXT,
@@ -272,11 +279,22 @@ def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
         total = c.execute(f"SELECT COUNT(*) FROM gens WHERE {cond}", args).fetchone()[0]
         rows = c.execute(
             "SELECT no,type,client,mode,currency,filename,created_at,review_status,"
-            "signed_path,signed_at FROM gens WHERE " + cond +
+            "signed_path,signed_at,signed_user_id FROM gens WHERE " + cond +
             " ORDER BY created_at DESC, id DESC LIMIT ?",
             (*args, limit),
         ).fetchall()
-        return total, [dict(r) for r in rows]
+        items = [dict(r) for r in rows]
+        # 签署人（管理员视角）：只补昵称/手机号，空绑定则为 None
+        uids = sorted({r["signed_user_id"] for r in items if r.get("signed_user_id")})
+        if uids:
+            marks = ",".join("?" * len(uids))
+            signers = {r["id"]: dict(r) for r in c.execute(
+                f"SELECT id,nickname,phone FROM users WHERE id IN ({marks})", uids)}
+            for r in items:
+                s = signers.get(r.get("signed_user_id"))
+                r["signer_nickname"] = (s or {}).get("nickname") or ""
+                r["signer_phone"] = (s or {}).get("phone") or ""
+        return total, items
 
 
 def set_review(no: str, review_status: str, review_issues: str):
@@ -291,6 +309,35 @@ def set_signed(no: str, signed_path: str):
     with _lock, _conn() as c:
         c.execute("UPDATE gens SET signed_path=?, signed_at=? WHERE no=?",
                   (signed_path, _now(), no))
+
+
+def bind_signed_user(no: str, uid: int) -> bool:
+    """签字即认领：把已签合同绑定到签署的登录用户（我的合同 2026-11-23）。
+
+    条件更新（signed_user_id IS NULL）保证同一份只会绑一次：并发下后到的一方
+    rowcount=0，由调用方按「已被他人签走」处理，不会互相覆盖。
+    """
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE gens SET signed_user_id=?, bound_at=? WHERE no=? AND signed_user_id IS NULL",
+            (uid, _now(), no))
+        return cur.rowcount > 0
+
+
+def contracts_by_user(uid: int, limit: int = 100):
+    """「我的合同」：只取绑定到该用户的已签合同，按生成时间倒序。返回 (总数, 当前页行)。"""
+    with _conn() as c:
+        total = c.execute(
+            "SELECT COUNT(*) FROM gens WHERE status='ok' AND signed_user_id=?",
+            (uid,),
+        ).fetchone()[0]
+        rows = c.execute(
+            "SELECT no,type,client,mode,currency,filename,created_at,signed_path,signed_at,bound_at "
+            "FROM gens WHERE status='ok' AND signed_user_id=? "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            (uid, limit),
+        ).fetchall()
+        return total, [dict(r) for r in rows]
 
 
 def mark_sealed(no: str):

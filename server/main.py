@@ -11,6 +11,7 @@ from api import store
 from api.routes import router
 from api.open_api import router as open_router
 from api.users_api import router as users_router
+from api.my_api import router as my_router
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -45,6 +46,7 @@ app = FastAPI(title="华星智能合同生成系统")
 app.include_router(router)
 app.include_router(open_router)
 app.include_router(users_router)
+app.include_router(my_router)
 store.init()
 
 

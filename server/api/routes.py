@@ -509,6 +509,8 @@ def list_contracts(date_from: str = "", date_to: str = "", client: str = "",
             "created_at": r["created_at"] or "",
             "review_status": r.get("review_status") or "",
             "signed": bool(r.get("signed_path")), "signed_at": r.get("signed_at") or "",
+            "signer_nickname": r.get("signer_nickname") or "",
+            "signer_phone": r.get("signer_phone") or "",
             "filename": r["filename"] or "",
         })
     return {"total": total, "items": items}

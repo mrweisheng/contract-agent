@@ -1891,7 +1891,7 @@ const app = createApp({
         <table class="ct-table" v-else-if="ct.items.length">
           <thead><tr>
             <th>合同编号</th><th>业务</th><th>客户 / 签约方</th><th>金额</th>
-            <th>生成时间</th><th>状态</th><th class="ct-act">操作</th>
+            <th>生成时间</th><th>状态</th><th>签署人</th><th class="ct-act">操作</th>
           </tr></thead>
           <tbody>
             <tr v-for="h in ct.items" :key="h.no">
@@ -1907,6 +1907,12 @@ const app = createApp({
                 <span v-if="h.signed" class="tag ok" title="客户已手写签名回传">已签</span>
                 <span v-if="h.review_status === 'warn'" class="tag warn" title="AI 复核有提示">复核提醒</span>
                 <span v-else-if="h.review_status === 'pass'" class="tag ok" title="AI 复核通过">复核过</span>
+              </td>
+              <td class="ct-signer">
+                <template v-if="h.signer_nickname || h.signer_phone">
+                  {{ h.signer_nickname || '—' }}<span class="dim" v-if="h.signer_phone"> · {{ h.signer_phone }}</span>
+                </template>
+                <span v-else class="dim">{{ h.signed ? '已签 · 未绑定用户' : '未签' }}</span>
               </td>
               <td class="ct-act">
                 <button class="btn sm" @click="ctWord(h)">Word</button>

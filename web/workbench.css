@@ -870,6 +870,7 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .ct-table .mono { font-family: var(--serif); }
 .ct-table .dim { color: var(--muted); }
 .ct-name { font-weight: 500; }
+.ct-signer { font-size: 12px; white-space: nowrap; }
 .ct-act { white-space: nowrap; text-align: right; }
 .ct-act .btn + .btn { margin-left: 4px; }
 .ct-loading { text-align: center; color: var(--muted); padding: 56px 0; font-size: 13px; }
