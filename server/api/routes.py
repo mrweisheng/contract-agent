@@ -460,6 +460,60 @@ def get_history():
     return {"items": store.history()}
 
 
+def _contract_amount(rec: dict):
+    """合同总额：从生成时存档的 form.json 取（卖车/收车＝total_price，其余＝total_fee）。
+    旧单没有存档或金额缺失时返回 None，前端显示「—」。"""
+    fn = rec.get("filename") or ""
+    if not fn:
+        return None
+    path = os.path.join(store.OUT_DIR, fn.rsplit(".docx", 1)[0] + ".form.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            form = (json.load(fh) or {}).get("form") or {}
+    except Exception:
+        return None
+    raw = form.get("total_price") if rec.get("type") in ("car", "car_buy") else form.get("total_fee")
+    try:
+        n = int(float(raw))
+    except Exception:
+        return None
+    return n if n > 0 else None
+
+
+@router.get("/contracts")
+def list_contracts(date_from: str = "", date_to: str = "", client: str = "",
+                   type: str = "", limit: int = 200):
+    """合同管理：已生成成功的合同列表。
+
+    date_from/date_to＝YYYY-MM-DD（按生成日期，含边界，空=不限）；client＝客户/签约方模糊搜索；
+    type＝业务类型精确筛选。按生成时间倒序，limit 上限 500，total 为命中总条数。
+    """
+    limit = max(1, min(int(limit), 500))
+    for name, val in (("date_from", date_from), ("date_to", date_to)):
+        if val.strip() and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", val.strip()):
+            raise HTTPException(422, f"{name} 须为 YYYY-MM-DD")
+    total, rows = store.contracts_query(date_from.strip(), date_to.strip(),
+                                        client.strip(), type.strip(), limit)
+    items = []
+    for r in rows:
+        try:
+            label = get_type(r["type"]).get("label") or r["type"]
+        except Exception:
+            label = r["type"]
+        items.append({
+            "no": r["no"],
+            "type": r["type"], "type_label": label,
+            "client": r["client"] or "",
+            "currency": r["currency"] or "",
+            "amount": _contract_amount(r),
+            "created_at": r["created_at"] or "",
+            "review_status": r.get("review_status") or "",
+            "signed": bool(r.get("signed_path")), "signed_at": r.get("signed_at") or "",
+            "filename": r["filename"] or "",
+        })
+    return {"total": total, "items": items}
+
+
 # ==================== 收款结算单（独立轻流程，不接合同/编号） ====================
 
 class SettlementParseReq(BaseModel):

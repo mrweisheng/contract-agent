@@ -246,6 +246,39 @@ def history(limit: int = 50):
         return [dict(r) for r in rows]
 
 
+def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
+                    type_key: str = "", limit: int = 200):
+    """合同管理列表：只取生成成功的单，按生成时间倒序。
+
+    date_from/date_to：YYYY-MM-DD，按 created_at 的日期部分比较（含边界，空=不限）；
+    client：客户/签约方模糊匹配；type_key：业务类型精确匹配。
+    返回 (符合条件的总条数, 当前页行) —— 总条数用于前端提示「共 N 份」。
+    """
+    where, args = ["status='ok'"], []
+    if date_from:
+        where.append("date(created_at) >= date(?)")
+        args.append(date_from)
+    if date_to:
+        where.append("date(created_at) <= date(?)")
+        args.append(date_to)
+    if client:
+        where.append("client LIKE ?")
+        args.append(f"%{client}%")
+    if type_key:
+        where.append("type = ?")
+        args.append(type_key)
+    cond = " AND ".join(where)
+    with _conn() as c:
+        total = c.execute(f"SELECT COUNT(*) FROM gens WHERE {cond}", args).fetchone()[0]
+        rows = c.execute(
+            "SELECT no,type,client,mode,currency,filename,created_at,review_status,"
+            "signed_path,signed_at FROM gens WHERE " + cond +
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (*args, limit),
+        ).fetchall()
+        return total, [dict(r) for r in rows]
+
+
 def set_review(no: str, review_status: str, review_issues: str):
     """后台复核完成：落库结论（pass/warn/skip），供历史与前端轮询查询。"""
     with _conn() as c:

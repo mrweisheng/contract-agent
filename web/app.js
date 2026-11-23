@@ -174,6 +174,7 @@ const app = createApp({
       });
       if (get("immigration")) items.push({ title: "高才移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
       items.push({ title: "结算单", list: [{ key: "settlement", port: "", label: "结算单" }] });
+      items.push({ title: "合同管理", list: [{ key: "contracts", port: "", label: "合同管理" }] });
       return items;
     });
     const isActive = it => selected.type === it.key && selected.port === it.port;
@@ -233,6 +234,7 @@ const app = createApp({
       selected.type = it.key; selected.port = it.port;
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
+      if (it.key === "contracts") { ctFetch(); return; }   // 合同管理：独立列表页，不碰表单/预览/付款
       initForm(); initPayment();
       onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
@@ -1202,6 +1204,54 @@ const app = createApp({
     const stPorts = computed(() =>
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
     const isSettlement = computed(() => selected.type === "settlement");
+
+    /* ---------- 合同管理（已生成合同列表：日期区间 + 客户/签约方搜索） ----------
+     * 只列 status=ok 的单，按生成时间倒序；日期按「生成日期」筛选（含边界，空=不限），
+     * 客户为模糊匹配。金额来自生成时存档的 form.json（旧单没有则显示 —）。 */
+    const isContracts = computed(() => selected.type === "contracts");
+    const ct = reactive({
+      from: "", to: "", client: "", type: "",
+      loading: false, error: "", items: [], total: 0, fetched: false,
+    });
+    const ctEmpty = computed(() => ct.fetched && !ct.loading && !ct.error && !ct.items.length);
+    async function ctFetch() {
+      ct.loading = true; ct.error = "";
+      const q = new URLSearchParams();
+      if (ct.from) q.set("date_from", ct.from);
+      if (ct.to) q.set("date_to", ct.to);
+      if (String(ct.client).trim()) q.set("client", String(ct.client).trim());
+      if (ct.type) q.set("type", ct.type);
+      q.set("limit", "300");
+      try {
+        const r = await fetch("/api/contracts?" + q.toString());
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const d = await r.json();
+        ct.items = d.items || []; ct.total = d.total || 0;
+      } catch (e) {
+        ct.items = []; ct.total = 0;
+        ct.error = "查询失败：" + (e.message || e);
+      } finally {
+        ct.loading = false; ct.fetched = true;
+      }
+    }
+    // 本地自然日加减（不走 UTC，避免东八区凌晨算成前一天）
+    function ctDayShift(n) {
+      const [y, m, d] = todayISO().split("-").map(Number);
+      const t = new Date(y, m - 1, d + n);
+      return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+    }
+    function ctQuick(kind) {
+      const today = todayISO();
+      if (kind === "today") { ct.from = today; ct.to = today; }
+      else if (kind === "7") { ct.from = ctDayShift(-6); ct.to = today; }
+      else if (kind === "30") { ct.from = ctDayShift(-29); ct.to = today; }
+      else if (kind === "month") { ct.from = today.slice(0, 8) + "01"; ct.to = today; }
+      else { ct.from = ""; ct.to = ""; }
+      ctFetch();
+    }
+    function ctReset() { ct.from = ""; ct.to = ""; ct.client = ""; ct.type = ""; ctFetch(); }
+    function ctWord(h) { saveAs(`/api/download/${h.no}`, h.filename); }
+    function ctPdf(h) { downloadPdf(`/api/download/${h.no}?format=pdf`, pdfNameOf(h.filename)); }
     const stPlaceholder = `业务类型：现牌结算单
 群名：0908许兰坛深圳湾现牌粤ZLT27港
 客户：许兰坛
@@ -1733,6 +1783,7 @@ const app = createApp({
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
+      isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
     };
   },
 
@@ -1769,8 +1820,78 @@ const app = createApp({
       </div>
     </header>
 
+    <!-- ================= 合同管理：已生成合同列表（全宽，占满两栏） ================= -->
+    <section class="pane ct-pane" v-if="isContracts">
+      <div class="pane-top ct-top">
+        <h2>合同管理</h2>
+        <span class="tpl-name">已生成并落库的合同 · 按生成时间倒序</span>
+      </div>
+      <div class="ct-filters">
+        <div class="ct-range">
+          <span class="ct-lab">生成日期</span>
+          <input class="f-inp" type="date" v-model="ct.from" title="起始日期（含当天）">
+          <span class="ct-tilde">至</span>
+          <input class="f-inp" type="date" v-model="ct.to" title="结束日期（含当天）">
+        </div>
+        <div class="ct-quick">
+          <button class="chip" @click="ctQuick('today')">今天</button>
+          <button class="chip" @click="ctQuick('7')">近7天</button>
+          <button class="chip" @click="ctQuick('30')">近30天</button>
+          <button class="chip" @click="ctQuick('month')">本月</button>
+          <button class="chip" @click="ctQuick('all')">全部</button>
+        </div>
+        <input class="f-inp ct-client" v-model.trim="ct.client"
+               placeholder="客户 / 签约方姓名（模糊）" @keyup.enter="ctFetch">
+        <select class="f-inp ct-type" v-model="ct.type" @change="ctFetch">
+          <option value="">全部业务</option>
+          <option v-for="t in types" :key="t.key" :value="t.key">{{ t.label }}</option>
+        </select>
+        <button class="btn primary" @click="ctFetch">查询</button>
+        <button class="btn ghost" @click="ctReset">重置</button>
+        <span class="spacer"></span>
+        <span class="ct-count" v-if="ct.fetched && !ct.loading">
+          共 {{ ct.total }} 份<template v-if="ct.items.length < ct.total">（显示最近 {{ ct.items.length }} 份）</template>
+        </span>
+      </div>
+      <div class="pane-body ct-body">
+        <div class="ct-err" v-if="ct.error">⚠ {{ ct.error }}</div>
+        <div class="ct-loading" v-else-if="ct.loading"><span class="spin dark"></span> 查询中…</div>
+        <table class="ct-table" v-else-if="ct.items.length">
+          <thead><tr>
+            <th>合同编号</th><th>业务</th><th>客户 / 签约方</th><th>金额</th>
+            <th>生成时间</th><th>状态</th><th class="ct-act">操作</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="h in ct.items" :key="h.no">
+              <td class="mono">{{ h.no }}</td>
+              <td>{{ h.type_label }}</td>
+              <td class="ct-name">{{ h.client || '—' }}</td>
+              <td class="mono" :class="{ dim: !h.amount }">
+                {{ h.amount ? (h.currency === 'CNY' ? '¥' : 'HK$') + commas(h.amount) : '—' }}
+              </td>
+              <td class="dim">{{ h.created_at }}</td>
+              <td>
+                <span class="tag ok">已生成</span>
+                <span v-if="h.signed" class="tag ok" title="客户已手写签名回传">已签</span>
+                <span v-if="h.review_status === 'warn'" class="tag warn" title="AI 复核有提示">复核提醒</span>
+                <span v-else-if="h.review_status === 'pass'" class="tag ok" title="AI 复核通过">复核过</span>
+              </td>
+              <td class="ct-act">
+                <button class="btn sm" @click="ctWord(h)">Word</button>
+                <button class="btn sm ghost" :disabled="pdfBusy" @click="ctPdf(h)">{{ pdfBusy ? '…' : 'PDF' }}</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="ct-empty" v-else-if="ctEmpty">
+          <div class="ct-empty-mark">卷</div>
+          <div>{{ (ct.client || ct.type || ct.from || ct.to) ? '没有符合条件的合同' : '还没有生成过合同' }}</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= 录入核对栏 ================= -->
-    <section class="pane"
+    <section class="pane" v-if="!isContracts"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
         <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
@@ -2330,7 +2451,7 @@ const app = createApp({
     </section>
 
     <!-- ================= 成品栏：结算单成品 / 合同实时预览 ================= -->
-    <section class="pane preview-pane" @pointerdown="onPreviewPanePointerdown">
+    <section class="pane preview-pane" v-if="!isContracts" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
         <b>{{ isSettlement ? '结算单成品' : '合同实时预览' }}</b>
         <span class="pv-sub" v-if="!isSettlement">与下载文件 1:1 同源</span>
