@@ -100,6 +100,13 @@ def init():
             created_at TEXT,
             last_login_at TEXT
         )""")
+        # 角色（2026-11-23）：user=普通用户（默认）/ admin=管理员 / super=超级管理员。
+        # 权限细则后续再定，这里先只落角色本身。
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+        except Exception:
+            pass  # 列已存在
+        c.execute("UPDATE users SET role='user' WHERE role IS NULL OR role=''")
         c.execute("""CREATE TABLE IF NOT EXISTS user_sessions (
             token TEXT PRIMARY KEY,
             user_id INTEGER,
@@ -383,7 +390,7 @@ def users_list(keyword: str = "", limit: int = 200):
     with _conn() as c:
         total = c.execute(f"SELECT COUNT(*) FROM users{cond}", args).fetchone()[0]
         rows = c.execute(
-            "SELECT id,openid,phone,nickname,avatar_path,avatar_ver,created_at,last_login_at "
+            "SELECT id,openid,phone,nickname,avatar_path,avatar_ver,role,created_at,last_login_at "
             f"FROM users{cond} "
             "ORDER BY COALESCE(NULLIF(last_login_at,''), created_at) DESC, id DESC LIMIT ?",
             (*args, limit),
@@ -392,8 +399,8 @@ def users_list(keyword: str = "", limit: int = 200):
 
 
 def user_update(uid: int, **fields):
-    """白名单字段更新（phone/nickname/avatar_path/avatar_ver）。"""
-    allowed = {"phone", "nickname", "avatar_path", "avatar_ver", "unionid"}
+    """白名单字段更新（phone/nickname/avatar_path/avatar_ver/role）。"""
+    allowed = {"phone", "nickname", "avatar_path", "avatar_ver", "unionid", "role"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return user_get(uid)

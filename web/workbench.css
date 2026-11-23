@@ -882,6 +882,10 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
          background: #f0ece1; border: 1px solid var(--line); }
 .um-av.ph { display: grid; place-items: center; font-family: var(--serif); font-size: 14px;
             color: var(--muted); background: #f7f4ec; }
+/* 角色下拉：管理员/超级管理员用色区分，普通用户保持默认素色 */
+.um-role { width: 118px; font-size: 12px; padding: 4px 6px; }
+.um-role.r-admin { border-color: #bfd9c9; color: #2f6b4f; }
+.um-role.r-super { border-color: #d9c08a; background: #fffdf6; color: #8a6d1b; font-weight: 500; }
 @media (max-width: 1100px) {
   .ct-client { width: 160px; }
   .ct-table th, .ct-table td { padding: 8px; }

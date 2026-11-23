@@ -1261,7 +1261,8 @@ const app = createApp({
      * 账号＝系统用户编号；openid 已由后端脱敏，仅作对账参考。 */
     const isUsers = computed(() => selected.type === "users");
     const isFullPage = computed(() => isContracts.value || isUsers.value);
-    const um = reactive({ keyword: "", loading: false, error: "", items: [], total: 0, fetched: false });
+    const um = reactive({ keyword: "", loading: false, error: "", items: [], total: 0, fetched: false,
+                          roles: { user: "普通用户", admin: "管理员", super: "超级管理员" } });
     const umEmpty = computed(() => um.fetched && !um.loading && !um.error && !um.items.length);
     async function umFetch() {
       um.loading = true; um.error = "";
@@ -1273,6 +1274,7 @@ const app = createApp({
         if (!r.ok) throw new Error("HTTP " + r.status);
         const d = await r.json();
         um.items = d.items || []; um.total = d.total || 0;
+        if (d.roles && Object.keys(d.roles).length) um.roles = d.roles;
       } catch (e) {
         um.items = []; um.total = 0;
         um.error = "查询失败：" + (e.message || e);
@@ -1281,6 +1283,26 @@ const app = createApp({
       }
     }
     function umReset() { um.keyword = ""; umFetch(); }
+    // 改角色：三档 user/admin/super，乐观更新，失败回滚并提示
+    async function umSetRole(u, role) {
+      if (!role || role === u.role) return;
+      const prev = u.role, prevLabel = u.role_label;
+      u.role = role;
+      try {
+        const r = await fetch(`/api/users/${u.id}/role`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ("HTTP " + r.status));
+        u.role = (d.user && d.user.role) || role;
+        u.role_label = (d.user && d.user.role_label) || um.roles[u.role] || role;
+        toast(`已将 ${u.nickname || u.account} 设为「${u.role_label}」`);
+      } catch (e) {
+        u.role = prev; u.role_label = prevLabel;
+        toast("改角色失败：" + (e.message || e), "error");
+      }
+    }
     // 无头像时用昵称首字占位
     function umInitial(u) { return String(u.nickname || u.account || "?").slice(0, 1); }
     const stPlaceholder = `业务类型：现牌结算单
@@ -1815,7 +1837,7 @@ const app = createApp({
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
-      isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial,
+      isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial, umSetRole,
     };
   },
 
@@ -1932,7 +1954,7 @@ const app = createApp({
     <section class="pane ct-pane" v-if="isUsers">
       <div class="pane-top ct-top">
         <h2>用户管理</h2>
-        <span class="tpl-name">小程序登录用户 · 按最近登录倒序 · 只读</span>
+        <span class="tpl-name">小程序登录用户 · 按最近登录倒序 · 仅角色可编辑</span>
       </div>
       <div class="ct-filters">
         <input class="f-inp ct-client" v-model.trim="um.keyword"
@@ -1947,7 +1969,7 @@ const app = createApp({
         <div class="ct-loading" v-else-if="um.loading"><span class="spin dark"></span> 查询中…</div>
         <table class="ct-table" v-else-if="um.items.length">
           <thead><tr>
-            <th>账号</th><th>昵称</th><th>头像</th><th>授权手机号</th><th>最近登录</th><th>注册时间</th>
+            <th>账号</th><th>昵称</th><th>头像</th><th>授权手机号</th><th>角色</th><th>最近登录</th><th>注册时间</th>
           </tr></thead>
           <tbody>
             <tr v-for="u in um.items" :key="u.id">
@@ -1958,6 +1980,13 @@ const app = createApp({
                 <span v-else class="um-av ph">{{ umInitial(u) }}</span>
               </td>
               <td class="mono">{{ u.phone || '未授权' }}</td>
+              <td>
+                <select class="f-inp um-role" :class="'r-' + (u.role || 'user')" :value="u.role || 'user'"
+                        :title="'当前角色：' + (u.role_label || '普通用户')"
+                        @change="umSetRole(u, $event.target.value)">
+                  <option v-for="(label, key) in um.roles" :key="key" :value="key">{{ label }}</option>
+                </select>
+              </td>
               <td class="dim">{{ u.last_login_at || '—' }}</td>
               <td class="dim">{{ u.created_at || '—' }}</td>
             </tr>

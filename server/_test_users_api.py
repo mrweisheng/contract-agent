@@ -237,6 +237,38 @@ ra = users_api.list_users(request=_req)
 u1_row = [i for i in ra["items"] if i["id"] == u1["id"]][0]
 check(u1_row["avatar_url"].startswith("https://contract.eazycar.top/api/users/"), "列表头像 URL 为绝对地址")
 
+# 20) 角色：默认普通用户，登录/资料接口都要带回来
+check(u1["role"] == "user" and u1["role_label"] == "普通用户", "首登默认普通用户角色")
+check(users_api.get_me(U)["role"] == "user", "/me 返回角色")
+r_login = users_api.wx_login({"code": "login-1"})
+check(r_login["user"]["role"] == "user" and r_login["user"]["role_label"] == "普通用户",
+      "登录返回角色（前端据此判断）")
+check(ra["roles"] == {"user": "普通用户", "admin": "管理员", "super": "超级管理员"}, "列表附角色字典")
+check(ra["default_role"] == "user", "列表附默认角色")
+check(all(i["role"] for i in ra["items"]), "列表每行都带 role")
+
+# 21) 改角色：admin / super 生效，非法值 422，不存在 404
+res = users_api.set_user_role(u1["id"], {"role": "admin"})
+check(res["user"]["role"] == "admin" and res["user"]["role_label"] == "管理员", "设为管理员")
+check([i for i in users_api.list_users()["items"] if i["id"] == u1["id"]][0]["role"] == "admin",
+      "列表即时反映新角色")
+res = users_api.set_user_role(u1["id"], {"role": "super"})
+check(res["user"]["role"] == "super", "设为超级管理员")
+for bad in ("", "root", "ADMIN", "superadmin"):
+    try:
+        users_api.set_user_role(u1["id"], {"role": bad}); check(False, f"非法角色 {bad!r} 应 422")
+    except Exception as ex:
+        check(getattr(ex, "status_code", None) == 422, f"非法角色 {bad!r} → 422")
+try:
+    users_api.set_user_role(999999, {"role": "admin"}); check(False, "不存在用户应 404")
+except Exception as ex:
+    check(getattr(ex, "status_code", None) == 404, "不存在用户改角色 → 404")
+
+# 22) 复登不会重置角色（upsert 只刷新 unionid/登录时间）
+r_login2 = users_api.wx_login({"code": "login-1"})
+check(r_login2["user"]["role"] == "super", "复登后角色保持超级管理员（不被重置为默认）")
+check(store.user_get(u1["id"])["role"] == "super", "库里角色一致")
+
 print()
 print("总体:", "全部通过" if not FAIL else f"存在失败 {len(FAIL)} 项")
 sys.exit(1 if FAIL else 0)

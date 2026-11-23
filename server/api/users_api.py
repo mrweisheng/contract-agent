@@ -31,6 +31,10 @@ AVATAR_MAX_RAW = 5 * 1024 * 1024   # 原图上限（重编码后远小于此）
 _SESSION_RE = re.compile(r"^Bearer\s+(.+)$", re.IGNORECASE)
 _PHONE_RE = re.compile(r"^[0-9]{8,15}$")   # 大陆 11 位、香港 8 位都落在内
 
+# 角色（2026-11-23）：默认 user；权限细则后续再定，这里只负责角色本身与展示文案
+ROLES = {"user": "普通用户", "admin": "管理员", "super": "超级管理员"}
+DEFAULT_ROLE = "user"
+
 
 def _avatar_dir() -> str:
     return os.path.join(store.DATA_DIR, "uploads", "avatars")
@@ -119,11 +123,14 @@ def _base(request) -> str:
 
 def _public_user(u: dict, base: str = "") -> dict:
     ver = u.get("avatar_ver") or 0
+    role = u.get("role") or DEFAULT_ROLE
     return {
         "id": u["id"],
         "nickname": u.get("nickname") or "",
         "phone": u.get("phone") or "",
         "avatar_url": f"{base}/api/users/{u['id']}/avatar?v={ver}" if u.get("avatar_path") else "",
+        "role": role,
+        "role_label": ROLES.get(role, ROLES[DEFAULT_ROLE]),
         "created_at": u.get("created_at") or "",
     }
 
@@ -202,7 +209,23 @@ def list_users(request: Request = None, keyword: str = "", limit: int = 200):
             "openid": _mask_openid(r.get("openid") or ""),
             "last_login_at": r.get("last_login_at") or "",
         })
-    return {"total": total, "items": items}
+    return {"total": total, "items": items, "roles": ROLES, "default_role": DEFAULT_ROLE}
+
+
+@router.patch("/api/users/{uid}/role")
+def set_user_role(uid: int, body: dict, request: Request = None):
+    """改角色（内部管理）。三档：user 普通（默认）/ admin 管理员 / super 超级管理员。
+
+    平台暂不做登录鉴权（测试期），所以这里只校验角色值与用户存在；权限收敛后续再定。
+    登录/复登不会覆盖角色——user_upsert_by_openid 只刷新 unionid 与登录时间。
+    """
+    role = str(body.get("role") or "").strip()
+    if role not in ROLES:
+        raise HTTPException(422, f"角色须为 {'/'.join(ROLES)} 之一")
+    if not store.user_get(uid):
+        raise HTTPException(404, "用户不存在")
+    user = store.user_update(uid, role=role)
+    return {"ok": True, "user": _public_user(user, _base(request))}
 
 
 @router.patch("/api/users/me")
