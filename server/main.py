@@ -15,6 +15,29 @@ from api.users_api import router as users_router
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(ROOT, "web")
 
+
+def _load_env_file() -> None:
+    """把 .env 灌进 os.environ，供 os.getenv 读取（WX_APPID/WX_APP_SECRET/OPEN_API_KEY）。
+
+    之前只有 `python main.py` 直跑时读 .env，且只取 HOST/PORT，导致
+    `python -m uvicorn main:app`（start.bat 与 systemd 的实际启动方式）下
+    这些键读不到，微信登录恒 503。这里在 import 阶段统一加载；
+    进程里已有的真实环境变量优先，不覆盖。
+    """
+    path = os.path.join(ROOT, ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env_file()
+
 # 自托管字体的 MIME：部分系统 mimetypes 库无 .woff2 映射，显式注册
 mimetypes.add_type("font/woff2", ".woff2")
 
@@ -42,13 +65,5 @@ app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 if __name__ == "__main__":
     import uvicorn
 
-    env = {}
-    env_path = os.path.join(ROOT, ".env")
-    if os.path.exists(env_path):
-        with open(env_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-    uvicorn.run(app, host=env.get("HOST", "0.0.0.0"), port=int(env.get("PORT", "8300")))
+    # .env 已由 _load_env_file() 灌入 os.environ，这里直接取
+    uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "8300")))

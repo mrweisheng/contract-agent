@@ -94,7 +94,8 @@ U = users_api._current_user(f"Bearer {t1}")
 me = users_api.get_me(U)
 check(me["id"] == u1["id"], "me 返回本人")
 users_api.patch_me({"nickname": "陈大文"}, U)
-check(users_api.get_me(U)["nickname"] == "陈大文", "改昵称生效")
+# 每次真实请求都会由 _current_user 重新查库，这里同样重取一份（模拟下一次请求）
+check(users_api.get_me(users_api._current_user(f"Bearer {t1}"))["nickname"] == "陈大文", "改昵称生效")
 for bad in ("", "x" * 31):
     try:
         users_api.patch_me({"nickname": bad}, U); check(False, f"昵称[{bad[:5]}…]应 422")
@@ -164,6 +165,54 @@ except Exception as ex:
 pub = json.dumps(users_api.get_me(U))
 check("oTEST" not in pub and "uploads" not in pub and "fake-access" not in pub,
       "公开资料不泄漏 openid/服务器路径/access_token")
+
+# 14) 头像 URL 绝对化：小程序 <image> 不认同源相对路径。
+#     uvicorn 的 ProxyHeaders 会把 Nginx 送来的 X-Forwarded-Proto/Host 落进 scope，
+#     这里直接用 scheme=https + host 头构造 scope 复现
+from starlette.requests import Request as _Req
+_req = _Req({
+    "type": "http", "method": "GET", "path": "/api/users/me", "raw_path": b"/api/users/me",
+    "headers": [(b"host", b"contract.eazycar.top")], "query_string": b"",
+    "server": ("127.0.0.1", 8300), "scheme": "https", "client": ("127.0.0.1", 5000),
+})
+_abs = users_api._public_user(store.user_get(u1["id"]), users_api._base(_req))["avatar_url"]
+check(_abs.startswith("https://contract.eazycar.top/api/users/"), f"有 request 时头像 URL 为绝对地址（{_abs}）")
+check(users_api._base(None) == "", "直调不传 request 时退回相对路径（测试兼容）")
+
+# 15) 登出吊销：token 立即失效，幂等
+tok = store.session_create(u1["id"])
+check(store.session_user(tok) is not None, "登出前 token 有效")
+check(users_api.logout(f"Bearer {tok}")["ok"] is True, "登出返回 ok")
+check(store.session_user(tok) is None, "登出后 token 立即失效")
+check(users_api.logout("")["ok"] is True and users_api.logout("garbage")["ok"] is True,
+      "无头/垃圾头登出幂等不报错")
+
+# 16) 建新会话时清扫全库过期行（旧 token 不再被使用否则永远留着）
+with store._conn() as c:
+    c.execute("INSERT INTO user_sessions(token,user_id,expires_at) VALUES(?,?,?)",
+              ("stale-tok", u1["id"], past))
+store.session_create(u1["id"])
+with store._conn() as c:
+    left = c.execute("SELECT 1 FROM user_sessions WHERE token='stale-tok'").fetchone()
+check(left is None, "建新会话时清扫过期行")
+
+# 17) 超大像素图 → 422（原 Pillow DecompressionBombError 会冒成 500）
+_orig_open = users_api.Image.open
+def _boom(*a, **k):
+    raise users_api.Image.DecompressionBombError("too big")
+users_api.Image.open = _boom
+try:
+    users_api._save_avatar(u1["id"], png_bytes); check(False, "超大像素图应 422")
+except Exception as ex:
+    check(getattr(ex, "status_code", None) == 422, "超大像素图 → 422（不再 500）")
+finally:
+    users_api.Image.open = _orig_open
+
+# 18) 用户不存在时上传头像 → 404（而不是 AttributeError 500）
+try:
+    users_api._save_avatar(999999, png_bytes); check(False, "用户不存在应 404")
+except Exception as ex:
+    check(getattr(ex, "status_code", None) == 404, "用户不存在 → 404")
 
 print()
 print("总体:", "全部通过" if not FAIL else f"存在失败 {len(FAIL)} 项")

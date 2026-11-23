@@ -108,13 +108,22 @@ def _current_user(authorization: str = Header(default="")):
     return user
 
 
-def _public_user(u: dict) -> dict:
+def _base(request) -> str:
+    """对外绝对地址前缀。小程序 <image>/<image src> 不认同源相对路径，头像 URL 必须是完整 https 地址。
+    经 Nginx 反代时 uvicorn 默认信任 127.0.0.1 的 X-Forwarded-Proto/Host，base_url 即 https 域名。
+    直调（测试）不传 request 时退回相对路径。"""
+    if request is None:
+        return ""
+    return str(request.base_url).rstrip("/")
+
+
+def _public_user(u: dict, base: str = "") -> dict:
     ver = u.get("avatar_ver") or 0
     return {
         "id": u["id"],
         "nickname": u.get("nickname") or "",
         "phone": u.get("phone") or "",
-        "avatar_url": f"/api/users/{u['id']}/avatar?v={ver}" if u.get("avatar_path") else "",
+        "avatar_url": f"{base}/api/users/{u['id']}/avatar?v={ver}" if u.get("avatar_path") else "",
         "created_at": u.get("created_at") or "",
     }
 
@@ -122,7 +131,7 @@ def _public_user(u: dict) -> dict:
 # ---------- 登录 / 手机号 ----------
 
 @router.post("/api/auth/wx-login")
-def wx_login(body: dict):
+def wx_login(body: dict, request: Request = None):
     """静默登录：{code: wx.login() 的 code}。首登自动建户。返回 token + 用户资料。"""
     code = str(body.get("code") or "").strip()
     if not code:
@@ -130,11 +139,12 @@ def wx_login(body: dict):
     data = _wx_jscode2session(code)
     user = store.user_upsert_by_openid(data["openid"], data.get("unionid") or "")
     token = store.session_create(user["id"])
-    return {"token": token, "expires_in_days": store.SESSION_DAYS, "user": _public_user(user)}
+    return {"token": token, "expires_in_days": store.SESSION_DAYS,
+            "user": _public_user(user, _base(request))}
 
 
 @router.post("/api/auth/phone")
-def bind_phone(body: dict, user: dict = Depends(_current_user)):
+def bind_phone(body: dict, user: dict = Depends(_current_user), request: Request = None):
     """绑定手机号：{code: getPhoneNumber 按钮 code}（需企业认证小程序）或 {phone: 手动填}。"""
     code = str(body.get("code") or "").strip()
     manual = str(body.get("phone") or "").strip()
@@ -149,23 +159,33 @@ def bind_phone(body: dict, user: dict = Depends(_current_user)):
     else:
         raise HTTPException(422, "缺少 code 或 phone")
     user = store.user_update(user["id"], phone=phone)
-    return {"ok": True, "user": _public_user(user)}
+    return {"ok": True, "user": _public_user(user, _base(request))}
+
+
+@router.post("/api/auth/logout")
+def logout(authorization: str = Header(default="")):
+    """登出：吊销当前 token（文档承诺的「可吊销」）。幂等，token 不存在也返回 ok。"""
+    m = _SESSION_RE.match(authorization or "")
+    if m:
+        store.session_delete(m.group(1))
+    return {"ok": True}
 
 
 # ---------- 资料 ----------
 
 @router.get("/api/users/me")
-def get_me(user: dict = Depends(_current_user)):
-    return _public_user(store.user_get(user["id"]))
+def get_me(user: dict = Depends(_current_user), request: Request = None):
+    # 依赖里拿到的就是完整用户行（session_user 走 SELECT u.*），不必再查一次
+    return _public_user(user, _base(request))
 
 
 @router.patch("/api/users/me")
-def patch_me(body: dict, user: dict = Depends(_current_user)):
+def patch_me(body: dict, user: dict = Depends(_current_user), request: Request = None):
     nickname = str(body.get("nickname") or "").strip()
     if not nickname or len(nickname) > 30:
         raise HTTPException(422, "昵称须为 1-30 个字符")
     user = store.user_update(user["id"], nickname=nickname)
-    return {"ok": True, "user": _public_user(user)}
+    return {"ok": True, "user": _public_user(user, _base(request))}
 
 
 # ---------- 头像 ----------
@@ -180,10 +200,19 @@ def _decode_image(raw: bytes) -> bytes:
     raise HTTPException(422, "头像必须是 PNG 或 JPG")
 
 
-def _save_avatar(uid: int, raw: bytes) -> dict:
+def _save_avatar(uid: int, raw: bytes, base: str = "") -> dict:
     """原图 → 方形居中裁剪 → 512×512 JPEG 重编码（顺带洗掉 EXIF/注入内容）。"""
-    img = Image.open(io.BytesIO(_decode_image(raw)))
-    img.load()
+    data = _decode_image(raw)
+    cur = store.user_get(uid)
+    if not cur:
+        raise HTTPException(404, "用户不存在")
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except Image.DecompressionBombError:
+        raise HTTPException(422, "图片像素过大，请换一张小一点的图")
+    except Exception:
+        raise HTTPException(422, "图片无法解析，请换一张 PNG/JPG")
     if img.mode in ("RGBA", "LA", "P"):
         img = img.convert("RGBA")
         bg = Image.new("RGB", img.size, (255, 255, 255))
@@ -200,8 +229,8 @@ def _save_avatar(uid: int, raw: bytes) -> dict:
     path = os.path.join(_avatar_dir(), f"u{uid}.jpg")
     img.save(path, "JPEG", quality=88)
     user = store.user_update(uid, avatar_path=os.path.relpath(path, store.DATA_DIR),
-                             avatar_ver=(store.user_get(uid).get("avatar_ver") or 0) + 1)
-    return {"ok": True, "user": _public_user(user)}
+                             avatar_ver=(cur.get("avatar_ver") or 0) + 1)
+    return {"ok": True, "user": _public_user(user, base)}
 
 
 async def _avatar_bytes_from_request(request: Request) -> bytes:
@@ -232,7 +261,7 @@ async def _avatar_bytes_from_request(request: Request) -> bytes:
 @router.post("/api/users/me/avatar")
 async def upload_avatar(request: Request, user: dict = Depends(_current_user)):
     raw = await _avatar_bytes_from_request(request)
-    return _save_avatar(user["id"], raw)
+    return _save_avatar(user["id"], raw, _base(request))
 
 
 @router.get("/api/users/{user_id}/avatar")

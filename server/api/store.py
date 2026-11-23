@@ -305,14 +305,25 @@ SESSION_DAYS = 30
 
 
 def session_create(uid: int, days: int = SESSION_DAYS) -> str:
-    """发不透明会话 token，入库可吊销；过期由校验时惰性比较。"""
+    """发不透明会话 token，入库可吊销；过期由校验时惰性比较。
+    顺手清一遍全库过期行——旧 token 不再被使用就永远不会走到 session_user 的清理分支，
+    不清会在库里无限堆积。"""
     import secrets
     token = secrets.token_urlsafe(32)
     expires = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
     with _lock, _conn() as c:
+        c.execute("DELETE FROM user_sessions WHERE expires_at < ?", (_now(),))
         c.execute("INSERT INTO user_sessions(token,user_id,expires_at) VALUES(?,?,?)",
                   (token, uid, expires))
     return token
+
+
+def session_delete(token: str) -> None:
+    """登出/吊销：删掉该 token（幂等）。"""
+    if not token:
+        return
+    with _lock, _conn() as c:
+        c.execute("DELETE FROM user_sessions WHERE token=?", (token,))
 
 
 def session_user(token: str):
