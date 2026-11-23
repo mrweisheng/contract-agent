@@ -43,10 +43,13 @@ def _visible(rec: dict) -> bool:
     return (rec.get("created_at") or "")[:10] >= VISIBLE_FROM
 
 
-def _gen(no: str) -> dict:
+def _gen(no: str, allow_sample: bool = False) -> dict:
     rec = store.get_gen(no)
     # 早于可见起始日一律按「不存在」处理：不暴露历史单是否存在（编号可按日期枚举）
     if not rec or rec.get("status") != "ok" or not _visible(rec):
+        raise HTTPException(404, "合同不存在")
+    # 示例合同只走登录用户自己的 /api/users/me/*，对外接口与工作台一律不可见
+    if rec.get("is_sample") and not allow_sample:
         raise HTTPException(404, "合同不存在")
     return rec
 
@@ -238,9 +241,8 @@ def list_contracts(client: str | None = None, type: str | None = None, limit: in
     } for r in rows]}
 
 
-@router.get("/contracts/{no}")
-def contract_detail(no: str):
-    rec = _gen(no)
+def _contract_detail(no: str, allow_sample: bool = False):
+    rec = _gen(no, allow_sample=allow_sample)
     form_doc = _read_form(rec)
     from engine.types_config import get_type
     try:
@@ -262,6 +264,12 @@ def contract_detail(no: str):
     }
 
 
+@router.get("/contracts/{no}")
+def contract_detail(no: str):
+    """对外详情：示例合同不在此暴露。"""
+    return _contract_detail(no)
+
+
 def _extract_blocks_safe(rec: dict) -> list:
     path = os.path.join(store.OUT_DIR, rec["filename"])
     if not os.path.exists(path):
@@ -272,15 +280,19 @@ def _extract_blocks_safe(rec: dict) -> list:
         return []
 
 
-@router.get("/contracts/{no}/file")
-def contract_file(no: str):
-    rec = _gen(no)
+def _contract_file(no: str, allow_sample: bool = False):
+    rec = _gen(no, allow_sample=allow_sample)
     signed = rec.get("signed_path")
     path = os.path.join(store.OUT_DIR, signed) if signed else os.path.join(store.OUT_DIR, rec["filename"])
     if not os.path.exists(path):
         raise HTTPException(404, "合同文件不存在")
     return FileResponse(path, filename=os.path.basename(path),
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@router.get("/contracts/{no}/file")
+def contract_file(no: str):
+    return _contract_file(no)
 
 
 @router.get("/company-seal.png")
@@ -302,10 +314,8 @@ def _seal_asset(name: str):
     return FileResponse(path, media_type="image/png")
 
 
-@router.get("/contracts/{no}/signature")
-def contract_signature_image(no: str):
-    """已签合同的签名图（透明 PNG）——前端叠在 sign 块乙方格里即可，无需下载 docx。"""
-    rec = _gen(no)
+def _contract_signature_image(no: str, allow_sample: bool = False):
+    rec = _gen(no, allow_sample=allow_sample)
     if not rec.get("signed_path"):
         raise HTTPException(404, "该合同尚未签署")
     path = os.path.join(store.OUT_DIR, rec["filename"].rsplit(".docx", 1)[0] + "-签名.png")
@@ -314,9 +324,14 @@ def contract_signature_image(no: str):
     return FileResponse(path, media_type="image/png")
 
 
-@router.post("/contracts/{no}/signature")
-def contract_signature(no: str, body: dict):
-    rec = _gen(no)
+@router.get("/contracts/{no}/signature")
+def contract_signature_image(no: str):
+    """已签合同的签名图（透明 PNG）——前端叠在 sign 块乙方格里即可，无需下载 docx。"""
+    return _contract_signature_image(no)
+
+
+def _contract_signature(no: str, body: dict, allow_sample: bool = False):
+    rec = _gen(no, allow_sample=allow_sample)
     if rec.get("signed_path"):
         raise HTTPException(409, "该合同已签署过（如需重签请先联系作废已签版）")
     sig = _decode_sig(str(body.get("image") or ""))
@@ -331,3 +346,8 @@ def contract_signature(no: str, body: dict):
         fh.write(sig)
     store.set_signed(no, signed_name)
     return {"ok": True, "no": no, "signed_filename": signed_name}
+
+
+@router.post("/contracts/{no}/signature")
+def contract_signature(no: str, body: dict):
+    return _contract_signature(no, body)

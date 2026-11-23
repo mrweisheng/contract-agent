@@ -70,6 +70,12 @@ def init():
             c.execute("ALTER TABLE gens ADD COLUMN signed_user_id INTEGER DEFAULT NULL")
         except Exception:
             pass  # 列已存在
+        # 示例合同（2026-11-23）：每个普通用户一份、归属本人；与正式单隔离，
+        # 不进工作台/对外接口列表（contracts_query/history 一律过滤 is_sample）
+        try:
+            c.execute("ALTER TABLE gens ADD COLUMN is_sample INTEGER DEFAULT 0")
+        except Exception:
+            pass  # 列已存在
         c.execute("""CREATE TABLE IF NOT EXISTS fx_rate (
             base TEXT,
             quote TEXT,
@@ -249,12 +255,14 @@ def get_gen(no: str):
 
 
 def history(limit: int = 50):
-    """最近生成记录；pending 占位不对外展示。含后台复核结论（未出为空）。"""
+    """最近生成记录；pending 占位不对外展示。含后台复核结论（未出为空）。
+    示例合同不进工作台历史。"""
     with _conn() as c:
         rows = c.execute(
             "SELECT no,type,client,mode,currency,filename,status,created_at,"
             "review_status,review_issues FROM gens "
-            "WHERE status IN ('ok','failed') ORDER BY id DESC LIMIT ?",
+            "WHERE status IN ('ok','failed') AND COALESCE(is_sample,0)=0 "
+            "ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -268,7 +276,7 @@ def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
     client：客户/签约方模糊匹配；type_key：业务类型精确匹配。
     返回 (符合条件的总条数, 当前页行) —— 总条数用于前端提示「共 N 份」。
     """
-    where, args = ["status='ok'"], []
+    where, args = ["status='ok'", "COALESCE(is_sample,0)=0"], []
     if date_from:
         where.append("date(created_at) >= date(?)")
         args.append(date_from)
@@ -329,6 +337,28 @@ def bind_signed_user(no: str, uid: int) -> bool:
             "UPDATE gens SET signed_user_id=?, bound_at=? WHERE no=? AND signed_user_id IS NULL",
             (uid, _now(), no))
         return cur.rowcount > 0
+
+
+def create_sample_gen(no: str, uid: int, client: str, filename: str):
+    """示例合同落库（2026-11-23）：每个普通用户一份、直接归属本人，is_sample=1。
+
+    编号以 9 开头（11 位），与正式合同（YYYYMMDD 开头）不可能撞号，也不占正式流水；
+    contracts_query/history 均过滤 is_sample，示例单不会出现在工作台与对外接口。
+    """
+    now = _now()
+    with _lock, _conn() as c:
+        row = c.execute("SELECT no FROM gens WHERE no=?", (no,)).fetchone()
+        if row:
+            c.execute(
+                "UPDATE gens SET type='car', client=?, mode='default', currency='HKD', "
+                "filename=?, status='ok', signed_user_id=?, bound_at=COALESCE(bound_at,?), "
+                "is_sample=1 WHERE no=?",
+                (client, filename, uid, now, no))
+        else:
+            c.execute(
+                "INSERT INTO gens(no,type,client,mode,currency,filename,status,created_at,"
+                "signed_user_id,bound_at,is_sample) VALUES(?,?,?,?,?,?,?,?,?,?,1)",
+                (no, "car", client, "default", "HKD", filename, "ok", now, uid, now))
 
 
 def contracts_by_user(uid: int, limit: int = 100):
