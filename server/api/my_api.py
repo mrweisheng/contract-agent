@@ -69,6 +69,8 @@ def my_contracts(user: dict = Depends(_current_user), limit: int = 100):
         "currency": r["currency"] or "",
         "filename": r["filename"] or "",
         "created_at": r["created_at"] or "",
+        # 前端判「签没签」直接看 signed（signed_at 仅供展示时间）
+        "signed": bool(r.get("signed_path")),
         "signed_at": r.get("signed_at") or "",
         "bound_at": r.get("bound_at") or "",
     } for r in rows]}

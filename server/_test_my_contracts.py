@@ -71,6 +71,8 @@ check(lst_a0["total"] == 1 and lst_a0["items"][0]["no"] == sample_api.sample_no(
       "签署前本人列表＝示例合同（1 份）")
 check(lst_a0["items"][0]["client"] == "测试用户" and lst_a0["items"][0]["type"] == "car",
       "示例合同为卖车业务、客户名=测试用户")
+check(lst_a0["items"][0]["signed"] is False and lst_a0["items"][0]["signed_at"] == "",
+      "未签示例返回 signed=false")
 try:
     my_api.my_contract_detail(NO, A); check(False, "签署前详情应 404")
 except Exception as ex:
@@ -94,7 +96,10 @@ nos = {i["no"] for i in lst["items"]}
 check(lst["total"] == 2 and NO in nos and sample_api.sample_no(A["id"]) in nos,
       "本人列表＝正式单 + 示例合同")
 row = next(i for i in lst["items"] if i["no"] == NO)
-check(row["type_label"] and row["signed_at"], "列表带业务名与签署时间")
+check(row["type_label"] and row["signed_at"] and row["signed"] is True,
+      "列表带业务名、签署时间，且 signed=true")
+s_row = next(i for i in lst["items"] if i["no"] == sample_api.sample_no(A["id"]))
+check(s_row["signed"] is False, "同一列表里示例合同仍为未签（signed=false）")
 check(my_api.my_contract_detail(NO, A)["no"] == NO, "本人详情可取（blocks）")
 check(os.path.basename(my_api.my_contract_file(NO, A).path).endswith("-已签.docx"), "本人可下载已签版")
 check(os.path.basename(my_api.my_signature_image(NO, A).path).endswith("-签名.png"), "本人可取签名图")
@@ -140,6 +145,10 @@ check(r_s.get("ok") is True and r_s.get("bound") is True, "示例合同签署成
 rec_s = store.get_gen(SNO)
 check(bool(rec_s.get("signed_path")) and rec_s.get("signed_user_id") == A["id"],
       "示例已签版落盘并归属 A")
+s_row2 = next(i for i in my_api.my_contracts(A)["items"] if i["no"] == SNO)
+check(s_row2["signed"] is True and bool(s_row2["signed_at"]),
+      "签署后列表返回 signed=true + signed_at")
+check(my_api.my_contract_detail(SNO, A)["signed"] is True, "详情同步 signed=true")
 check(not store.get_gen(SNO_B).get("signed_path"), "B 的示例合同不受影响（仍未签）")
 try:
     open_api.contract_detail(SNO); check(False, "对外接口不应看到示例合同")
