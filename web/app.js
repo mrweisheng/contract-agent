@@ -1119,6 +1119,31 @@ const app = createApp({
       const r = result.value;
       if (r?.download_url) downloadPdf(r.download_url + "?format=pdf", pdfNameOf(r.filename));
     }
+    // 下载空白模板：不取当前表单任何值，只按业务类型（+新办口岸）取只读模板原件。
+    // 与预览/生成互不影响：不占编号、不写历史、不改当前录入内容。
+    async function downloadBlank() {
+      if (!cfg.value) return;
+      const q = new URLSearchParams({ type: selected.type });
+      const port = selected.type === "new_port" ? (selected.port || "") : "";
+      if (port) q.set("port", port);
+      const short = cfg.value.short || selected.type;
+      const suffix = port ? port.replace("口岸", "").replace("大桥", "") : "";
+      const name = `空白模板-${short}${suffix}.docx`;
+      try {
+        const r = await fetch(`/api/blank-template?${q.toString()}`);
+        const ct = r.headers.get("content-type") || "";
+        if (!r.ok || ct.includes("json")) {
+          const d = await r.json().catch(() => ({}));
+          toast(d.detail || `空模板下载失败（HTTP ${r.status}）`, "error");
+          return;
+        }
+        const blob = await r.blob();
+        const objUrl = URL.createObjectURL(blob);
+        saveAs(objUrl, name);
+        setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+        toast("空白模板已开始下载");
+      } catch (e) { toast("空模板下载失败", "error"); }
+    }
     function viewHistoryResult(h) { saveAs(`/api/download/${h.no}`, h.filename); }
     function viewHistoryPdf(h) { downloadPdf(`/api/download/${h.no}?format=pdf`, pdfNameOf(h.filename)); }
 
@@ -1856,7 +1881,7 @@ const app = createApp({
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
       onPaneFocusin, onPaneFocusout, onPanePointerdown, onPreviewPanePointerdown, onHitDateChange,
       isToday, setSignToday,
-      generate, download, downloadPdfNow, viewHistoryResult, viewHistoryPdf, pdfBusy,
+      generate, download, downloadPdfNow, downloadBlank, viewHistoryResult, viewHistoryPdf, pdfBusy,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
@@ -2598,6 +2623,7 @@ const app = createApp({
         <button v-if="!isSettlement && pvIssues.length" class="chip ai" @click="pvIssuesOpen=!pvIssuesOpen">
           预览提示 {{ pvIssues.length }}
         </button>
+        <button v-if="!isSettlement" class="btn sm ghost" @click="downloadBlank">下载空模板</button>
         <button v-if="!isSettlement" class="btn sm ghost" @click="renderPreview">重渲</button>
       </div>
       <div class="pv-issues" v-if="!isSettlement && pvIssuesOpen">

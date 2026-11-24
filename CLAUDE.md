@@ -47,6 +47,8 @@ python scripts/test_pipeline.py
 浏览器 ─▶ /api/extract (LLM 抽取自然语言 → 表单字段)
        ─▶ /api/parse-payment (LLM 解析付款描述 → 期次)
        ─▶ /api/preview (draft=True：复用同一 builder 渲染真实 docx 字节；不占编号/不写 out/不落历史/不跑核对)
+       ─▶ /api/blank-template?type=…&port=… (空白模板下载：取只读模板原件，仅清模板默认值；
+            不接收表单字段、不占编号、不写 out/、不落历史)
        ─▶ /api/generate:
             store.reserve_no()        # SQLite 占位，11位编号
             engine.builder.build_contract()  # 复制模板 → 程序级填表/改条款

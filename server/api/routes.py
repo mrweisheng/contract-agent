@@ -9,13 +9,14 @@ import tempfile
 import traceback
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
 from engine.types_config import TYPES, CURRENCY_OPTIONS, PORTS, get_type, template_path
 from engine import fx
 from engine.builder import build_contract, derive_payment
+from engine.blank import build_blank_docx
 from engine.checker import check_rules, check_fingerprint, extract_contract_text
 from engine import writer as W
 from llm import client as llm
@@ -407,6 +408,37 @@ def preview(req: PreviewReq):
         "mode": report.get("mode"),
         "draft_issues": report.get("draft_issues") or [],
     }
+
+
+@router.get("/blank-template")
+def blank_template(type: str, port: str = ""):
+    """下载空白模板：只取只读模板原件，清掉模板里写死的默认值（卖车附赠/质保、移民金额），
+    保留完整条款框架。与 /preview、/generate 无关：不接收任何表单字段、不分配编号、
+    不写 out/、不落历史、不跑核对——下载内容与用户当前填写内容完全无关。"""
+    if type not in TYPES:
+        raise HTTPException(422, f"未知合同类型 {type}")
+    cfg = get_type(type)
+    if type == "new_port" and not port:
+        raise HTTPException(422, "请先选择口岸")
+    try:
+        data = build_blank_docx(type, port)
+    except ValueError as ex:
+        raise HTTPException(422, str(ex))
+    except Exception as ex:
+        traceback.print_exc()
+        raise HTTPException(500, f"空模板生成失败：{ex}")
+
+    short = cfg.get("short") or type
+    if type == "new_port":
+        short += port.replace("口岸", "").replace("大桥", "")
+    filename = f"空白模板-{short}.docx"
+    from urllib.parse import quote
+    disposition = (f'attachment; filename="blank-{type}.docx"; '
+                   f"filename*=utf-8''{quote(filename)}")
+    return Response(content=data,
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"content-disposition": disposition,
+                             "cache-control": "no-store"})
 
 
 @router.get("/download/{no}")

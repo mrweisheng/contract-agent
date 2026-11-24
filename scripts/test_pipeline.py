@@ -7,6 +7,7 @@ import shutil
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server"))
 
 from engine.builder import build_contract, derive_payment
+from engine.blank import build_blank_docx
 from engine.checker import check_rules, check_fingerprint, extract_contract_text
 from engine.types_config import get_type
 from docx import Document
@@ -862,10 +863,10 @@ def run_immigration():
     if app0 != "甲方以赵六为主申请人，" or app1 != "配偶钱七随行，包括未成年子女：（1）人，共计（3）人。":
         ok = False
         print(f"[FAIL] 移民·default 申请人表：{app0!r} / {app1!r}")
-    meta = next(p for p in doc.paragraphs if "合同编号" in p.text)
-    if meta.text.strip() != "合同编号：20261010001":
+    meta = next((p for p in doc.paragraphs if "AGREEMENT NO." in p.text), None)
+    if meta is None or "20261010001" not in meta.text:
         ok = False
-        print(f"[FAIL] 移民·default 编号行：{meta.text!r}")
+        print(f"[FAIL] 移民·default 编号行：{meta.text if meta else None!r}")
     sig_dates = [c.text for t in doc.tables for r in t.rows for c in r.cells
                  if c.text.strip() == "2026年10月10日"]
     if len(sig_dates) < 2:
@@ -901,6 +902,56 @@ def run_immigration():
 
     if os.path.exists(out):
         os.remove(out)
+    return ok
+
+
+def run_blank():
+    """空白模板：不接表单、不填值；卖车保留附赠/质保章节但清默认值；移民清写死金额。"""
+    print("\n== 空白模板下载 ==")
+    ok = True
+    cases = [("car", ""), ("car_buy", ""), ("transfer_gx", ""),
+             ("transfer_ns", ""), ("new_port", "莲塘口岸"), ("immigration", "")]
+    for tkey, port in cases:
+        try:
+            data = build_blank_docx(tkey, port)
+            path = os.path.join(OUT, f"_blank_{tkey}.docx")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            doc = Document(path)
+            body = "\n".join(p.text for p in doc.paragraphs)
+            for tbl in doc.tables:
+                for row in tbl.rows:
+                    for cell in row.cells:
+                        body += "\n" + cell.text
+            fails = []
+            if not data.startswith(b"PK") or len(data) < 10000:
+                fails.append("docx 字节异常")
+            if tkey == "car":
+                for need in ("附赠服务", "售后质保", "附赠：", "______个月", "______公里"):
+                    if need not in body:
+                        fails.append(f"缺少保留结构/空位：{need}")
+                for leak in ("本车辆过户登记手续的全部费用", "六个月", "三万公里"):
+                    if leak in body:
+                        fails.append(f"默认值未清空：{leak}")
+            if tkey == "immigration":
+                for leak in ("400000", "100000", "200000",
+                             "肆拾万元整", "壹拾万元整", "贰拾万元整"):
+                    if leak in body:
+                        fails.append(f"写死金额未清空：{leak}")
+                if "__________" not in body:
+                    fails.append("金额未落空位")
+            if fails:
+                ok = False
+                print(f"[FAIL] blank_{tkey}")
+                for x in fails:
+                    print(f"   - {x}")
+            else:
+                print(f"[PASS] blank_{tkey}")
+        except Exception as ex:
+            ok = False
+            print(f"[ERROR] blank_{tkey}: {ex}")
+            import traceback
+            traceback.print_exc()
     return ok
 
 
@@ -987,7 +1038,7 @@ def main():
             traceback.print_exc()
     all_ok = (all_ok and run_negative() and run_derive() and run_draft()
               and run_dual_currency() and run_exchange_alias() and run_newport_matrix()
-              and run_immigration())
+              and run_immigration() and run_blank())
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 

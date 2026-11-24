@@ -40,6 +40,16 @@ def replace_in_paragraph(p, old: str, new: str) -> bool:
     return True
 
 
+def sub_in_paragraph(p, pattern, repl: str) -> int:
+    """按正则替换段落文字（跨 run，新文本继承首个受影响 run 的格式）。
+    从后往前替换，避免前一次替换改变后续匹配下标。"""
+    full = "".join(r.text for r in p.runs)
+    matches = list(pattern.finditer(full))
+    for m in reversed(matches):
+        _splice(p, m.start(), m.end(), m.expand(repl))
+    return len(matches)
+
+
 def fill_blanks_in_paragraph(p, values) -> int:
     """按顺序把段落中连续下划线空位替换为 values（日期空「____年__月__日」即三空）。"""
     n = 0
