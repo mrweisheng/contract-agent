@@ -273,7 +273,8 @@ def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
     """合同管理列表：只取生成成功的单，按生成时间倒序。
 
     date_from/date_to：YYYY-MM-DD，按 created_at 的日期部分比较（含边界，空=不限）；
-    client：客户/签约方模糊匹配；type_key：业务类型精确匹配。
+    client：模糊匹配 客户 / 合同编号 / 签署人微信昵称 / 签署人手机号（2026-11-25 扩展，
+            后台按签署人手机号找单是高频动作）；type_key：业务类型精确匹配。
     返回 (符合条件的总条数, 当前页行) —— 总条数用于前端提示「共 N 份」。
     """
     where, args = ["status='ok'", "COALESCE(is_sample,0)=0"], []
@@ -284,8 +285,10 @@ def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
         where.append("date(created_at) <= date(?)")
         args.append(date_to)
     if client:
-        where.append("client LIKE ?")
-        args.append(f"%{client}%")
+        like = f"%{client}%"
+        where.append("(client LIKE ? OR no LIKE ? OR signed_user_id IN "
+                     "(SELECT id FROM users WHERE nickname LIKE ? OR phone LIKE ?))")
+        args += [like, like, like, like]
     if type_key:
         where.append("type = ?")
         args.append(type_key)
@@ -299,16 +302,25 @@ def contracts_query(date_from: str = "", date_to: str = "", client: str = "",
             (*args, limit),
         ).fetchall()
         items = [dict(r) for r in rows]
-        # 签署人（管理员视角）：只补昵称/手机号，空绑定则为 None
+        # 签署人（管理员视角）：补昵称/手机号/头像，空绑定则统一为空串
+        for r in items:
+            r["signer_nickname"] = ""
+            r["signer_phone"] = ""
+            r["signer_avatar_path"] = ""
+            r["signer_avatar_ver"] = 0
         uids = sorted({r["signed_user_id"] for r in items if r.get("signed_user_id")})
         if uids:
             marks = ",".join("?" * len(uids))
             signers = {r["id"]: dict(r) for r in c.execute(
-                f"SELECT id,nickname,phone FROM users WHERE id IN ({marks})", uids)}
+                f"SELECT id,nickname,phone,avatar_path,avatar_ver FROM users WHERE id IN ({marks})", uids)}
             for r in items:
                 s = signers.get(r.get("signed_user_id"))
-                r["signer_nickname"] = (s or {}).get("nickname") or ""
-                r["signer_phone"] = (s or {}).get("phone") or ""
+                if not s:
+                    continue
+                r["signer_nickname"] = s.get("nickname") or ""
+                r["signer_phone"] = s.get("phone") or ""
+                r["signer_avatar_path"] = s.get("avatar_path") or ""
+                r["signer_avatar_ver"] = s.get("avatar_ver") or 0
         return total, items
 
 
@@ -326,15 +338,31 @@ def set_signed(no: str, signed_path: str):
                   (signed_path, _now(), no))
 
 
+def reset_signed(no: str) -> bool:
+    """撤销签署（管理端重测用）：清已签版/签署时间/签署用户绑定。
+
+    只清签署状态，不动合同本身与编号；文件由调用方先备份。
+    条件更新保证并发下只有一方成功；返回是否有行被更新。
+    """
+    with _lock, _conn() as c:
+        cur = c.execute(
+            "UPDATE gens SET signed_path='', signed_at='', signed_user_id=NULL, bound_at='' "
+            "WHERE no=? AND status='ok' AND COALESCE(signed_path,'')<>''", (no,))
+        return cur.rowcount > 0
+
+
 def bind_signed_user(no: str, uid: int) -> bool:
     """签字即认领：把已签合同绑定到签署的登录用户（我的合同 2026-11-23）。
 
     条件更新（signed_user_id IS NULL）保证同一份只会绑一次：并发下后到的一方
     rowcount=0，由调用方按「已被他人签走」处理，不会互相覆盖。
+    另要求 signed_path 非空：防止「管理员刚重置、小程序迟到的绑定」把未签合同
+    绑到用户名下（重置会清 signed_path 与 signed_user_id，两者必须同进同退）。
     """
     with _lock, _conn() as c:
         cur = c.execute(
-            "UPDATE gens SET signed_user_id=?, bound_at=? WHERE no=? AND signed_user_id IS NULL",
+            "UPDATE gens SET signed_user_id=?, bound_at=? "
+            "WHERE no=? AND signed_user_id IS NULL AND COALESCE(signed_path,'')<>''",
             (uid, _now(), no))
         return cur.rowcount > 0
 

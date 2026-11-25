@@ -517,8 +517,9 @@ def list_contracts(date_from: str = "", date_to: str = "", client: str = "",
                    type: str = "", limit: int = 200):
     """合同管理：已生成成功的合同列表。
 
-    date_from/date_to＝YYYY-MM-DD（按生成日期，含边界，空=不限）；client＝客户/签约方模糊搜索；
-    type＝业务类型精确筛选。按生成时间倒序，limit 上限 500，total 为命中总条数。
+    date_from/date_to＝YYYY-MM-DD（按生成日期，含边界，空=不限）；client＝模糊搜索
+    （客户 / 合同编号 / 签署人微信昵称 / 签署人手机号）；type＝业务类型精确筛选。
+    按生成时间倒序，limit 上限 500，total 为命中总条数。
     """
     limit = max(1, min(int(limit), 500))
     for name, val in (("date_from", date_from), ("date_to", date_to)):
@@ -543,9 +544,80 @@ def list_contracts(date_from: str = "", date_to: str = "", client: str = "",
             "signed": bool(r.get("signed_path")), "signed_at": r.get("signed_at") or "",
             "signer_nickname": r.get("signer_nickname") or "",
             "signer_phone": r.get("signer_phone") or "",
+            "signer_bound": bool(r.get("signed_user_id")),
+            "signer_avatar_url": (f"/api/users/{r['signed_user_id']}/avatar?v={r.get('signer_avatar_ver') or 0}"
+                                  if r.get("signer_avatar_path") and r.get("signed_user_id") else ""),
             "filename": r["filename"] or "",
         })
     return {"total": total, "items": items}
+
+
+@router.get("/contracts/{no}/signature")
+def contract_signature_image(no: str):
+    """合同管理：已签合同的手写签名图（透明 PNG）。
+
+    工作台内部只读接口，不复用 /api/open（那套要 OPEN_API_KEY、限制可见起始日）。
+    签名图由小程序签署时与「-已签.docx」一起落盘，文件名＝成品名去 .docx + "-签名.png"。
+    """
+    rec = store.get_gen(no)
+    if not rec or rec.get("status") != "ok" or rec.get("is_sample"):
+        raise HTTPException(404, "合同不存在")
+    if not rec.get("signed_path"):
+        raise HTTPException(404, "该合同尚未签署")
+    base = os.path.splitext(os.path.basename(rec.get("filename") or ""))[0]
+    path = os.path.join(store.OUT_DIR, base + "-签名.png")
+    if not base or not os.path.exists(path):
+        raise HTTPException(404, "签名图不存在")
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/contracts/{no}/reset-signature")
+def reset_contract_signature(no: str):
+    """管理端测试辅助：撤销签署并解绑微信用户，同一份合同可重新分享/签署。
+
+    只清签署状态，不动原合同与编号；「-已签.docx」「-签名.png」先移到
+    OUT_DIR/_signed_reset/<no>/ 留档，再清库，避免误操作丢证据。
+    """
+    rec = store.get_gen(no)
+    if not rec or rec.get("status") != "ok" or rec.get("is_sample"):
+        raise HTTPException(404, "合同不存在")
+    if not rec.get("signed_path"):
+        raise HTTPException(409, "该合同尚未签署")
+
+    base = os.path.splitext(os.path.basename(rec.get("filename") or ""))[0]
+    stamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    backup_dir = os.path.join(store.OUT_DIR, "_signed_reset", no)
+    moved = []
+
+    def _restore_files():
+        """清库失败时把刚移走的文件放回，保证库与磁盘状态一致。"""
+        for src, dst in moved:
+            try:
+                os.replace(dst, src)
+            except OSError:
+                pass
+
+    try:
+        if base:
+            os.makedirs(backup_dir, exist_ok=True)
+            for suffix in ("-已签.docx", "-签名.png"):
+                src = os.path.join(store.OUT_DIR, base + suffix)
+                if not os.path.exists(src):
+                    continue
+                dst = os.path.join(backup_dir, f"{stamp}-{base}{suffix}")
+                os.replace(src, dst)
+                moved.append((src, dst))
+        ok = store.reset_signed(no)
+    except Exception:
+        _restore_files()
+        raise
+    if not ok:
+        # 并发下已被另一端重置：文件放回，交给前端刷新后重试
+        _restore_files()
+        raise HTTPException(409, "该合同签署状态已变化，请刷新后重试")
+
+    return {"ok": True, "no": no, "backup": [os.path.basename(dst) for _, dst in moved]}
 
 
 # ==================== 收款结算单（独立轻流程，不接合同/编号） ====================

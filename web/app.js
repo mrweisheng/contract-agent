@@ -1232,15 +1232,32 @@ const app = createApp({
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
     const isSettlement = computed(() => selected.type === "settlement");
 
-    /* ---------- 合同管理（已生成合同列表：日期区间 + 客户/签约方搜索） ----------
-     * 只列 status=ok 的单，按生成时间倒序；日期按「生成日期」筛选（含边界，空=不限），
-     * 客户为模糊匹配。金额来自生成时存档的 form.json（旧单没有则显示 —）。 */
+    /* ---------- 合同管理（卡片视图 + 签署人信息） ----------
+     * 默认卡片：已签合同展示小程序回传的手写签名图、微信昵称、头像、手机号。
+     * 这三样微信资料都可能没授权，签名只要签过就一定有 —— 一律「有什么显示什么」：
+     *   昵称有 → 微信昵称；只有头像 → 仅授权头像；绑定了但都没授权 → 未授权微信资料；
+     *   连账号都没绑定 → 未绑定微信用户。手机号独立降级，不牵连昵称/头像。
+     * 列表视图保留作快速扫描，两视图共用同一份 ct.items。 */
     const isContracts = computed(() => selected.type === "contracts");
     const ct = reactive({
       from: "", to: "", client: "", type: "",
+      status: "all",   // all / signed / wait / warn（前端过滤，不重新请求）
+      view: (() => { try { return localStorage.getItem("hx.ct.view") === "list" ? "list" : "card"; } catch { return "card"; } })(),
       loading: false, error: "", items: [], total: 0, fetched: false,
     });
-    const ctEmpty = computed(() => ct.fetched && !ct.loading && !ct.error && !ct.items.length);
+    const ctItems = computed(() => ct.items.filter(h => {
+      if (ct.status === "signed") return !!h.signed;
+      if (ct.status === "wait") return !h.signed;
+      if (ct.status === "warn") return h.review_status === "warn";
+      return true;
+    }));
+    const ctCounts = computed(() => ({
+      all: ct.items.length,
+      signed: ct.items.filter(h => h.signed).length,
+      wait: ct.items.filter(h => !h.signed).length,
+      warn: ct.items.filter(h => h.review_status === "warn").length,
+    }));
+    const ctEmpty = computed(() => ct.fetched && !ct.loading && !ct.error && !ctItems.value.length);
     async function ctFetch() {
       ct.loading = true; ct.error = "";
       const q = new URLSearchParams();
@@ -1253,12 +1270,100 @@ const app = createApp({
         const r = await fetch("/api/contracts?" + q.toString());
         if (!r.ok) throw new Error("HTTP " + r.status);
         const d = await r.json();
-        ct.items = d.items || []; ct.total = d.total || 0;
+        // _sigErr/_avErr：图片 404 时降级成文字，不让卡片出现破图
+        ct.items = (d.items || []).map(x => ({ ...x, _sigErr: false, _avErr: false }));
+        ct.total = d.total || 0;
       } catch (e) {
         ct.items = []; ct.total = 0;
         ct.error = "查询失败：" + (e.message || e);
       } finally {
         ct.loading = false; ct.fetched = true;
+      }
+    }
+    function ctSetView(v) {
+      ct.view = v === "list" ? "list" : "card";
+      try { localStorage.setItem("hx.ct.view", ct.view); } catch {}
+    }
+    function ctSetStatus(s) { ct.status = s; }
+    // 签名图 URL 带签署时间版本：重置后重新签署会生成新图，避免浏览器命中旧缓存
+    function ctSigUrl(no, v) {
+      const ver = String(v || "").replace(/\D/g, "");
+      return "/api/contracts/" + encodeURIComponent(no) + "/signature" + (ver ? "?v=" + ver : "");
+    }
+    // 2026-11-25 14:30:00 → 11-25 14:30（卡片签名栏右侧）
+    function ctShortTime(s) { return String(s || "").slice(5, 16); }
+    function ctPhone(p) {
+      const v = String(p || "").replace(/\D/g, "");
+      return v.length === 11 ? `${v.slice(0, 3)} ${v.slice(3, 7)} ${v.slice(7)}` : String(p || "");
+    }
+    function ctNickFallback(h) {
+      if (h.signer_nickname) return h.signer_nickname;
+      if (h.signer_bound) return (h.signer_avatar_url && !h._avErr) ? "仅授权头像" : "未授权微信资料";
+      return "未绑定微信用户";
+    }
+    async function ctCopyPhone(p) {
+      if (!p) return;
+      const text = String(p);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        let ok = true;
+        try { document.execCommand("copy"); } catch { ok = false; }
+        ta.remove();
+        if (!ok) { toast("请手动复制手机号", "warn"); return; }
+      }
+      toast("手机号已复制：" + text);
+    }
+    const ctSig = ref(null);
+    function ctOpenSig(h) {
+      if (!h || !h.signed) return;
+      ctSig.value = {
+        no: h.no, err: false, avErr: false,
+        title: h.signer_nickname ? h.signer_nickname + " · 手写签名" : "手写签名",
+        name: h.signer_nickname || (h.signer_bound ? "未授权昵称" : "未绑定微信用户"),
+        phone: h.signer_phone ? ctPhone(h.signer_phone) : "—",
+        at: h.signed_at || "—",
+        v: h.signed_at || "",
+        avatar: (h.signer_avatar_url && !h._avErr) ? h.signer_avatar_url : "",
+        initial: String(h.signer_nickname || h.client || "签").slice(0, 1),
+      };
+    }
+    function ctCloseSig() { ctSig.value = null; }
+
+    /* 重置签署（重测签署流程用）：清「已签」状态 + 解绑微信用户，
+       同一张合同可再次分享/签署。旧已签 docx 与签名图由后端移到
+       OUT_DIR/_signed_reset/<no>/ 留档，前端只做二次确认。 */
+    const ctResetTarget = ref(null);
+    const ctResetting = ref(false);
+    function ctAskReset(h) {
+      if (!h || !h.signed) return;
+      ctResetTarget.value = h;
+    }
+    function ctAskResetByNo(no) {
+      ctAskReset(ct.items.find(x => x.no === no));
+    }
+    function ctCancelReset() { if (!ctResetting.value) ctResetTarget.value = null; }
+    async function ctConfirmReset() {
+      const h = ctResetTarget.value;
+      if (!h || ctResetting.value) return;
+      ctResetting.value = true;
+      try {
+        const r = await fetch("/api/contracts/" + encodeURIComponent(h.no) + "/reset-signature",
+                              { method: "POST" });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ("HTTP " + r.status));
+        const no = h.no;
+        ctSig.value = null;
+        ctResetTarget.value = null;
+        toast("已重置签署 · " + no + " 可重新分享签署");
+        await ctFetch();
+      } catch (e) {
+        toast("重置签署失败：" + (e.message || e), "error");
+      } finally {
+        ctResetting.value = false;
       }
     }
     // 本地自然日加减（不走 UTC，避免东八区凌晨算成前一天）
@@ -1276,7 +1381,11 @@ const app = createApp({
       else { ct.from = ""; ct.to = ""; }
       ctFetch();
     }
-    function ctReset() { ct.from = ""; ct.to = ""; ct.client = ""; ct.type = ""; ctFetch(); }
+    function ctReset() { ct.from = ""; ct.to = ""; ct.client = ""; ct.type = ""; ct.status = "all"; ctFetch(); }
+    const CT_TABS = [
+      { key: "all", label: "全部" }, { key: "signed", label: "已签署" },
+      { key: "wait", label: "待签署" }, { key: "warn", label: "复核提醒" },
+    ];
     function ctWord(h) { saveAs(`/api/download/${h.no}`, h.filename); }
     function ctPdf(h) { downloadPdf(`/api/download/${h.no}?format=pdf`, pdfNameOf(h.filename)); }
 
@@ -1887,12 +1996,15 @@ const app = createApp({
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
+      ctItems, ctCounts, ctSetView, ctSetStatus, ctSigUrl, ctShortTime, ctPhone,
+      ctNickFallback, ctCopyPhone, ctSig, ctOpenSig, ctCloseSig, CT_TABS,
+      ctResetTarget, ctResetting, ctAskReset, ctAskResetByNo, ctCancelReset, ctConfirmReset,
       isUsers, isFullPage, um, umEmpty, umFetch, umReset, umInitial, umSetRole, umRevealOpenid,
     };
   },
 
   template: /* html */ `
-  <div class="app">
+  <div class="app" :class="{ 'full-page': isFullPage }">
     <!-- ================= 顶部导航条 ================= -->
     <header class="topbar">
       <div class="brand">
@@ -1924,11 +2036,18 @@ const app = createApp({
       </div>
     </header>
 
-    <!-- ================= 合同管理：已生成合同列表（全宽，占满两栏） ================= -->
+    <!-- ================= 合同管理：卡片视图（全宽，占满两栏） ================= -->
     <section class="pane ct-pane" v-if="isContracts">
       <div class="pane-top ct-top">
         <h2>合同管理</h2>
-        <span class="tpl-name">已生成并落库的合同 · 按生成时间倒序</span>
+        <span class="tpl-name">已生成并落库的合同 · 签署信息由小程序签章回传</span>
+        <span class="spacer"></span>
+        <div class="ct-viewseg">
+          <button :class="{ on: ct.view === 'card' }" @click="ctSetView('card')"
+                  title="卡片视图"><span v-html="icon('grid', 'ct-seg-ic')"></span>卡片</button>
+          <button :class="{ on: ct.view === 'list' }" @click="ctSetView('list')"
+                  title="列表视图"><span v-html="icon('list', 'ct-seg-ic')"></span>列表</button>
+        </div>
       </div>
       <div class="ct-filters">
         <div class="ct-range">
@@ -1944,8 +2063,8 @@ const app = createApp({
           <button class="chip" @click="ctQuick('month')">本月</button>
           <button class="chip" @click="ctQuick('all')">全部</button>
         </div>
-        <input class="f-inp ct-client" v-model.trim="ct.client"
-               placeholder="客户 / 签约方姓名（模糊）" @keyup.enter="ctFetch">
+        <input class="f-inp ct-search" v-model.trim="ct.client"
+               placeholder="客户 / 签署人 / 手机号 / 编号" @keyup.enter="ctFetch">
         <select class="f-inp ct-type" v-model="ct.type" @change="ctFetch">
           <option value="">全部业务</option>
           <option v-for="t in types" :key="t.key" :value="t.key">{{ t.label }}</option>
@@ -1954,48 +2073,152 @@ const app = createApp({
         <button class="btn ghost" @click="ctReset">重置</button>
         <span class="spacer"></span>
         <span class="ct-count" v-if="ct.fetched && !ct.loading">
-          共 {{ ct.total }} 份<template v-if="ct.items.length < ct.total">（显示最近 {{ ct.items.length }} 份）</template>
+          共 {{ ct.status === 'all' ? ct.total : ctItems.length }} 份<template v-if="ct.status !== 'all'"> · 已筛选（查询结果 {{ ct.items.length }} 份）</template><template v-else-if="ct.items.length < ct.total">（显示最近 {{ ct.items.length }} 份）</template>
         </span>
+      </div>
+      <div class="ct-statusbar">
+        <div class="ct-stabs">
+          <button v-for="t in CT_TABS" :key="t.key" class="ct-stab"
+                  :class="{ on: ct.status === t.key }" @click="ctSetStatus(t.key)">
+            {{ t.label }}<i>{{ ctCounts[t.key] }}</i>
+          </button>
+        </div>
+        <span class="ct-sort">按生成时间倒序</span>
       </div>
       <div class="pane-body ct-body">
         <div class="ct-err" v-if="ct.error">⚠ {{ ct.error }}</div>
         <div class="ct-loading" v-else-if="ct.loading"><span class="spin dark"></span> 查询中…</div>
-        <table class="ct-table" v-else-if="ct.items.length">
+        <div class="ct-grid" v-else-if="ctItems.length && ct.view === 'card'">
+          <article class="ct-card" :class="h.signed ? 'signed' : 'unsigned'"
+                   v-for="h in ctItems" :key="h.no">
+            <div class="ct-card-head">
+              <span class="ct-no">{{ h.no }}</span>
+              <span class="ct-tags">
+                <span class="ct-tag" :class="h.signed ? 'sign' : 'wait'">{{ h.signed ? '已签' : '待签' }}</span>
+                <span v-if="h.review_status === 'warn'" class="ct-tag warn" title="AI 复核有提示">复核提醒</span>
+                <span v-else-if="h.review_status === 'pass'" class="ct-tag ok" title="AI 复核通过">复核过</span>
+              </span>
+            </div>
+            <div class="ct-card-main">
+              <div class="ct-card-id">
+                <div class="ct-biz"><i></i>{{ h.type_label || '—' }}</div>
+                <div class="ct-client" :title="h.client || ''">{{ h.client || '—' }}</div>
+              </div>
+              <div class="ct-amount" :class="{ empty: !h.amount }">
+                <div class="ct-amt-lab">合同金额</div>
+                <div class="ct-amt-num" v-if="h.amount">
+                  <small>{{ h.currency === 'CNY' ? '¥' : 'HK$' }}</small>{{ commas(h.amount) }}
+                </div>
+                <div class="ct-amt-num" v-else>—</div>
+              </div>
+            </div>
+
+            <!-- 签署栏：签名图是主体，微信资料缺失时逐项降级 -->
+            <div class="ct-signbox" v-if="h.signed">
+              <div class="ct-signhead">
+                <span>签署人签名</span>
+                <span class="ct-signright">
+                  <span class="ct-signedat"><b>已签</b> {{ ctShortTime(h.signed_at) }}</span>
+                  <button class="ct-sigreset" @click.stop="ctAskReset(h)"
+                          title="重置签署：清除已签状态并解绑微信用户，可重新分享签署">
+                    <span v-html="icon('rotate', 'ct-ic')"></span>重置签署
+                  </button>
+                </span>
+              </div>
+              <div class="ct-sigcanvas" v-if="!h._sigErr" @click="ctOpenSig(h)"
+                   @keyup.enter="ctOpenSig(h)" tabindex="0" role="button"
+                   title="点击查看签名大图">
+                <img :src="ctSigUrl(h.no, h.signed_at)" loading="lazy" draggable="false"
+                     :alt="(h.signer_nickname || h.client || '签署人') + ' 的手写签名'"
+                     @error="h._sigErr = true">
+                <span class="ct-sigzoom"><span v-html="icon('image', 'ct-ic')"></span>查看大图</span>
+              </div>
+              <div class="ct-sigfail" v-else>
+                <span v-html="icon('image', 'ct-ic')"></span>
+                <span>签名图暂不可用 · 请下载已签版核对</span>
+              </div>
+              <div class="ct-signmeta">
+                <img v-if="h.signer_avatar_url && !h._avErr" class="ct-avatar"
+                     :src="h.signer_avatar_url" loading="lazy" alt="" @error="h._avErr = true">
+                <span v-if="h.signer_nickname" class="ct-nick"><i>微信昵称</i>{{ h.signer_nickname }}</span>
+                <span v-else-if="h.signer_avatar_url && !h._avErr" class="ct-nick"><i>微信</i>仅授权头像</span>
+                <span v-else class="ct-nick miss">{{ h.signer_bound ? '未授权微信资料' : '已签 · 未绑定微信用户' }}</span>
+                <template v-if="h.signer_phone">
+                  <span class="ct-meta-sep"></span>
+                  <button class="ct-phone" @click.stop="ctCopyPhone(h.signer_phone)" title="点击复制手机号">
+                    <i>手机</i>{{ ctPhone(h.signer_phone) }}
+                    <span v-html="icon('copy', 'ct-ic')"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <div class="ct-signbox waiting" v-else>
+              <div class="ct-signhead"><span>签署人签名</span><span class="ct-signedat">待客户签署</span></div>
+              <div class="ct-waitbox">
+                <span class="ct-pen" v-html="icon('pen', 'ct-pen-ic')"></span>
+                <span class="ct-waittext">等待客户在小程序手写签名
+                  <small>签署后自动回传签名图、姓名与手机号</small>
+                </span>
+              </div>
+              <div class="ct-signmeta"><span class="ct-nick miss">尚无签署人信息</span></div>
+            </div>
+
+            <div class="ct-card-foot">
+              <span class="ct-created">生成于 {{ h.created_at }}</span>
+              <div class="ct-card-acts">
+                <button class="btn sm ghost" @click="ctWord(h)">Word</button>
+                <button class="btn sm ghost" :disabled="pdfBusy" @click="ctPdf(h)">{{ pdfBusy ? '…' : 'PDF' }}</button>
+              </div>
+            </div>
+          </article>
+        </div>
+        <table class="ct-table" v-else-if="ctItems.length">
           <thead><tr>
             <th>合同编号</th><th>业务</th><th>客户 / 签约方</th><th>金额</th>
-            <th>生成时间</th><th>状态</th><th>签署人</th><th class="ct-act">操作</th>
+            <th class="ct-col-opt">生成时间</th><th>状态</th><th>签署人与手机号</th><th class="ct-act">操作</th>
           </tr></thead>
           <tbody>
-            <tr v-for="h in ct.items" :key="h.no">
+            <tr v-for="h in ctItems" :key="h.no">
               <td class="mono">{{ h.no }}</td>
               <td>{{ h.type_label }}</td>
               <td class="ct-name">{{ h.client || '—' }}</td>
               <td class="mono" :class="{ dim: !h.amount }">
                 {{ h.amount ? (h.currency === 'CNY' ? '¥' : 'HK$') + commas(h.amount) : '—' }}
               </td>
-              <td class="dim">{{ h.created_at }}</td>
+              <td class="dim ct-col-opt">{{ h.created_at }}</td>
               <td>
-                <span class="tag ok">已生成</span>
-                <span v-if="h.signed" class="tag ok" title="客户已手写签名回传">已签</span>
-                <span v-if="h.review_status === 'warn'" class="tag warn" title="AI 复核有提示">复核提醒</span>
-                <span v-else-if="h.review_status === 'pass'" class="tag ok" title="AI 复核通过">复核过</span>
+                <span class="ct-tag" :class="h.signed ? 'sign' : 'wait'">{{ h.signed ? '已签' : '待签' }}</span>
+                <span v-if="h.review_status === 'warn'" class="ct-tag warn" title="AI 复核有提示">复核提醒</span>
               </td>
-              <td class="ct-signer">
-                <template v-if="h.signer_nickname || h.signer_phone">
-                  {{ h.signer_nickname || '—' }}<span class="dim" v-if="h.signer_phone"> · {{ h.signer_phone }}</span>
-                </template>
-                <span v-else class="dim">{{ h.signed ? '已签 · 未绑定用户' : '未签' }}</span>
+              <td>
+                <div class="ct-signer-cell" v-if="h.signed">
+                  <img v-if="!h._sigErr" class="ct-sigthumb" :src="ctSigUrl(h.no, h.signed_at)" loading="lazy"
+                       alt="签名" title="点击查看签名大图" @click="ctOpenSig(h)" @error="h._sigErr = true">
+                  <span v-else class="ct-sigthumb ph">图缺失</span>
+                  <span class="ct-who">
+                    <b>
+                      <img v-if="h.signer_avatar_url && !h._avErr" class="ct-avmini"
+                           :src="h.signer_avatar_url" loading="lazy" alt="" @error="h._avErr = true">
+                      {{ ctNickFallback(h) }}
+                    </b>
+                    <span>{{ h.signer_phone ? ctPhone(h.signer_phone) : '未授权手机号' }}</span>
+                  </span>
+                </div>
+                <span v-else class="dim">未签</span>
               </td>
               <td class="ct-act">
                 <button class="btn sm" @click="ctWord(h)">Word</button>
                 <button class="btn sm ghost" :disabled="pdfBusy" @click="ctPdf(h)">{{ pdfBusy ? '…' : 'PDF' }}</button>
+                <button v-if="h.signed" class="btn sm ghost ct-row-reset" @click="ctAskReset(h)"
+                        title="重置签署：清除已签状态并解绑微信用户，可重新分享签署">重置签署</button>
               </td>
             </tr>
           </tbody>
         </table>
         <div class="ct-empty" v-else-if="ctEmpty">
           <div class="ct-empty-mark">卷</div>
-          <div>{{ (ct.client || ct.type || ct.from || ct.to) ? '没有符合条件的合同' : '还没有生成过合同' }}</div>
+          <div>{{ (ct.client || ct.type || ct.from || ct.to || ct.status !== 'all') ? '没有符合条件的合同' : '还没有生成过合同' }}</div>
         </div>
       </div>
     </section>
@@ -2770,6 +2993,67 @@ const app = createApp({
         <div class="modal-foot">
           <button v-if="payIssue && payIssue.fixDiff > 0" class="btn primary" @click="fixDiffToLast(); genBlock = null">差额一键补进尾款</button>
           <button class="btn ghost" @click="genBlock = null">知道了，去补齐</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 签署人手写签名大图 ================= -->
+    <div class="modal-mask ct-sigmask" v-if="ctSig" @click.self="ctCloseSig()">
+      <div class="modal-card ct-sigcard">
+        <div class="modal-head">
+          <h3>{{ ctSig.title }}</h3>
+          <span class="ct-sigsub">小程序签署画布原图 · 透明 PNG</span>
+          <span class="spacer"></span>
+          <button class="ct-x" @click="ctCloseSig()" v-html="icon('x', 'ct-ic')" aria-label="关闭"></button>
+        </div>
+        <div class="ct-sigpaper">
+          <img v-if="!ctSig.err" :src="ctSigUrl(ctSig.no, ctSig.v)" alt="签署人手写签名" @error="ctSig.err = true">
+          <div class="ct-sigpaper-fail" v-else>
+            <span v-html="icon('image', 'ct-ic lg')"></span>签名图暂不可用
+          </div>
+          <span class="ct-papermark">華星</span>
+        </div>
+        <div class="ct-sigmeta">
+          <div class="cell"><div class="k">合同编号</div><div class="v mono">{{ ctSig.no }}</div></div>
+          <div class="cell"><div class="k">签署时间</div><div class="v">{{ ctSig.at }}</div></div>
+          <div class="cell"><div class="k">签署人</div>
+            <div class="v ct-sigwho">
+              <img v-if="ctSig.avatar && !ctSig.avErr" class="ct-avatar" :src="ctSig.avatar"
+                   alt="" @error="ctSig.avErr = true">
+              <span v-else class="ct-avatar ph">{{ ctSig.initial }}</span>{{ ctSig.name }}
+            </div>
+          </div>
+          <div class="cell"><div class="k">手机号</div><div class="v mono">{{ ctSig.phone }}</div></div>
+        </div>
+        <div class="modal-foot ct-sigfoot">
+          <span class="ct-sighint">签名图用于核对签署真实性；重置后旧签名图会自动留档备份。</span>
+          <button class="btn ghost sm ct-danger" @click="ctAskResetByNo(ctSig.no); ctCloseSig()">重置签署</button>
+          <button class="btn ghost sm" @click="saveAs(ctSigUrl(ctSig.no, ctSig.v), ctSig.no + '-签名.png')">下载签名图</button>
+          <button class="btn primary sm" @click="ctCloseSig()">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 重置签署二次确认（管理端重测签署流程） ================= -->
+    <div class="modal-mask" v-if="ctResetTarget" @click.self="ctCancelReset()">
+      <div class="modal-card ct-resetcard">
+        <div class="modal-head"><h3>重置签署？</h3></div>
+        <div class="modal-body">
+          <div class="note">
+            合同 <b>{{ ctResetTarget.no }}</b> · {{ ctResetTarget.client || '—' }}
+          </div>
+          <ul class="ct-reset-list">
+            <li>清除「已签」标记、签署时间与签名图</li>
+            <li>解绑签署人微信账号，客户「我的合同」里不再显示</li>
+            <li>客户可重新通过分享卡片签署</li>
+            <li>已签 Word 与签名图自动留档备份，原合同与编号不变</li>
+          </ul>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" @click="ctCancelReset()" :disabled="ctResetting">取消</button>
+          <button class="btn accent" @click="ctConfirmReset()" :disabled="ctResetting">
+            <span v-if="ctResetting" class="spin light"></span>{{ ctResetting ? '重置中…' : '确认重置' }}
+          </button>
         </div>
       </div>
     </div>
