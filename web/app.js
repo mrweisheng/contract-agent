@@ -2288,8 +2288,8 @@ const app = createApp({
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
         <span class="spacer" v-if="!isSettlement"></span>
         <button class="chip" v-if="ledgerMode" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
-        <button type="button" class="seal-ck" v-if="!isSettlement" :class="{on: sealOn}"
-                title="勾选：合同带公司签字与公章" @click="sealOn = !sealOn"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">电子签章</span></button>
+        <label class="seal-ck" v-if="!isSettlement" title="勾选：合同带公司签字与公章">
+          <input type="checkbox" v-model="sealOn"><span>电子签章</span></label>
       </div>
       <div class="overall" v-if="ledgerMode">
         <div class="overall-bar"><i :style="{width: overall.pct + '%'}"></i></div>

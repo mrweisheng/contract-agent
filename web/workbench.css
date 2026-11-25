@@ -368,19 +368,20 @@ select.f-inp { appearance: auto; }
    聚焦联动/生成链路不感知差异。
    ============================================================ */
 .pane-top > .chip { align-self: center; }
-/* 标题栏「电子签章」勾选钮（2026-11-25）：勾=合同带公司签字与公章；取消=不带（含 PDF 骑缝章）。
-   尺寸同旁边的 chip；勾态观感同结算单「☑赠」一体钮（汉字+勾选）。
-   margin-left:auto：标题长的业务（高才移民等）在窄窗口下会换行，换行后仍靠右对齐、不孤零零掉到行首 */
-.pane-top > .seal-ck { align-self: center; margin-left: auto; border: 1px solid var(--line); border-radius: 10px;
-        background: #fff; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; user-select: none;
-        cursor: pointer; white-space: nowrap; padding: 3px 10px; font-size: 11px; font-family: var(--sans); }
-.pane-top > .seal-ck .ck { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px;
-        display: grid; place-items: center; flex: 0 0 auto; }
-.pane-top > .seal-ck .ck > span { display: flex; line-height: 0; }
-.pane-top > .seal-ck .ck .st-ic { width: 10px; height: 10px; stroke-width: 3.2; opacity: 0; }
-.pane-top > .seal-ck.on { border-color: var(--green); background: #eef7f0; color: var(--green); }
-.pane-top > .seal-ck.on .ck { background: var(--green); border-color: var(--green); color: #fff; }
-.pane-top > .seal-ck.on .ck .st-ic { opacity: 1; }
+/* 标题栏「电子签章」勾选框（2026-11-25）：普通勾选框（同录入区的金勾框），勾=合同带公司签字与公章；
+   取消=不带（含 PDF 骑缝章）。只有方框表示勾没勾，文字恒为正常字色（绿色一体钮被她否掉：糊成一团认不出）。
+   margin-left:auto：标题长的业务（高才移民等）在窄窗口下会换行，换行后仍靠右对齐 */
+.pane-top > .seal-ck { align-self: center; margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+        color: var(--ink); font-size: 12px; font-family: var(--sans); user-select: none; cursor: pointer;
+        white-space: nowrap; }
+.pane-top > .seal-ck input { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; margin: 0;
+        border: 1.5px solid #c8bfa9; border-radius: 4px; background: #fff; display: inline-grid; place-items: center;
+        cursor: pointer; flex: none; transition: background .15s, border-color .15s; }
+.pane-top > .seal-ck:hover input { border-color: var(--ai); }
+.pane-top > .seal-ck input:checked { background: var(--ai); border-color: var(--ai); }
+.pane-top > .seal-ck input:checked::after { content: ''; width: 8px; height: 4.5px; border-left: 2px solid #fff;
+        border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(.5px, -1px); }
+.pane-top > .seal-ck input:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(29,58,47,.12); }
 
 /* 总完成度条 */
 .overall { display: flex; align-items: center; gap: 10px; padding: 0 22px 10px; flex-shrink: 0; }
