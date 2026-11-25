@@ -13,6 +13,8 @@
 高才移民签署表是四列两行（甲方签字/盖章行+日期行）结构，公司格只有公司名段——
 签字/章合成一张图（章压签尾）插在公司名段后，整行随之下移，日期天然对齐（B 路径）。
 印信文件 = data/seals/sign.png + seal.png，缺失时跳过注入（模板保持无章，不报错）。
+工作台可取消勾选「电子签章」（sealed=False）：骨架照建，公司格的签字图/章图换成
+同尺寸透明占位——版式与盖章版逐段一致，只是看不到章。
 """
 import copy
 import os
@@ -174,6 +176,14 @@ def transparent_spacer_para_before(ref_para, width, height_in: float):
     return p
 
 
+def _transparent_like(src):
+    """与 src（图片路径或 PNG 字节流）同像素尺寸的全透明 PNG。显示宽度不变时
+    显示高度也不变——占位段与真实图片段在任何渲染器里等高。"""
+    from PIL import Image
+    with Image.open(src) as im:
+        return _transparent_png(*im.size)
+
+
 def _split_softbreaks(cell: _Cell):
     """把格内含软换行（w:br）的段拆成多个独立段：换行后各段继承原段样式与文字。"""
     for p in list(cell.paragraphs):
@@ -220,11 +230,15 @@ def _stamp_para_before(date_para):
     return para
 
 
-def apply_company_seal(doc: _Doc) -> bool:
+def apply_company_seal(doc: _Doc, sealed: bool = True) -> bool:
     """公司签字+公章合成进公司格，并把两格重建成统一签署骨架（各业务只保留
     自己的抬头文字与日期）——构图全业务一致，甲乙日期同一水平线。
     高才移民签署表为四列两行结构：签字/章合成一张图（章压签尾）插在公司名段后，
-    整行随之下移，日期天然对齐。印信文件缺失或找不到签署格 → False，文档零改动。"""
+    整行随之下移，日期天然对齐。印信文件缺失或找不到签署格 → False，文档零改动。
+
+    sealed=False（工作台取消勾选「电子签章」）：骨架照常重建，只把公司格的签字图/
+    章图换成同尺寸透明占位——版式与盖章版逐段一致，客户在小程序签名时的落位不变；
+    返回 False（未用印，调用方不记用印日志）。"""
     assets = _assets()
     if not assets:
         return False
@@ -246,13 +260,14 @@ def apply_company_seal(doc: _Doc) -> bool:
         if composed is not None:
             png, h = composed
             p_img = blank_para_after(p_name, h)
-            p_img.add_run().add_picture(png, width=Inches(cell_content_width(comp)))
-            return True
+            p_img.add_run().add_picture(png if sealed else _transparent_like(png),
+                                        width=Inches(cell_content_width(comp)))
+            return sealed
         p_sign = blank_para_after(p_name, sign_h)
-        p_sign.add_run().add_picture(sign_path, width=SIGN_W)
+        p_sign.add_run().add_picture(sign_path if sealed else _transparent_like(sign_path), width=SIGN_W)
         p_seal = blank_para_after(p_sign, seal_h)
-        p_seal.add_run().add_picture(seal_path, width=SEAL_W)
-        return True
+        p_seal.add_run().add_picture(seal_path if sealed else _transparent_like(seal_path), width=SEAL_W)
+        return sealed
 
     # 统一骨架（A 路径：车/过户/新办）
     _split_softbreaks(comp)
@@ -285,15 +300,21 @@ def apply_company_seal(doc: _Doc) -> bool:
         p_date = first_para_with(cell, "日期")
         p_stamp = first_para_with(cell, "公司印章")
         if real:
-            p_sig = blank_para_before(p_date, sign_h)
-            p_sig.add_run().add_picture(sign_path, width=SIGN_W)
+            if sealed:
+                p_sig = blank_para_before(p_date, sign_h)
+                p_sig.add_run().add_picture(sign_path, width=SIGN_W)
+            else:   # 未盖章：签字/章的位置留白（同尺寸透明占位，打印后可手签手盖）
+                p_sig = transparent_spacer_para_before(p_date, SIGN_W, sign_h)
             # 统一骨架：公司印章标签段紧跟签字图之后（过户模板原有则挪位，其余新建）
             if p_stamp is None:
                 p_stamp = _stamp_para_before(p_date)
             else:
                 p_sig._p.addnext(p_stamp._p)
-            p_seal = blank_para_before(p_date, seal_h)
-            p_seal.add_run().add_picture(seal_path, width=SEAL_W)
+            if sealed:
+                p_seal = blank_para_before(p_date, seal_h)
+                p_seal.add_run().add_picture(seal_path, width=SEAL_W)
+            else:
+                transparent_spacer_para_before(p_date, SEAL_W, seal_h)
         else:
             transparent_spacer_para_before(p_date, SIGN_W, sign_h)
             blank_para_before(p_date)   # 对应公司格「公司印章：」行的自然高度
@@ -303,4 +324,4 @@ def apply_company_seal(doc: _Doc) -> bool:
     ok = canonicalize(comp, real=True)
     if ok:
         canonicalize(cli, real=False)
-    return ok
+    return ok and sealed

@@ -234,6 +234,7 @@ class GenerateReq(BaseModel):
     type: str
     form: dict
     payment: Payment
+    seal: bool = True   # 电子签章（工作台勾选，默认勾）：False=生成的合同不带公司签字/公章
 
 
 def _review_context(doc, cfg) -> str:
@@ -318,7 +319,7 @@ def generate(req: GenerateReq, background_tasks: BackgroundTasks):
     out_path = os.path.join(store.OUT_DIR, filename)
 
     try:
-        report = build_contract(req.type, form, payment, no, out_path)
+        report = build_contract(req.type, form, payment, no, out_path, seal=req.seal)
         report["agreement_no"] = no
 
         from docx import Document
@@ -346,6 +347,9 @@ def generate(req: GenerateReq, background_tasks: BackgroundTasks):
     # 用印日志：生成即合成公司印信（engine.seal），留痕到 gens.sealed_at
     if report.get("company_sealed"):
         store.mark_sealed(no)
+    if not req.seal:
+        # 未盖章标记（工作台取消勾选「电子签章」）：PDF 不盖骑缝章、小程序 stamped=false
+        store.mark_unsealed(no)
     # 对外查询接口（2026-11-18）：表单结构化数据随生成存档，供 /api/open 查询吐内容
     try:
         form_path = os.path.join(store.OUT_DIR, filename.rsplit(".docx", 1)[0] + ".form.json")
@@ -375,6 +379,7 @@ class PreviewReq(BaseModel):
     type: str
     form: dict = {}
     payment: dict = {}  # {installments: [{label, amount, date, event}], source_text}，录入中的宽松数据
+    seal: bool = True   # 同 GenerateReq.seal：预览与下载同源，取消勾选时预览也不带签章
 
 
 @router.post("/preview")
@@ -391,7 +396,7 @@ def preview(req: PreviewReq):
         with tempfile.TemporaryDirectory(prefix="contract-preview-") as tmp:
             path = os.path.join(tmp, "preview.docx")
             report = build_contract(req.type, req.form or {}, payment, "（预览稿）", path,
-                                    draft=True, issues=issues)
+                                    draft=True, issues=issues, seal=req.seal)
             with open(path, "rb") as f:
                 data = f.read()
     except fx.FXError as ex:
@@ -457,10 +462,11 @@ def download(no: str, format: str = "docx"):
     from urllib.parse import quote
     want_pdf = (format or "").lower() == "pdf"
     if want_pdf:
-        # PDF 按需转换+缓存；soffice 未装/转换失败 → 503，前端提示改下 Word 版
+        # PDF 按需转换+缓存；soffice 未装/转换失败 → 503，前端提示改下 Word 版。
+        # 未盖章合同（生成时取消勾选「电子签章」）不盖骑缝章；历史单无标记＝原行为
         from engine import pdf as pdf_mod
         try:
-            path = pdf_mod.ensure_pdf(path)
+            path = pdf_mod.ensure_pdf(path, cross_seal=not bool(rec.get("unsealed")))
         except pdf_mod.PdfError as ex:
             raise HTTPException(503, f"PDF 生成失败：{ex}（Word 版下载不受影响）")
         filename = os.path.splitext(rec["filename"])[0] + ".pdf"

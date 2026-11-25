@@ -76,6 +76,12 @@ def init():
             c.execute("ALTER TABLE gens ADD COLUMN is_sample INTEGER DEFAULT 0")
         except Exception:
             pass  # 列已存在
+        # 未盖章标记（2026-11-25）：工作台取消勾选「电子签章」生成的单——PDF 不盖骑缝章、
+        # 小程序 sign 块 stamped=false。默认 0＝按原行为，历史单一律不变
+        try:
+            c.execute("ALTER TABLE gens ADD COLUMN unsealed INTEGER DEFAULT 0")
+        except Exception:
+            pass  # 列已存在
         c.execute("""CREATE TABLE IF NOT EXISTS fx_rate (
             base TEXT,
             quote TEXT,
@@ -409,6 +415,13 @@ def mark_sealed(no: str):
     """用印日志：该合同生成时已合成公司印信（图片章方案的留痕生命线）。"""
     with _lock, _conn() as c:
         c.execute("UPDATE gens SET sealed_at=? WHERE no=? AND status='ok'", (_now(), no))
+
+
+def mark_unsealed(no: str):
+    """未盖章标记：工作台取消勾选「电子签章」生成的单。
+    PDF 下载据此不盖骑缝章、对外/小程序详情据此 stamped=false；历史单无此标记＝原行为。"""
+    with _lock, _conn() as c:
+        c.execute("UPDATE gens SET unsealed=1 WHERE no=? AND status='ok'", (no,))
 
 
 # ---------- 小程序用户（微信一键登录 2026-11-20） ----------

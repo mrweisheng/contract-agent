@@ -152,9 +152,11 @@ def _cached_ok(pdf_path: str, docx_path: str) -> bool:
         os.path.getmtime(pdf_path) >= os.path.getmtime(docx_path) - 1
 
 
-def ensure_pdf(docx_path: str) -> str:
+def ensure_pdf(docx_path: str, cross_seal: bool = True) -> str:
     """docx 对应的骑缝章 PDF（同目录同名 .pdf 缓存），返回 PDF 路径。
 
+    cross_seal=False：不盖骑缝章，只做转换（工作台取消勾选「电子签章」生成的单——
+    正文无签字/公章，骑缝章一并不盖）。
     缓存以 docx mtime 为界（合同落盘后不可变，实际即永久复用）；失败抛 PdfError。
     全过程 print 日志（uvicorn 控制台可见），任何未预期异常也转 PdfError——
     路由层只需接 PdfError 一种。进程内串行：单 uvicorn worker 下锁即全局，
@@ -176,7 +178,7 @@ def ensure_pdf(docx_path: str) -> str:
             raw = os.path.join(workdir, os.path.splitext(os.path.basename(docx_path))[0] + ".pdf")
             if not os.path.exists(raw):
                 raise PdfError("PDF 转换失败：soffice 未产出文件")
-            stamped = stamp_cross_page_seal(raw)
+            stamped = stamp_cross_page_seal(raw) if cross_seal else False
             # 跨卷安全落盘：临时目录常在 C 盘、OUT_DIR 可能在 D 盘，os.replace 不能跨盘符——
             # 先拷到目标同目录（同卷），再原子改名
             building = pdf_path + ".building"
@@ -187,9 +189,10 @@ def ensure_pdf(docx_path: str) -> str:
                 if os.path.exists(building):
                     os.remove(building)
                 raise
+            seal_note = "未盖章合同跳过" if not cross_seal else ("√" if stamped else "无印信跳过")
             print(f"[pdf] 完成: {os.path.basename(pdf_path)} "
                   f"({os.path.getsize(pdf_path)} bytes, {time.time() - t0:.1f}s, "
-                  f"骑缝章{'√' if stamped else '无印信跳过'})", flush=True)
+                  f"骑缝章{seal_note})", flush=True)
             return pdf_path
         except PdfError as ex:
             print(f"[pdf] 失败: {name} — {ex}", flush=True)

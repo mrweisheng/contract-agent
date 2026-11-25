@@ -118,13 +118,15 @@ def _split_heading(text: str) -> dict:
     return {"text": text}
 
 
-def extract_blocks(docx_path: str) -> list:
+def extract_blocks(docx_path: str, sealed: bool = True) -> list:
     """成品 docx → 内容块数组，顺序与文档完全一致。
 
     kind: title 主标题 / subtitle 英文副标 / meta 编号日期行 / h 条款标题 /
           p 正文 / table 数据表 / sign 签署块（文档最后一张表）。
     固定文本与动态条款（附赠/质保/其他承诺）在 docx 里已组装完成，这里原样切分，
-    前端照块渲染即可，不需要任何模板知识。"""
+    前端照块渲染即可，不需要任何模板知识。
+    sealed=False：该单生成时未盖章（gens.unsealed）——签署格里只有等高透明占位图，
+    不能按「有图」判已盖章，stamped 直接给 False。"""
     doc = Document(docx_path)
     elements = list(_body_elements(doc))
     last_tbl = next((el._tbl for el in reversed(elements) if hasattr(el, "_tbl")), None)
@@ -137,7 +139,7 @@ def extract_blocks(docx_path: str) -> list:
             if el._tbl is last_tbl:
                 # 公司印信图在不在签署格里（生成即盖章；旧单/缺印信环境无图）
                 blocks.append({"kind": "sign", "rows": rows,
-                               "stamped": bool(el._tbl.xpath(".//pic:pic"))})
+                               "stamped": sealed and bool(el._tbl.xpath(".//pic:pic"))})
             else:
                 blocks.append({"kind": "table", "rows": rows})
             after_title = False
@@ -275,7 +277,7 @@ def _extract_blocks_safe(rec: dict) -> list:
     if not os.path.exists(path):
         return []
     try:
-        return extract_blocks(path)
+        return extract_blocks(path, sealed=not bool(rec.get("unsealed")))
     except Exception:
         return []
 

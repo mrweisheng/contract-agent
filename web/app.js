@@ -74,6 +74,7 @@ const app = createApp({
     const extracting = ref(false);
     const parsing = ref(false);
     const generating = ref(false);
+    const sealOn = ref(true);         // 电子签章（默认勾）：取消勾选＝预览与生成的合同不带公司签字/公章（含 PDF 骑缝章）
     const notesModal = ref(false);
     const resultModal = ref(false);
     const result = ref(null);
@@ -239,6 +240,7 @@ const app = createApp({
       if (it.key === "users") { umFetch(); return; }        // 用户管理：同上，只读列表
       initForm(); initPayment();
       onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
+      sealOn.value = true;   // 切业务/口岸恢复默认勾选：取消勾选态不跨业务沿用，防带着「不盖章」误生成
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;  // 切类型清联动：旧 key 在新锚点表里语义已失效
       schedulePreview(30, true);
       if (it.key === "settlement") {
@@ -723,6 +725,7 @@ const app = createApp({
             type: selected.type,
             form: formForPost(),
             payment: { installments: payment.rows.map(rowPayload), source_text: payment.customText || null },
+            seal: sealOn.value,
           }),
         });
         const d = await r.json().catch(() => ({}));
@@ -764,6 +767,7 @@ const app = createApp({
     }
     watch(form, () => schedulePreview(), { deep: true });
     watch(() => payment.rows, () => schedulePreview(), { deep: true });
+    watch(sealOn, () => schedulePreview());   // 勾选切换：预览与下载同源，签章随之显隐
 
     /* ---------- 字段聚焦 → 预览联动定位 ----------
      * 结构定位（表格锚文本+行标签子串+列号，或段落子串），不用值匹配——
@@ -1032,6 +1036,7 @@ const app = createApp({
           type: selected.type,
           form: formForPost(),
           payment: { installments: rows, source_text: payment.customText || null },
+          seal: sealOn.value,
         });
         if (myGen !== reqGen) return;
         result.value = data;
@@ -1984,7 +1989,7 @@ const app = createApp({
       selectMenu, runExtract, addRow, delRow, resetPayRows, onAmount, paySum, payOk,
       missing, missingTotal, canGenerate, jumpMissing,
       fieldState, onFieldInput, confirmAI,
-      onlyIssue, openPay, ledgerMode, ledgerSections,
+      onlyIssue, openPay, ledgerMode, ledgerSections, sealOn,
       shortLabel, inpSize, rowIssue, rowIcon, stepIssue, condText, togglePay, eventPlaceholder, aiOpen,
       feeMain, feeRest, payDone, overall, payIssue, fixDiffToLast, genBlock, tryGenerate,
       pvState, pvError, pvIssues, pvIssuesOpen, pvHasContent, sheetEl, pvScroll, renderPreview,
@@ -2281,10 +2286,10 @@ const app = createApp({
       <div class="pane-top">
         <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
         <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
-        <template v-if="ledgerMode">
-          <span class="spacer"></span>
-          <button class="chip" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
-        </template>
+        <span class="spacer" v-if="!isSettlement"></span>
+        <button class="chip" v-if="ledgerMode" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
+        <button type="button" class="seal-ck" v-if="!isSettlement" :class="{on: sealOn}"
+                title="勾选：合同带公司签字与公章" @click="sealOn = !sealOn"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">电子签章</span></button>
       </div>
       <div class="overall" v-if="ledgerMode">
         <div class="overall-bar"><i :style="{width: overall.pct + '%'}"></i></div>

@@ -955,6 +955,75 @@ def run_blank():
     return ok
 
 
+def run_unsealed():
+    """取消勾选「电子签章」（build_contract seal=False，2026-11-25）：每类业务取一例——
+    核对器照过、签署块里没有任何实体图（本机没装印信文件时本就零图；装了则只剩等高
+    透明占位）、签署块版式与签署块以外文字都和盖章版一致。空白模板不在开关范围内。"""
+    print("\n== 取消勾选电子签章 ==")
+    ok = True
+    from engine import seal as seal_mod
+    seen, picks = set(), []
+    for name, tkey, form, payment in CASES:
+        if tkey not in seen:
+            seen.add(tkey)
+            picks.append((name, tkey, form, payment))
+    for name, tkey, form, payment in picks:
+        try:
+            out_sealed = os.path.join(OUT, f"_sealed_{name}.docx")
+            out_plain = os.path.join(OUT, f"_unsealed_{name}.docx")
+            no = "20261125999"
+            build_contract(tkey, form, payment, no, out_sealed, fx_rate=0.88)
+            report = build_contract(tkey, form, payment, no, out_plain, fx_rate=0.88, seal=False)
+            report["agreement_no"] = no
+            doc_sealed, doc_plain = Document(out_sealed), Document(out_plain)
+            fails = []
+            if report.get("company_sealed") is not False:
+                fails.append("未盖章 report.company_sealed 应为 False")
+            errs = check_rules(tkey, form, payment, report, doc_plain)
+            errs += check_fingerprint(report["template"], out_plain, tkey, report, form)
+            if errs:
+                fails.append(f"核对器未通过：{errs}")
+
+            def sign_text(doc):
+                loc = seal_mod.locate(doc)
+                return [[p.text for p in c.paragraphs] for c in loc] if loc else None
+
+            def rest(doc):
+                loc = seal_mod.locate(doc)
+                sign_tc = {c._tc for c in loc} if loc else set()
+                tbls = [tuple(tuple(c.text for c in r.cells if c._tc not in sign_tc) for r in t.rows)
+                        for t in doc.tables]
+                return [p.text for p in doc.paragraphs], tbls
+
+            if sign_text(doc_sealed) != sign_text(doc_plain):
+                fails.append("签署块版式与盖章版不一致")
+            if rest(doc_sealed) != rest(doc_plain):
+                fails.append("签署块以外文字与盖章版不一致")
+            import io
+            from PIL import Image
+            solid = 0
+            for rel in doc_plain.part.rels.values():
+                if "image" in rel.reltype:
+                    with Image.open(io.BytesIO(rel.target_part.blob)) as im:
+                        if im.convert("RGBA").getchannel("A").getextrema()[1] > 0:
+                            solid += 1
+            if solid:
+                fails.append(f"未盖章件含 {solid} 张实体图")
+            if fails:
+                ok = False
+                print(f"[FAIL] unsealed_{name}")
+                for x in fails:
+                    print(f"   - {x}")
+            else:
+                print(f"[PASS] unsealed_{name}")
+        except Exception as ex:
+            ok = False
+            print(f"[ERROR] unsealed_{name}: {ex}")
+            import traceback
+            traceback.print_exc()
+    return ok
+
+
 def main():
     all_ok = True
     for name, tkey, form, payment in CASES:
@@ -1038,7 +1107,7 @@ def main():
             traceback.print_exc()
     all_ok = (all_ok and run_negative() and run_derive() and run_draft()
               and run_dual_currency() and run_exchange_alias() and run_newport_matrix()
-              and run_immigration() and run_blank())
+              and run_immigration() and run_blank() and run_unsealed())
     print("\n总体:", "全部通过" if all_ok else "存在失败")
     return 0 if all_ok else 1
 

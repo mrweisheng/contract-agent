@@ -116,11 +116,14 @@ def _fill_signature_dates(doc, y, m, d) -> int:
 
 
 def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, out_path: str,
-                   draft: bool = False, issues: list = None, fx_rate: float = None):
+                   draft: bool = False, issues: list = None, fx_rate: float = None,
+                   seal: bool = True):
     """生成合同，返回变更报告（供核对器比对）。
     draft=True（实时预览）：录入类问题（金额/日期/币种/质保参数）不中断，
     用占位值渲染并汇总到 report["draft_issues"]；模板结构类问题（锚点/表格/
-    空位缺失）仍然抛 ValueError——结构坏了预览也无意义。"""
+    空位缺失）仍然抛 ValueError——结构坏了预览也无意义。
+    seal=False（工作台取消勾选「电子签章」）：签署块不带公司签字/公章，
+    版式与盖章版完全一致（见 engine.seal.apply_company_seal）。"""
     if draft and issues is None:
         issues = []
     cfg = get_type(type_key)
@@ -293,9 +296,10 @@ def build_contract(type_key: str, form: dict, payment: dict, agreement_no: str, 
     report["signature_dates"] = filled
 
     # 8. 公司印信：签字+公章合成进签署块公司格（生成即盖章，与纸质流程一致；
-    #    印信文件缺失则跳过，开发/测试环境模板保持无章）
+    #    印信文件缺失则跳过，开发/测试环境模板保持无章）。
+    #    seal=False（工作台取消勾选「电子签章」）：骨架照建、图换透明占位，company_sealed=False
     from engine import seal as seal_mod
-    report["company_sealed"] = seal_mod.apply_company_seal(doc)
+    report["company_sealed"] = seal_mod.apply_company_seal(doc, sealed=seal)
 
     doc.save(out_path)
     report["template"] = tpl

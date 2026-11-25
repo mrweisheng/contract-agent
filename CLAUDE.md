@@ -46,7 +46,8 @@ python scripts/test_pipeline.py
 ```
 浏览器 ─▶ /api/extract (LLM 抽取自然语言 → 表单字段)
        ─▶ /api/parse-payment (LLM 解析付款描述 → 期次)
-       ─▶ /api/preview (draft=True：复用同一 builder 渲染真实 docx 字节；不占编号/不写 out/不落历史/不跑核对)
+       ─▶ /api/preview (draft=True：复用同一 builder 渲染真实 docx 字节；不占编号/不写 out/不落历史/不跑核对；
+            seal 参数同 generate，预览与下载同源)
        ─▶ /api/blank-template?type=…&port=… (空白模板下载：取只读模板原件，仅清模板默认值；
             不接收表单字段、不占编号、不写 out/、不落历史)
        ─▶ /api/generate:
@@ -56,7 +57,8 @@ python scripts/test_pipeline.py
             engine.checker.check_fingerprint()  # 逐表逐段 vs 模板 diff
             llm.review_messages()      # 软校验（失败不拦截，只 warning）
             store.confirm_no()         # ok/failed；崩了走 release_no
-       ─▶ /api/download/{no}
+            mark_sealed / mark_unsealed  # 用印日志 or 未盖章标记（gens.unsealed）
+       ─▶ /api/download/{no}            # format=pdf 时按 gens.unsealed 决定是否盖骑缝章
 ```
 
 ### 服务端模块边界（`server/`）
@@ -108,7 +110,7 @@ python scripts/test_pipeline.py
 - **币种单一**：每份合同单一货币，金额标签随之替换（HKD / CNY）。
 - **分期合计 = 总费用**：在 `derive_payment()` 入口硬校验（default/one_time/custom 全模式）；写错就 422，不入历史。
 - **格式指纹**：核对器将生成文件 vs 模板逐段逐表比对，**非修改点必须零差异**；改模板后立刻重跑测试。
-- **签署栏手写签名与盖章保持空白**（由人工线下签）；**日期**由 builder 依顶部签署日期自动填「日期：X年X月X日」（签署块双方同源），不再留空。
+- **公司签章**：生成即把公司签字+公章合成进签署块公司格并重建统一签署骨架（`engine.seal`）。工作台「电子签章」取消勾选（`seal=False`，接口不传＝盖章）时骨架照建、公司格两张图换同尺寸透明占位，`gens.unsealed=1` → PDF 不盖骑缝章、对外接口 `stamped=false`；空白模板恒不盖章。客户手写签名由小程序回传合成。**日期**由 builder 依顶部签署日期自动填「日期：X年X月X日」（签署块双方同源），不再留空。
 - **模板固定文字**（2026-08-31 核实）：模板 4~7 号新办合同的"第二期款于 1 个工作日内支付"为模板原文，不可改。
 - **生成失败不入历史下载列表**：核对未通过时 `status=failed`，下载路径返回 403。
 
