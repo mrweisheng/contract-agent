@@ -175,6 +175,7 @@ const app = createApp({
       });
       if (get("immigration")) items.push({ title: "高才移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
       items.push({ title: "结算单", list: [{ key: "settlement", port: "", label: "结算单" }] });
+      items.push({ title: "电子发票", list: [{ key: "invoice", port: "", label: "电子发票" }] });
       items.push({ title: "合同管理", list: [{ key: "contracts", port: "", label: "合同管理" }] });
       items.push({ title: "用户管理", list: [{ key: "users", port: "", label: "用户管理" }] });
       return items;
@@ -232,12 +233,14 @@ const app = createApp({
     }
     function selectMenu(it) {
       if (isActive(it)) return;
+      if (selected.type === "invoice" && it.key !== "invoice") invLeave();  // 離開發票頁：清空並釋放未存檔的號
       cancelPending();
       selected.type = it.key; selected.port = it.port;
       result.value = null; extractNotes.value = []; warnNotes.value = [];
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       if (it.key === "contracts") { ctFetch(); return; }   // 合同管理：独立列表页，不碰表单/预览/付款
       if (it.key === "users") { umFetch(); return; }        // 用户管理：同上，只读列表
+      if (it.key === "invoice") { invSwitchIn(); return; }  // 电子发票：独立视图，不读 cfg、不触发合同预览
       initForm(); initPayment();
       onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       sealOn.value = true;   // 切业务/口岸恢复默认勾选：取消勾选态不跨业务沿用，防带着「不盖章」误生成
@@ -1237,6 +1240,317 @@ const app = createApp({
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
     const isSettlement = computed(() => selected.type === "settlement");
 
+    /* ---------- 電子發票（A 版 · 原單 1:1 電子化） ----------
+     * 與合同鏈路完全獨立：不讀 cfg、不調 /api/preview、不寫 gens 表、不碰付款與 AI 提取。
+     * 紙面全部用繁體（公司註冊名、大寫金額、欄位標籤），符合香港交易文書可讀性要求。
+     * 編號走後端獨立號段：開頁占號 pending → 保存轉 ok → 作廢轉 void（號不回收）。 */
+    const isInvoice = computed(() => selected.type === "invoice");
+
+    const INV_METHODS = [
+      { key: "bank", label: "銀行轉賬" },
+      { key: "cash", label: "現金" },
+      { key: "cheque", label: "支票" },
+      { key: "wechat", label: "微信轉賬" },
+      { key: "fps", label: "轉數快 FPS" },
+    ];
+
+    const inv = reactive({
+      no: "", date: todayISO(),
+      payer: "", purpose: "", amount: null, note: "",
+      payee: "陳煥明", method: "bank", sealed: true,
+      reserving: false, exporting: false, revision: 0, error: "",
+    });
+
+    /* 繁體大寫金額（紙面用「參」不用「叁」：香港票據繁體規範寫法）
+     * 與合同 toCN 各自獨立，避免動到既有出單口徑。 */
+    const CN_D_T = "零壹貳參肆伍陸柒捌玖";
+    const CN_U_T = ["", "拾", "佰", "仟"];
+    const CN_G_T = ["", "萬", "億", "兆"];
+    function fourDigitsT(n) {
+      if (!n) return "";
+      let out = "", zero = false, started = false;
+      for (let pos = 3; pos >= 0; pos--) {
+        const d = Math.floor(n / 10 ** pos) % 10;
+        if (!d) { if (started) zero = true; }
+        else {
+          if (zero) { out += "零"; zero = false; }
+          out += CN_D_T[d] + CN_U_T[pos]; started = true;
+        }
+      }
+      return out;
+    }
+    function toCNT(v) {
+      const cents = Math.round(Number(v || 0) * 100);
+      const yuan = Math.floor(cents / 100), rest = cents % 100;
+      let s = "";
+      if (yuan === 0) s = "零";
+      else {
+        const segs = []; let x = yuan;
+        while (x > 0) { segs.push(x % 10000); x = Math.floor(x / 10000); }
+        segs.reverse();
+        const parts = []; let pending = false;
+        segs.forEach((seg, i) => {
+          if (!seg) { pending = true; return; }
+          if (parts.length && (pending || seg < 1000)) parts.push("零");
+          parts.push(fourDigitsT(seg) + CN_G_T[segs.length - 1 - i]);
+          pending = false;
+        });
+        s = parts.join("");
+      }
+      s += "元";
+      if (!rest) return s + "整";
+      const jiao = Math.floor(rest / 10), fen = rest % 10;
+      if (jiao) s += CN_D_T[jiao] + "角"; else if (fen) s += "零";
+      if (fen) s += CN_D_T[fen] + "分"; else s += "整";
+      return s;
+    }
+
+    /* 金額顯示保留小數（項目通用的 commas 走 parseInt，59369.5 會被截成 59,369） */
+    const invAmountText = computed(() => {
+      if (inv.amount === null || inv.amount === "") return "";
+      const n = Number(inv.amount);
+      if (!isFinite(n)) return "";
+      return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    });
+    const invCNText = computed(() =>
+      inv.amount === null || inv.amount === "" || Number(inv.amount) === 0 ? "" : toCNT(inv.amount));
+    const invDate = computed(() => {
+      const [y, m, d] = String(inv.date || "").split("-");
+      return { y: y || "", m: m ? String(Number(m)) : "", d: d ? String(Number(d)) : "" };
+    });
+
+    /* 印信：進入發票頁時取一次，轉 data URI 內嵌。
+     * 好處：① 導出 PNG 時 SVG 完全自包含，不會因外部引用把 canvas 弄髒；
+     *       ② 印章缺失時靜默留空，不阻斷開票。 */
+    const invSign = ref("");
+    const invSeal = ref("");
+    async function invLoadSeals() {
+      for (const [name, target] of [["sign", invSign], ["seal", invSeal]]) {
+        if (target.value) continue;
+        try {
+          const r = await fetch(`/api/seals/${name}.png`);
+          if (!r.ok) continue;
+          const blob = await r.blob();
+          target.value = await new Promise(res => {
+            const fr = new FileReader();
+            fr.onload = () => res(String(fr.result));
+            fr.onerror = () => res("");
+            fr.readAsDataURL(blob);
+          });
+        } catch { /* 印信未配置：留空 */ }
+      }
+    }
+
+    /* 清空表單內容（不取號） */
+    function invClear() {
+      inv.no = ""; inv.date = todayISO();
+      inv.payer = ""; inv.purpose = ""; inv.amount = null; inv.note = "";
+      inv.payee = "陳煥明"; inv.method = "bank"; inv.sealed = true;
+      inv.revision = 0; inv.error = "";
+    }
+
+    /* 新開一張：清空 + 取新號 */
+    function invNew() {
+      invClear();
+      invReserve();
+    }
+
+    /* 離開發票頁：清空內容。
+     * 未存檔的占號**不即時釋放**，交給後端 30 分鐘超時回收 ——
+     * 一來即時釋放的號會被下一個重用，用戶會看到「切走再回來編號沒變」，像沒生效；
+     * 二來編號單向遞增，跳一個號比號碼倒退更符合直覺（4／7 本來就在跳）。 */
+    function invLeave() {
+      invClear();
+    }
+
+    async function invReserve() {
+      if (inv.reserving) return;
+      inv.reserving = true; inv.error = "";
+      try {
+        const r = await fetch("/api/receipts/reserve", { method: "POST" });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || `取號失敗（HTTP ${r.status}）`);
+        inv.no = d.no;
+      } catch (e) {
+        inv.error = String(e.message || e);
+      } finally {
+        inv.reserving = false;
+      }
+    }
+
+    /* 切進發票頁：清合同聯動殘留；離開時已清空，這裡直接取新號 */
+    function invSwitchIn() {
+      clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;
+      clearTimeout(invHitTimer); invClearHit(); invHitKey = "";
+      invLoadSeals();
+      if (!inv.no) invReserve();
+    }
+
+    /* 下載即存檔：先 UPSERT（同號覆蓋、revision 累加），再出圖。
+     * 存檔失敗仍然出圖——客戶要拿到單子；錯誤在頁面標紅提示，不靜默吞掉。 */
+    async function invDownload() {
+      if (inv.exporting || inv.reserving) return;
+      if (!inv.no) { toast("編號生成中，請稍候重試", "bad"); return; }
+      inv.exporting = true; inv.error = "";
+      try {
+        const r = await fetch("/api/receipts", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            no: inv.no,
+            payer: inv.payer.trim(), purpose: inv.purpose.trim(),
+            amount: Number(inv.amount || 0), method: inv.method,
+            note: inv.note.trim(), payee: inv.payee.trim(),
+            receipt_date: inv.date, sealed: inv.sealed,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || `存檔失敗（HTTP ${r.status}）`);
+        inv.revision = Number(d.revision) || (inv.revision + 1);
+      } catch (e) {
+        inv.error = String(e.message || e);
+        toast("存檔失敗：" + inv.error, "bad", 4200);
+      } finally {
+        inv.exporting = false;
+      }
+      invExportPng();   // 存檔成敗都出圖
+    }
+
+    /* ---------- 發票聯動：字段聚焦 → 紙面對應位置高亮 ----------
+     * 合同頁靠後端 field_anchors 做結構定位（docx 渲染的是格式化文本，值匹配必失敗）。
+     * 發票是 SVG，每個字段自帶 data-field，直接命中——零配置、零歧義。
+     * 視覺複用合同頁那套 .pv-hit + .pv-beacon 光環（同一種聯動語言，用戶不用重新學）。 */
+    const invScroll = ref(null);
+    const invSheet = ref(null);
+    const INV_HIT_HIDE_MS = 1800;
+    let invBeacon = null, invHitKey = "", invHitTimer = null;
+
+    function invEls(key) {
+      if (!key) return [];
+      return Array.from(invSheet.value?.querySelectorAll(`[data-field="${key}"]`) || []);
+    }
+    function invEl(key) { return invEls(key)[0] || null; }
+    function invPin(el) {
+      const c = invScroll.value;
+      if (!c || !el) return;
+      if (!invBeacon) {
+        invBeacon = document.createElement("div");
+        invBeacon.className = "pv-beacon";
+        c.appendChild(invBeacon);
+      }
+      const r = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      invBeacon.style.left = (r.left - cr.left + c.scrollLeft - 3) + "px";
+      invBeacon.style.top = (r.top - cr.top + c.scrollTop - 3) + "px";
+      invBeacon.style.width = (r.width + 6) + "px";
+      invBeacon.style.height = (r.height + 6) + "px";
+      invBeacon.classList.remove("off");
+    }
+    function invScrollTo(el) {
+      const c = invScroll.value;
+      if (!c || !el) return;
+      const maxTop = Math.max(0, c.scrollHeight - c.clientHeight);
+      if (maxTop < 8) return;   // 紙面整張可見，不必滾動
+      const cr = c.getBoundingClientRect(), tr = el.getBoundingClientRect();
+      const top = c.scrollTop + (tr.top + tr.height / 2 - cr.top) - c.clientHeight / 2;
+      const clamped = Math.max(0, Math.min(top, maxTop));
+      if (Math.abs(clamped - c.scrollTop) < 2) return;
+      c.scrollTo({ top: clamped, behavior: "smooth" });
+    }
+    function invApplyHit(key, scroll) {
+      const els = invEls(key);
+      if (!els.length) return false;
+      invSheet.value?.querySelectorAll(".pv-hit").forEach(e => e.classList.remove("pv-hit"));
+      els.forEach(e => e.classList.add("pv-hit"));
+      invPin(els[0]);
+      if (scroll) invScrollTo(els[0]);
+      return true;
+    }
+    function invClearHit() {
+      invSheet.value?.querySelectorAll(".pv-hit").forEach(e => e.classList.remove("pv-hit"));
+      invBeacon?.classList.add("off");
+    }
+    function invKeyFrom(t) {
+      const id = typeof t?.id === "string" ? t.id : "";
+      return id.startsWith("inv-") ? id.slice(4) : (t?.dataset?.invkey || "");
+    }
+    function invActivate(key) {
+      if (!key) return;
+      clearTimeout(invHitTimer);
+      if (key === invHitKey && invSheet.value?.querySelector(".pv-hit")) { invPin(invEl(key)); return; }
+      invHitKey = key;
+      invApplyHit(key, true);
+    }
+    function invFocusin(e) { const k = invKeyFrom(e.target); if (k) invActivate(k); }
+    function invPointerdown(e) { const k = invKeyFrom(e.target); if (k) invActivate(k); }
+    function invFocusout() {
+      if (!invHitKey) return;
+      clearTimeout(invHitTimer);
+      invHitTimer = setTimeout(() => { invClearHit(); invHitKey = ""; }, INV_HIT_HIDE_MS);
+    }
+    function invPreviewDown() {
+      if (!invHitKey) return;
+      clearTimeout(invHitTimer); invClearHit(); invHitKey = "";
+    }
+
+    /* 導出用：把發票相關 CSS 從當前樣式表裡抓出來，內嵌進克隆的 SVG。
+     * 原因：SVG 序列化成獨立文件時不帶外部樣式表，class 全部丟失 ——
+     * rect 默認黑色填充、text 默認黑色 16px，導出圖會整片變黑（2026-11-26 實測踩過）。
+     * 只抓 .iv- / .inv- 前綴與 :root 變量，不影響其它樣式。 */
+    function invSvgCss() {
+      const parts = [];
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; }   // 跨域樣式表讀不到，跳過
+        if (!rules) continue;
+        for (const r of rules) {
+          const t = r.cssText || "";
+          if (/\.(iv|inv)-/.test(t) || t.startsWith(":root")) parts.push(t);
+        }
+      }
+      return parts.join("\n");
+    }
+
+    /* SVG → PNG（3 倍圖）。印信已內嵌為 data URI，導出不受外部資源影響。 */
+    function invExportPng() {
+      const svg = invSheet.value?.querySelector("svg");
+      if (!svg) return;
+      const vb = svg.viewBox.baseVal;
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", vb.width);
+      clone.setAttribute("height", vb.height);
+      // 導出的圖不該帶聯動高亮
+      clone.querySelectorAll(".pv-hit").forEach(el => el.classList.remove("pv-hit"));
+      // 樣式內嵌：否則 class 全丟，紙面大面積變黑
+      const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+      styleEl.textContent = invSvgCss();
+      clone.insertBefore(styleEl, clone.firstChild);
+      const xml = new XMLSerializer().serializeToString(clone);
+      const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
+      const img = new Image();
+      img.onload = () => {
+        const scale = 3, w = Math.round(vb.width * scale), h = Math.round(vb.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(blob => {
+          if (!blob) { toast("PNG 生成失敗", "bad"); return; }
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `華星_電子收據_${inv.no || "未編號"}.png`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+          toast(inv.error ? `已下載（${w} × ${h}）· 存檔失敗` : `已下載（${w} × ${h}）· 已存檔`,
+                inv.error ? "bad" : "ok", 3600);
+        }, "image/png");
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); toast("PNG 生成失敗，請換 Chrome／Edge 開啟", "bad"); };
+      img.src = url;
+    }
+
+
     /* ---------- 合同管理（卡片视图 + 签署人信息） ----------
      * 默认卡片：已签合同展示小程序回传的手写签名图、微信昵称、头像、手机号。
      * 这三样微信资料都可能没授权，签名只要签过就一定有 —— 一律「有什么显示什么」：
@@ -1998,6 +2312,9 @@ const app = createApp({
       generate, download, downloadPdfNow, downloadBlank, viewHistoryResult, viewHistoryPdf, pdfBusy,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
+      isInvoice, inv, INV_METHODS, invAmountText, invCNText, invDate, invSign, invSeal,
+      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve,
+      invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
@@ -2284,11 +2601,12 @@ const app = createApp({
     <section class="pane" v-if="!isFullPage"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
-        <h2>{{ isSettlement ? '收款结算单' : (cfg?.label || '华星智能合同') }}</h2>
-        <span class="tpl-name" v-if="cfg">{{ templateName }}</span>
-        <span class="spacer" v-if="!isSettlement"></span>
+        <h2>{{ isSettlement ? '收款结算单' : isInvoice ? '电子发票' : (cfg?.label || '华星智能合同') }}</h2>
+        <span class="tpl-name" v-if="isInvoice">A 版 · 原單 1:1 電子化 · 全繁體</span>
+        <span class="tpl-name" v-else-if="cfg">{{ templateName }}</span>
+        <span class="spacer" v-if="!isSettlement && !isInvoice"></span>
         <button class="chip" v-if="ledgerMode" :class="{on: onlyIssue}" @click="onlyIssue = !onlyIssue">只看待补</button>
-        <label class="seal-ck" v-if="!isSettlement" title="勾选：合同带公司签字与公章">
+        <label class="seal-ck" v-if="!isSettlement && !isInvoice" title="勾选：合同带公司签字与公章">
           <input type="checkbox" v-model="sealOn"><span>电子签章</span></label>
       </div>
       <div class="overall" v-if="ledgerMode">
@@ -2296,9 +2614,73 @@ const app = createApp({
         <span>合同完成度 {{ overall.done }}/{{ overall.total }}</span>
       </div>
       <transition name="pfade" mode="out-in">
+      <!-- ================ 電子發票：手填 → 紙面即時聯動 ================ -->
+      <div class="pane-body inv-pane" v-if="isInvoice" key="invoice"
+           @focusin="invFocusin" @focusout="invFocusout" @pointerdown="invPointerdown">
+
+        <div class="inv-nobar">
+          <div class="inv-no">
+            <span class="inv-no-k">發票編號 No.</span>
+            <b class="inv-no-v">{{ inv.no || (inv.reserving ? '生成中…' : '—') }}</b>
+            <span class="inv-no-st" v-if="inv.revision > 0">已存檔 · 第 {{ inv.revision }} 版</span>
+            <span class="inv-no-st wait" v-else-if="inv.no">自動生成</span>
+          </div>
+          <span class="spacer"></span>
+          <span class="inv-no-hint">下載即自動存檔；改完再下載覆蓋同一編號</span>
+        </div>
+        <div class="inv-err" v-if="inv.error">⚠ {{ inv.error }}</div>
+
+        <div class="sec">
+          <div class="sec-head"><span class="dot"></span>收款資料<span class="sec-hint">輸入即時映射到右側紙面，聚焦會高亮對應位置</span></div>
+          <div class="sec-body inv-grid">
+            <div class="inv-f">
+              <span class="inv-lab">日期 <i>Date</i></span>
+              <input class="f-inp" id="inv-date" type="date" v-model="inv.date">
+            </div>
+            <div class="inv-f">
+              <span class="inv-lab">實收金額（HKD） <i>Amount</i></span>
+              <input class="f-inp" id="inv-amount" type="number" step="0.01" inputmode="decimal"
+                     v-model.number="inv.amount" placeholder="0.00">
+            </div>
+            <div class="inv-f span2">
+              <span class="inv-lab">付款方 <i>Received from</i></span>
+              <input class="f-inp" id="inv-payer" v-model.trim="inv.payer" placeholder="客戶名稱／公司全稱">
+            </div>
+            <div class="inv-f span2">
+              <span class="inv-lab">款項說明 <i>Description</i></span>
+              <input class="f-inp" id="inv-purpose" v-model.trim="inv.purpose" placeholder="該款項係付：">
+            </div>
+            <div class="inv-f">
+              <span class="inv-lab">付款方式 <i>Method</i></span>
+              <select class="f-inp" id="inv-method" v-model="inv.method">
+                <option v-for="m in INV_METHODS" :key="m.key" :value="m.key">{{ m.label }}</option>
+              </select>
+            </div>
+            <div class="inv-f">
+              <span class="inv-lab">收款人 <i>Received by</i></span>
+              <input class="f-inp" id="inv-payee" v-model.trim="inv.payee">
+            </div>
+            <div class="inv-f span2">
+              <span class="inv-lab">備註 <i>Remarks</i></span>
+              <input class="f-inp" id="inv-note" v-model.trim="inv.note" placeholder="選填，如：總價 230000RMB">
+            </div>
+            <div class="inv-f span2 inv-ck">
+              <label class="seal-ck" title="取消勾選：紙面不顯示簽名與公司章">
+                <input type="checkbox" id="inv-sealed" v-model="inv.sealed"><span>電子簽署及公司印章</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="inv-tip">
+          香港無「稅務發票」制度，本單為<strong>正式收據 Official Receipt</strong>；
+          公司名稱按<strong>註冊名稱</strong>印繁體（Cap. 622B 對交易文書的要求）。
+        </div>
+      </div>
+
       <!-- ================ 收款结算单：粘贴 → 解析 → 可改 → 生成 ================ -->
       <!-- ================ 收款结算单：账单式 v6 ================ -->
-      <div class="pane-body st-pane" v-if="isSettlement" key="settlement">
+      <div class="pane-body st-pane" v-else-if="isSettlement" key="settlement">
         <div class="card st-src" v-if="st.biz !== '续期'" :class="{ closed: !stSrcOpen }">
           <div class="card-head st-src-head" @click="stSrcOpen = !stSrcOpen">
             <span class="dot"></span><h3>业务资料</h3>
@@ -2843,18 +3225,20 @@ const app = createApp({
     <!-- ================= 成品栏：结算单成品 / 合同实时预览 ================= -->
     <section class="pane preview-pane" v-if="!isFullPage" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
-        <b>{{ isSettlement ? '结算单成品' : '合同实时预览' }}</b>
-        <span class="pv-sub" v-if="!isSettlement">与下载文件 1:1 同源</span>
+        <b>{{ isSettlement ? '结算单成品' : isInvoice ? '發票實時預覽' : '合同实时预览' }}</b>
+        <span class="pv-sub" v-if="isInvoice">紙面全繁體 · 3:2 橫版 210 × 140 mm</span>
+        <span class="pv-sub" v-else-if="!isSettlement">与下载文件 1:1 同源</span>
         <span class="spacer"></span>
-        <span v-if="!isSettlement && pvState==='loading'" class="pv-status">渲染中…</span>
-        <span v-else-if="!isSettlement && pvState==='ready'" class="pv-status ok">✓ 已同步</span>
-        <button v-if="!isSettlement && pvIssues.length" class="chip ai" @click="pvIssuesOpen=!pvIssuesOpen">
+        <span v-if="!isSettlement && !isInvoice && pvState==='loading'" class="pv-status">渲染中…</span>
+        <span v-else-if="!isSettlement && !isInvoice && pvState==='ready'" class="pv-status ok">✓ 已同步</span>
+        <button v-if="!isSettlement && !isInvoice && pvIssues.length" class="chip ai" @click="pvIssuesOpen=!pvIssuesOpen">
           预览提示 {{ pvIssues.length }}
         </button>
-        <button v-if="!isSettlement" class="btn sm ghost" @click="downloadBlank">下载空模板</button>
-        <button v-if="!isSettlement" class="btn sm ghost" @click="renderPreview">重渲</button>
+        <button v-if="!isSettlement && !isInvoice" class="btn sm ghost" @click="downloadBlank">下载空模板</button>
+        <button v-if="!isSettlement && !isInvoice" class="btn sm ghost" @click="renderPreview">重渲</button>
+        <button v-if="isInvoice" class="btn sm ghost" @click="invNew" title="清空当前单，换一个新编号">新開一張</button>
       </div>
-      <div class="pv-issues" v-if="!isSettlement && pvIssuesOpen">
+      <div class="pv-issues" v-if="!isSettlement && !isInvoice && pvIssuesOpen">
         <div v-for="(n, i) in pvIssues" :key="i">· {{ n }}</div>
       </div>
       <!-- 结算单成品：正式单 > 实时模板稿 > 占位 -->
@@ -2881,6 +3265,118 @@ const app = createApp({
           <div class="pv-ph-mark">結</div>
           <div>正在渲染模板预览…</div>
         </div>
+      </div>
+      <div class="pv-scroll inv-scroll" v-else-if="isInvoice" ref="invScroll" @pointerdown="invPreviewDown">
+        <div class="inv-sheet" ref="invSheet">
+          <svg viewBox="0 0 900 600" xmlns="http://www.w3.org/2000/svg" class="inv-paper" role="img" aria-label="電子收據">
+            <rect x="0" y="0" width="900" height="600" fill="#FFFFFF"/>
+
+            <text class="iv-no" x="848" y="56" text-anchor="end" data-field="no">{{ inv.no || '—' }}</text>
+
+            <text class="iv-co" x="450" y="118" text-anchor="middle" data-field="co">華星資源開發有限公司</text>
+            <text class="iv-title" x="450" y="174" text-anchor="middle">收　據</text>
+
+            <!-- 日期 -->
+            <rect class="iv-hit" data-field="date" x="140" y="204" width="405" height="38"/>
+            <text class="iv-lab" x="150" y="228">日期：</text>
+            <line class="iv-ln" x1="215" y1="234" x2="300" y2="234"/>
+            <text class="iv-val" x="257" y="228" text-anchor="middle">{{ invDate.y }}</text>
+            <text class="iv-lab" x="310" y="228">年</text>
+            <line class="iv-ln" x1="340" y1="234" x2="410" y2="234"/>
+            <text class="iv-val" x="375" y="228" text-anchor="middle">{{ invDate.m }}</text>
+            <text class="iv-lab" x="420" y="228">月</text>
+            <line class="iv-ln" x1="450" y1="234" x2="520" y2="234"/>
+            <text class="iv-val" x="485" y="228" text-anchor="middle">{{ invDate.d }}</text>
+            <text class="iv-lab" x="530" y="228">日</text>
+
+            <rect class="iv-bx" x="58" y="252" width="784" height="264" rx="2"/>
+
+            <!-- 今收到 -->
+            <rect class="iv-hit" data-field="payer" x="176" y="266" width="336" height="34"/>
+            <text class="iv-lab" x="76" y="288">今收到</text>
+            <line class="iv-ln" x1="178" y1="294" x2="508" y2="294"/>
+            <text class="iv-val" x="343" y="288" text-anchor="middle">{{ inv.payer }}</text>
+            <text class="iv-lab" x="520" y="288">交來金額：</text>
+            <rect class="iv-hit" data-field="amount" x="634" y="266" width="136" height="34"/>
+            <line class="iv-ln" x1="636" y1="294" x2="766" y2="294"/>
+            <text class="iv-val" x="701" y="288" text-anchor="middle">{{ invAmountText ? 'HK$' + invAmountText : '' }}</text>
+            <text class="iv-lab sm" x="772" y="288">（小寫）</text>
+
+            <!-- 大寫 -->
+            <text class="iv-lab" x="76" y="328">金額（大寫）：</text>
+            <rect class="iv-hit" data-field="amount" x="260" y="306" width="460" height="34"/>
+            <line class="iv-ln" x1="262" y1="334" x2="718" y2="334"/>
+            <text class="iv-val" x="490" y="328" text-anchor="middle">{{ invCNText }}</text>
+            <text class="iv-lab" x="820" y="328" text-anchor="end">港幣</text>
+
+            <!-- 款項說明 -->
+            <text class="iv-lab" x="76" y="368">該款項係付：</text>
+            <rect class="iv-hit" data-field="purpose" x="228" y="346" width="596" height="34"/>
+            <line class="iv-ln" x1="230" y1="374" x2="820" y2="374"/>
+            <text class="iv-val" x="525" y="368" text-anchor="middle">{{ inv.purpose }}</text>
+
+            <!-- 付款方式 -->
+            <g>
+              <rect class="iv-hit" data-field="method" x="190" y="388" width="640" height="30"/>
+              <text class="iv-lab" x="76" y="408">付款方式：</text>
+              <rect x="198" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <g :opacity="inv.method === 'cash' ? 1 : 0">
+                <path d="M200 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
+              <text class="iv-lab sm2" x="220" y="408">現金</text>
+
+              <rect x="298" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <g :opacity="inv.method === 'cheque' ? 1 : 0">
+                <path d="M300 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
+              <text class="iv-lab sm2" x="320" y="408">支票</text>
+
+              <rect x="398" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <g :opacity="inv.method === 'bank' || inv.method === 'fps' ? 1 : 0">
+                <path d="M400 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
+              <text class="iv-lab sm2" x="420" y="408">銀行轉賬</text>
+
+              <rect x="548" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <g :opacity="inv.method === 'wechat' ? 1 : 0">
+                <path d="M550 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
+              <text class="iv-lab sm2" x="570" y="408">微信轉賬</text>
+
+              <line class="iv-ln" x1="690" y1="414" x2="820" y2="414"/>
+              <text class="iv-val sm2" x="755" y="408" text-anchor="middle">{{ inv.method === 'fps' ? '轉數快 FPS' : '' }}</text>
+            </g>
+
+            <!-- 備註 -->
+            <text class="iv-lab" x="76" y="448">備　注：</text>
+            <rect class="iv-hit" data-field="note" x="176" y="426" width="648" height="34"/>
+            <line class="iv-ln" x1="178" y1="454" x2="820" y2="454"/>
+            <text class="iv-val sm3" x="499" y="448" text-anchor="middle">{{ inv.note }}</text>
+
+            <line class="iv-ln" x1="76" y1="484" x2="820" y2="484"/>
+            <line class="iv-ln" x1="76" y1="506" x2="820" y2="506"/>
+
+            <!-- 收款人 + 印信 -->
+            <text class="iv-lab" x="110" y="560">收款人：</text>
+            <rect class="iv-hit" data-field="payee" x="190" y="538" width="156" height="34"/>
+            <line class="iv-ln" x1="192" y1="566" x2="342" y2="566"/>
+            <text class="iv-val" x="267" y="558" text-anchor="middle">{{ inv.payee }}</text>
+            <text class="iv-lab sm2" x="358" y="560">（簽字蓋章）</text>
+
+            <image v-if="inv.sealed && invSign" :href="invSign" x="492" y="496" width="118" height="79" opacity="0.92"/>
+            <image v-if="inv.sealed && invSeal" :href="invSeal" x="636" y="470" width="104" height="103" opacity="0.9" transform="rotate(-6 688 521)"/>
+          </svg>
+        </div>
+      </div>
+      <div class="gen-bar" v-if="isInvoice">
+        <span class="gb-pill" :class="inv.error ? 'bad' : 'ok'">
+          {{ inv.exporting ? '生成中' : inv.error ? '存檔異常' : '就緒' }}
+        </span>
+        <span class="gb-list">編號 {{ inv.no || '—' }}</span>
+        <span class="spacer"></span>
+        <button class="btn accent" :disabled="inv.exporting || !inv.no" @click="invDownload">
+          <span v-if="inv.exporting" class="spin light"></span>{{ inv.exporting ? '生成中…' : '下載發票' }}
+        </button>
       </div>
       <template v-else>
       <div class="pv-scroll" ref="pvScroll">

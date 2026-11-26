@@ -1101,3 +1101,57 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
   .ct-sigmeta { grid-template-columns: 1fr; }
 }
 
+/* ================= 電子發票（A 版 · 3:2 橫版 · 全繁體） =================
+   聯動視覺沿用合同預覽那套 .pv-beacon 光環；
+   但 SVG <text> 沒有 background，.pv-hit 的背景色對它無效，
+   改用 stroke + paint-order:stroke 把描邊墊在字下，做出「螢光筆劃過」的效果。 */
+.inv-pane { display: flex; flex-direction: column; gap: 12px; }
+
+.inv-nobar { display: flex; align-items: center; gap: 10px; background: #fff;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.inv-no { display: flex; align-items: baseline; gap: 10px; }
+.inv-no-k { font-size: 11px; letter-spacing: 2px; color: var(--muted); }
+.inv-no-v { font-family: Consolas, "Courier New", monospace; font-size: 19px;
+  letter-spacing: 2px; color: #C62828; }
+.inv-no-st { font-size: 10.5px; padding: 2px 7px; border-radius: 3px;
+  background: #E8F5EE; color: #2E7955; letter-spacing: .5px; }
+.inv-no-st.wait { background: #FDF2E4; color: #B26A00; }
+.inv-no-hint { font-size: 11px; color: var(--muted); letter-spacing: .3px; }
+.inv-err { background: #FDECEA; border: 1px solid #F5C6C0; color: #C62828;
+  font-size: 12px; padding: 8px 12px; border-radius: 7px; }
+
+.inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.inv-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.inv-f.span2 { grid-column: span 2; }
+.inv-lab { font-size: 11px; color: var(--muted); letter-spacing: .5px; }
+.inv-lab i { font-style: normal; opacity: .6; margin-left: 4px; }
+.inv-ck { flex-direction: row; align-items: center; padding-top: 2px; }
+
+.inv-tip { font-size: 11.5px; line-height: 1.75; color: var(--muted);
+  background: #FBFAF6; border: 1px dashed var(--line); border-radius: 8px; padding: 10px 13px; }
+.inv-tip strong { color: var(--ink-2); font-weight: 600; }
+
+.inv-scroll { position: relative; padding: 20px; background: #EDF1F6; }
+.inv-sheet { background: #fff; box-shadow: 0 4px 18px rgba(11, 46, 89, .16); position: relative; }
+.inv-paper { display: block; width: 100%; height: auto;
+  font-family: "PingFang HK", "Microsoft JhengHei", "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+
+.iv-no { font-family: Consolas, "Courier New", monospace; font-size: 25px; letter-spacing: 3px; fill: #C62828; }
+.iv-co { font-size: 34px; letter-spacing: 7px; fill: #3F444B; opacity: .82; }
+.iv-title { font-size: 40px; letter-spacing: 14px; fill: #2A3138; opacity: .9; font-weight: 700; }
+.iv-lab { font-size: 21px; fill: #4B5158; }
+.iv-val { font-size: 21px; fill: #202830; }
+.iv-lab.sm { font-size: 15px; }
+.iv-lab.sm2 { font-size: 20px; }
+.iv-val.sm2 { font-size: 15px; }
+.iv-val.sm3 { font-size: 19px; }
+.iv-ln { stroke: #8CA0B4; stroke-width: 1; fill: none; }
+.iv-bx { fill: none; stroke: #7E93A8; stroke-width: 1.2; }
+
+/* 聯動命中區：每個字段配一塊透明 rect（SVG <text> 為空時沒有渲染盒，
+   getBoundingClientRect 全 0，光環會跑到容器原點；rect 有固定幾何，定位與高亮都穩）。
+   高亮沿用合同頁同一種水洗色 --hit。 */
+.iv-hit { fill: transparent; pointer-events: none; }
+.iv-hit.pv-hit { fill: rgb(var(--hit) / .1); }
+
+

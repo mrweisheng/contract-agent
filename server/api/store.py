@@ -124,6 +124,31 @@ def init():
             user_id INTEGER,
             expires_at TEXT
         )""")
+        # 電子發票（2026-11-26）：与合同流水**完全隔离**的独立表。
+        # 不复用 gens —— gens 是合同总表，合同管理页直接全表查，发票混进去会污染列表与统计。
+        # 号段独立：六位流水，**不使用数字 4 与 7**（香港讳 4「死」、7「执笠」，与楼宇无 4 楼同理），
+        # 作废只置 status='void' 留痕不删（IRD：作废留存根）。
+        # revision = 同号覆盖次数：下载即存档，改完再下载覆盖同一编号，不换号。
+        c.execute("""CREATE TABLE IF NOT EXISTS receipts (
+            no TEXT PRIMARY KEY,
+            payer TEXT DEFAULT '',
+            purpose TEXT DEFAULT '',
+            amount REAL DEFAULT 0,
+            method TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            payee TEXT DEFAULT '',
+            receipt_date TEXT DEFAULT '',
+            sealed INTEGER DEFAULT 1,
+            status TEXT,
+            created_at TEXT,
+            saved_at TEXT DEFAULT '',
+            revision INTEGER DEFAULT 0
+        )""")
+        # 旧库增量迁移：revision（同号覆盖次数）是后加的列
+        try:
+            c.execute("ALTER TABLE receipts ADD COLUMN revision INTEGER DEFAULT 0")
+        except Exception:
+            pass  # 列已存在
 
 
 def fx_get(base: str, quote: str):
@@ -518,3 +543,133 @@ def session_user(token: str):
             (token, _now()),
         ).fetchone()
         return dict(row) if row else None
+
+
+# ===================== 電子發票 =====================
+# 與合同 gens 表完全隔離：獨立表、獨立號段、獨立狀態機。
+# 狀態機：開頁占號 pending → 下載即存檔 ok（同號可反覆覆蓋，revision 累加）
+#        → 切走/新開單釋放 pending 或保留 ok → 超時未存檔的 pending 自動回收。
+#
+# 編號忌諱：香港諱 4（死）與 7（執笠）。整號不含 4 同時涵蓋 14「實死」、24「易死」、
+# 74 等所有組合，也與本地樓宇整段跳過 40–49 樓的慣例一致。
+# 代價是必然跳號（000003 → 000005、000039 → 000050）——規則固定、單向遞增、可解釋。
+
+RECEIPT_PENDING_MIN = 30   # 占號超時閾值（分鐘）：未存檔則回收，避免半途離開留下永久空號
+RECEIPT_BAD_DIGITS = ("4", "7")
+
+
+def _receipt_clean(no: str) -> bool:
+    """號面是否不含忌諱數字。"""
+    return bool(no) and not any(d in no for d in RECEIPT_BAD_DIGITS)
+
+
+def reserve_receipt_no() -> str:
+    """分配一個六位號（不含 4／7），返回 no（如 000190）。
+
+    - 取號基準＝當前最大已存在號 +1（含已作廢單，作廢號不回收不重用）；
+    - 撞到諱數或已占用的號直接往後推；
+    - 同時清掃超過 RECEIPT_PENDING_MIN 仍未存檔的 pending 占位；
+    - 六位用盡直接報錯，不靜默回繞。
+    """
+    stale = (datetime.datetime.now() - datetime.timedelta(minutes=RECEIPT_PENDING_MIN)
+             ).strftime("%Y-%m-%d %H:%M:%S")
+    with _lock, _conn(immediate=True) as c:
+        c.execute("DELETE FROM receipts WHERE status='pending' AND created_at < ?", (stale,))
+        row = c.execute("SELECT no FROM receipts ORDER BY no DESC LIMIT 1").fetchone()
+        seq = 1
+        if row:
+            try:
+                seq = int(row["no"]) + 1
+            except (TypeError, ValueError):
+                seq = 1
+        while seq <= 999999:
+            no = f"{seq:06d}"
+            if _receipt_clean(no) and not c.execute(
+                    "SELECT 1 FROM receipts WHERE no=?", (no,)).fetchone():
+                c.execute("INSERT INTO receipts(no,status,created_at) VALUES(?,?,?)",
+                          (no, "pending", _now()))
+                return no
+            seq += 1
+        raise RuntimeError("電子發票號段已用盡（六位、不含 4／7）")
+
+
+def save_receipt(payload: dict) -> dict:
+    """存檔（下載時自動呼叫）：同號覆蓋，revision 累加。
+
+    只接受本模組 reserve 已占用的號，避免前端傳任意號寫入；
+    已作廢的單拒絕改寫；尚未占號的號（理論上不會發生）走 INSERT 兜底。
+    """
+    no = str(payload.get("no") or "").strip()
+    if not no or not no.isdigit():
+        raise ValueError("發票編號不合法")
+    if not _receipt_clean(no):
+        raise ValueError("發票編號含忌諱數字")
+    vals = (
+        str(payload.get("payer") or "")[:200],
+        str(payload.get("purpose") or "")[:200],
+        float(payload.get("amount") or 0),
+        str(payload.get("method") or "")[:40],
+        str(payload.get("note") or "")[:200],
+        str(payload.get("payee") or "")[:60],
+        str(payload.get("receipt_date") or "")[:10],
+        1 if payload.get("sealed", True) else 0,
+        _now(),
+    )
+    with _lock, _conn(immediate=True) as c:
+        row = c.execute("SELECT status FROM receipts WHERE no=?", (no,)).fetchone()
+        if row and row["status"] == "void":
+            raise ValueError("該發票已作廢，不可再存檔")
+        if row:
+            c.execute(
+                "UPDATE receipts SET payer=?, purpose=?, amount=?, method=?, note=?, "
+                "payee=?, receipt_date=?, sealed=?, status='ok', saved_at=?, "
+                "revision=COALESCE(revision,0)+1 WHERE no=?", vals + (no,),
+            )
+        else:
+            c.execute(
+                "INSERT INTO receipts(no,payer,purpose,amount,method,note,payee,"
+                "receipt_date,sealed,status,saved_at,created_at,revision) "
+                "VALUES(?,?,?,?,?,?,?,?,?,'ok',?,?,1)", (no,) + vals + (_now(),),
+            )
+        rev = c.execute("SELECT revision FROM receipts WHERE no=?", (no,)).fetchone()["revision"]
+    return {"no": no, "status": "ok", "revision": rev}
+
+
+def release_receipt(no: str) -> bool:
+    """釋放占號：切菜單 / 新開一張時，把還沒存檔的號立即收回（不必等 30 分鐘超時）。
+
+    只刪 pending —— 已存檔的 ok 單和作廢單一律不動。
+    """
+    no = str(no or "").strip()
+    if not no.isdigit():
+        return False
+    with _lock, _conn(immediate=True) as c:
+        cur = c.execute("DELETE FROM receipts WHERE no=? AND status='pending'", (no,))
+        return cur.rowcount > 0
+
+
+def void_receipt(no: str) -> bool:
+    """作廢：只改狀態留痕，不刪行（IRD 要求作廢單保留存根）。"""
+    no = str(no or "").strip()
+    if not no.isdigit():
+        return False
+    with _lock, _conn(immediate=True) as c:
+        cur = c.execute("UPDATE receipts SET status='void' WHERE no=? AND status!='void'", (no,))
+        return cur.rowcount > 0
+
+
+def get_receipt(no: str):
+    no = str(no or "").strip()
+    with _conn() as c:
+        row = c.execute("SELECT * FROM receipts WHERE no=?", (no,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_receipts(limit: int = 200) -> list:
+    """最近 N 張已存檔發票（不含 pending 占位與作廢單），倒序。"""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM receipts WHERE status='ok' ORDER BY no DESC LIMIT ?",
+            (max(1, min(int(limit or 200), 1000)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
