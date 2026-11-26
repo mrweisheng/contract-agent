@@ -56,7 +56,9 @@ contract-agent/
 │  └─ data/            # 运行时生成：contracts.db + out/ 成品合同（★含客户隐私，必备份）+ test_out/ 测试残留
 ├─ scripts/
 │  ├─ test_pipeline.py # 回归测试（不调LLM，4类业务×3种付款模式）
+│  ├─ test_ui_smoke.mjs # UI 页面×区块冒烟（动 web/ 共享区域的提交前必跑，规约见 docs/ui-pages.md）
 │  └─ make_startbat.py # 重建 start.bat（CRLF）
+├─ docs/               # 接口说明 + ui-pages.md（UI 共享区域规约/新增页面 checklist）
 ├─ prototypes/         # 前端原型归档（HTML+research.md，不参与构建）
 ├─ DEPLOY.md           # Ubuntu + Nginx + HTTPS 部署手册
 └─ README.md           # 本文件

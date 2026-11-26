@@ -2875,7 +2875,8 @@ const app = createApp({
           </div>
         </div>
       </div>
-      <div class="pane-body" v-else :key="paneKey">
+      <!-- 合同录入栏：只属于合同业务页。规约见 docs/ui-pages.md——共享栏分支一律显式点名，禁裸 v-else（右栏曾因此错挂） -->
+      <div class="pane-body" v-if="!isSettlement && !isInvoice" :key="paneKey">
         <div v-if="fxNotice" class="fx-warn"><span class="fx-warn-ic">⚠</span>{{ fxNotice }}</div>
 
         <!-- 智能录入：台账模式＝默认收起的金色细条，点开才是输入区；常规模式＝原卡片 -->
