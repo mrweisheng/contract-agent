@@ -3378,7 +3378,8 @@ const app = createApp({
           <span v-if="inv.exporting" class="spin light"></span>{{ inv.exporting ? '生成中…' : '下載發票' }}
         </button>
       </div>
-      <template v-else>
+      <!-- 合同预览+底栏：只属于合同业务页（曾误挂发票底栏的 v-else，致结算单页把合同预览渲染进成品栏） -->
+      <template v-if="!isSettlement && !isInvoice">
       <div class="pv-scroll" ref="pvScroll">
         <div class="pv-sheet" ref="sheetEl"></div>
         <div class="pv-placeholder" v-if="pvState==='idle'">
