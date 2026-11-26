@@ -1246,12 +1246,14 @@ const app = createApp({
      * 編號走後端獨立號段：開頁占號 pending → 保存轉 ok → 作廢轉 void（號不回收）。 */
     const isInvoice = computed(() => selected.type === "invoice");
 
+    /* 付款方式：多選（同日可能又轉賬又收現金）。
+     * 紙面只印四格（現金／支票／銀行轉賬／微信轉賬）＋右側一條補充線，
+     * 所以「轉數快 FPS」這類不佔格的方式改由補充線文字承接，不另開第五格。 */
     const INV_METHODS = [
-      { key: "bank", label: "銀行轉賬" },
       { key: "cash", label: "現金" },
       { key: "cheque", label: "支票" },
+      { key: "bank", label: "銀行轉賬" },
       { key: "wechat", label: "微信轉賬" },
-      { key: "fps", label: "轉數快 FPS" },
     ];
 
     /* 幣種：默認港幣，可切人民幣。
@@ -1261,14 +1263,17 @@ const app = createApp({
       { key: "CNY", code: "CNY", sign: "¥", cn: "人民幣", label: "人民幣 CNY" },
     ];
 
-    /* 收款人固定為公司指定人（業務要求，2026-11-26）：不做成可編輯字段，
-     * 紙面、存檔同源取這個常量，避免被改成與公司章不符的姓名。 */
+    /* 收款人預設值：公司固定經手人。可改（2026-11-26 業務回調），
+     * 但新開一張／清空時必須回到這個人，避免殘留上一張的姓名。 */
     const INV_PAYEE = "陳煥明";
 
     const inv = reactive({
       no: "", date: todayISO(), currency: "HKD",
       payer: "", purpose: "", amount: null, note: "",
-      method: "bank", sealed: true,
+      payee: INV_PAYEE,
+      methods: [],        // 付款方式多選（cash/cheque/bank/wechat），可同時轉賬＋現金
+      methodNote: "",     // 付款方式右側補充線的文字（如：轉數快 FPS）
+      sealed: true,
       reserving: false, exporting: false, revision: 0,
       error: "",          // 後端存檔/出圖失敗
       warn: "",           // 必填校驗未過的提示（與 error 分開：一個是沒填，一個是壞了）
@@ -1278,13 +1283,14 @@ const app = createApp({
     });
 
     /* 下載前的必填項：**除「備註」外全部必填**。
-     * 收款人為固定常量不列項；幣種有默認值、只能二選一，也不列項。 */
+     * 收款人可改但不可空；幣種有默認值、只能二選一，不列項。 */
     const INV_REQ = [
       { key: "date", label: "日期" },
       { key: "amount", label: "實收金額" },
       { key: "payer", label: "付款方" },
       { key: "purpose", label: "款項說明" },
       { key: "method", label: "付款方式" },
+      { key: "payee", label: "收款人" },
     ];
     /* 純函數式取缺項，模板/下載共用同一口徑（避免兩處各寫一套「算不算填了」）。 */
     function invMissing() {
@@ -1293,9 +1299,13 @@ const app = createApp({
           const n = Number(inv.amount);
           return inv.amount === null || inv.amount === "" || !isFinite(n) || n <= 0;
         }
+        // 付款方式是「多選框或補充線文字」二者有其一即算填了
+        if (f.key === "method") return !inv.methods.length && !inv.methodNote.trim();
         return !String(inv[f.key] ?? "").trim();
       });
     }
+    /* 紙面印法：勾選態用數組，避免滿天飛的 inv.method === 'x' 判斷各寫一份 */
+    const invMethodOn = k => inv.methods.includes(k);
     /* 用戶開始改內容：撤掉「待補」紅標與提示，不讓上一次的報錯一直掛著。 */
     function invEdited() { inv.tried = false; inv.warn = ""; }
 
@@ -1386,7 +1396,8 @@ const app = createApp({
       invCloseCopy();
       inv.no = ""; inv.date = todayISO(); inv.currency = "HKD";
       inv.payer = ""; inv.purpose = ""; inv.amount = null; inv.note = "";
-      inv.method = "bank"; inv.sealed = true;
+      inv.payee = INV_PAYEE;
+      inv.methods = []; inv.methodNote = ""; inv.sealed = true;
       inv.revision = 0; inv.error = ""; inv.warn = ""; inv.tried = false;
     }
 
@@ -1455,8 +1466,9 @@ const app = createApp({
           body: JSON.stringify({
             no: inv.no,
             payer: inv.payer.trim(), purpose: inv.purpose.trim(),
-            amount: Number(inv.amount || 0), currency: inv.currency, method: inv.method,
-            note: inv.note.trim(), payee: INV_PAYEE,
+            amount: Number(inv.amount || 0), currency: inv.currency,
+            method: inv.methods.join(","), method_note: inv.methodNote.trim(),
+            note: inv.note.trim(), payee: inv.payee.trim(),
             receipt_date: inv.date, sealed: inv.sealed,
           }),
         });
@@ -2410,7 +2422,7 @@ const app = createApp({
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       isInvoice, inv, INV_METHODS, INV_CURRENCIES, INV_PAYEE, invCur, invAmountText, invCNText, invDate, invSign, invSeal,
-      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited, invCopyImage, invCloseCopy,
+      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited, invCopyImage, invCloseCopy, invMethodOn,
       invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
@@ -2754,19 +2766,22 @@ const app = createApp({
               <span class="inv-lab">款項說明 <i>Description</i></span>
               <input class="f-inp" id="inv-purpose" v-model.trim="inv.purpose" placeholder="該款項係付：">
             </div>
-            <div class="inv-f" :class="{ miss: inv.tried && !inv.method }">
-              <span class="inv-lab">付款方式 <i>Method</i></span>
-              <select class="f-inp" id="inv-method" v-model="inv.method">
-                <option v-for="m in INV_METHODS" :key="m.key" :value="m.key">{{ m.label }}</option>
-              </select>
+            <div class="inv-f span2" :class="{ miss: inv.tried && !inv.methods.length && !inv.methodNote.trim() }">
+              <span class="inv-lab">付款方式 <i>Method</i><b class="inv-opt">可多選</b></span>
+              <div class="inv-methods">
+                <label v-for="m in INV_METHODS" :key="m.key" class="inv-mck">
+                  <input type="checkbox" :id="m.key === 'cash' ? 'inv-method' : null"
+                         :value="m.key" v-model="inv.methods"><span>{{ m.label }}</span>
+                </label>
+                <input class="f-inp inv-mnote" id="inv-methodNote" v-model.trim="inv.methodNote"
+                       placeholder="其他方式，如：轉數快 FPS">
+              </div>
+            </div>
+            <div class="inv-f" :class="{ miss: inv.tried && !inv.payee.trim() }">
+              <span class="inv-lab">收款人 <i>Received by</i></span>
+              <input class="f-inp" id="inv-payee" v-model.trim="inv.payee" placeholder="預設陳煥明">
             </div>
             <div class="inv-f">
-              <span class="inv-lab">收款人 <i>Received by</i><b class="inv-fixed" title="公司指定收款人，不可修改">固定</b></span>
-              <!-- 收款人固定：不做 v-model，讀常量；只讀但仍可聚焦，聚焦照樣高亮右側紙面 -->
-              <input class="f-inp locked" id="inv-payee" :value="INV_PAYEE" readonly
-                     title="收款人固定為陳煥明，不可修改">
-            </div>
-            <div class="inv-f span2">
               <span class="inv-lab">備註 <i>Remarks</i><b class="inv-opt">選填</b></span>
               <input class="f-inp" id="inv-note" v-model.trim="inv.note" placeholder="選填，如：總價 230000RMB">
             </div>
@@ -3426,34 +3441,36 @@ const app = createApp({
 
             <!-- 付款方式 -->
             <g>
-              <rect class="iv-hit" data-field="method" x="190" y="348" width="640" height="30"/>
+              <rect class="iv-hit" data-field="method" x="190" y="348" width="470" height="30"/>
               <text class="iv-lab" x="76" y="368">付款方式：</text>
               <rect x="198" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
-              <g :opacity="inv.method === 'cash' ? 1 : 0">
+              <g :opacity="invMethodOn('cash') ? 1 : 0">
                 <path d="M200 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
               <text class="iv-lab sm2" x="220" y="368">現金</text>
 
               <rect x="298" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
-              <g :opacity="inv.method === 'cheque' ? 1 : 0">
+              <g :opacity="invMethodOn('cheque') ? 1 : 0">
                 <path d="M300 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
               <text class="iv-lab sm2" x="320" y="368">支票</text>
 
               <rect x="398" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
-              <g :opacity="inv.method === 'bank' || inv.method === 'fps' ? 1 : 0">
+              <g :opacity="invMethodOn('bank') ? 1 : 0">
                 <path d="M400 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
               <text class="iv-lab sm2" x="420" y="368">銀行轉賬</text>
 
               <rect x="548" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
-              <g :opacity="inv.method === 'wechat' ? 1 : 0">
+              <g :opacity="invMethodOn('wechat') ? 1 : 0">
                 <path d="M550 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
               <text class="iv-lab sm2" x="570" y="368">微信轉賬</text>
 
+              <!-- 右側空線：承接多選框放不下的方式（如 轉數快 FPS），與左欄輸入框同源 -->
+              <rect class="iv-hit" data-field="methodNote" x="684" y="348" width="140" height="30"/>
               <line class="iv-ln" x1="690" y1="374" x2="820" y2="374"/>
-              <text class="iv-val sm2" x="755" y="368" text-anchor="middle">{{ inv.method === 'fps' ? '轉數快 FPS' : '' }}</text>
+              <text class="iv-val sm2" x="755" y="368" text-anchor="middle">{{ inv.methodNote }}</text>
             </g>
 
             <!-- 備註 -->
@@ -3469,7 +3486,7 @@ const app = createApp({
             <text class="iv-lab" x="110" y="486">收款人：</text>
             <rect class="iv-hit" data-field="payee" x="190" y="464" width="156" height="34"/>
             <line class="iv-ln" x1="192" y1="492" x2="342" y2="492"/>
-            <text class="iv-val" x="267" y="486" text-anchor="middle">{{ INV_PAYEE }}</text>
+            <text class="iv-val" x="267" y="486" text-anchor="middle">{{ inv.payee }}</text>
             <text class="iv-lab sm3" x="358" y="486">（簽字蓋章）</text>
 
             <image v-if="inv.sealed && invSign" :href="invSign" x="496" y="430" width="112" height="74" opacity="0.92"/>

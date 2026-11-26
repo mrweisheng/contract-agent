@@ -59,7 +59,8 @@ const MATRIX = [
       leftHead: "电子收据", barsInclude: ["下載收據"],
       barsForbidden: ["生成合同", "生成结算单"],
       contractCellsZero: true, stImg: false, invSvg: true,
-      invPayee: "陳煥明",
+      invPayee: "陳煥明", invPayeePrinted: true,
+      invMethods: ["cash", "cheque", "bank", "wechat"],
     },
   },
   {
@@ -125,11 +126,15 @@ function probe() {
       leftHead: document.querySelector(".pane .pane-top h2")?.textContent.trim() ?? null,
       leftPane: document.querySelector(".pane .st-pane") ? "settlement"
               : document.querySelector(".pane .inv-pane") ? "invoice" : "contract",
-      /* 收款人固定（業務要求 2026-11-26）：值必須是陳煥明且只讀，杜絕再被改回可編輯 */
+      /* 收款人（2026-11-26 業務定案）：可編輯、預設陳煥明；紙面必須同步印出當前值。
+         兩條一起釘：默認值不被改掉 ＋ 不會又被鎖成只讀。 */
       invPayee: (() => {
         const i = document.querySelector("#inv-payee");
         return i ? { value: i.value, readonly: i.readOnly } : null;
       })(),
+      invPayeePrinted: (document.querySelector(".inv-paper")?.textContent || "").includes("陳煥明"),
+      /* 付款方式：四個多選框（現金／支票／銀行轉賬／微信轉賬），不是單選下拉 */
+      invMethods: [...document.querySelectorAll(".inv-methods input[type=checkbox]")].map(i => i.value),
       /* 合同管理快捷日期標籤（業務要求只留三個：近7天/近30天/本月） */
       ctChips: [...document.querySelectorAll(".ct-quick .chip")].map(b => b.textContent.trim()),
     });
@@ -177,8 +182,14 @@ function checkPage(expect, act) {
     else {
       if (act.invPayee.value !== expect.invPayee)
         fails.push(`收款人「${act.invPayee.value}」≠「${expect.invPayee}」`);
-      if (act.invPayee.readonly !== true) fails.push("收款人字段可编辑（应固定只读）");
+      if (act.invPayee.readonly) fails.push("收款人字段只读（应可编辑）");
     }
+  }
+  if (has("invPayeePrinted") && act.invPayeePrinted !== expect.invPayeePrinted)
+    fails.push(`纸面收款人=${act.invPayeePrinted}，期望 ${expect.invPayeePrinted}`);
+  if (has("invMethods")) {
+    const want = JSON.stringify(expect.invMethods), got = JSON.stringify(act.invMethods || []);
+    if (want !== got) fails.push(`付款方式多选框 ${got}，期望 ${want}`);
   }
   return fails;
 }

@@ -136,6 +136,7 @@ def init():
             amount REAL DEFAULT 0,
             currency TEXT DEFAULT 'HKD',
             method TEXT DEFAULT '',
+            method_note TEXT DEFAULT '',
             note TEXT DEFAULT '',
             payee TEXT DEFAULT '',
             receipt_date TEXT DEFAULT '',
@@ -153,6 +154,11 @@ def init():
         # 旧库增量迁移：currency（HKD/CNY，默认港币）是后加的列
         try:
             c.execute("ALTER TABLE receipts ADD COLUMN currency TEXT DEFAULT 'HKD'")
+        except Exception:
+            pass  # 列已存在
+        # 旧库增量迁移：method_note（付款方式右侧补充线文字）是后加的列
+        try:
+            c.execute("ALTER TABLE receipts ADD COLUMN method_note TEXT DEFAULT ''")
         except Exception:
             pass  # 列已存在
 
@@ -607,9 +613,9 @@ def save_receipt(payload: dict) -> dict:
     """
     no = str(payload.get("no") or "").strip()
     if not no or not no.isdigit():
-        raise ValueError("發票編號不合法")
+        raise ValueError("收據編號不合法")
     if not _receipt_clean(no):
-        raise ValueError("發票編號含忌諱數字")
+        raise ValueError("收據編號含忌諱數字")
     # 幣種白名單：只認港幣 / 人民幣，其餘一律回落港幣（舊前端沒傳時也走默認）
     cur_code = str(payload.get("currency") or "HKD").strip().upper()
     if cur_code not in ("HKD", "CNY"):
@@ -620,6 +626,7 @@ def save_receipt(payload: dict) -> dict:
     payer = str(payload.get("payer") or "").strip()
     purpose = str(payload.get("purpose") or "").strip()
     method = str(payload.get("method") or "").strip()
+    method_note = str(payload.get("method_note") or "").strip()
     payee = str(payload.get("payee") or "").strip()
     receipt_date = str(payload.get("receipt_date") or "").strip()
     try:
@@ -632,7 +639,7 @@ def save_receipt(payload: dict) -> dict:
         raise ValueError("款項說明未填寫，不能存檔")
     if amount <= 0:
         raise ValueError("實收金額必須大於 0")
-    if not method:
+    if not method and not method_note:
         raise ValueError("付款方式未選擇")
     if not payee:
         raise ValueError("收款人未填寫")
@@ -643,6 +650,7 @@ def save_receipt(payload: dict) -> dict:
         purpose[:200],
         amount,
         method[:40],
+        method_note[:200],
         str(payload.get("note") or "")[:200],
         payee[:60],
         receipt_date[:10],
@@ -653,18 +661,18 @@ def save_receipt(payload: dict) -> dict:
     with _lock, _conn(immediate=True) as c:
         row = c.execute("SELECT status FROM receipts WHERE no=?", (no,)).fetchone()
         if row and row["status"] == "void":
-            raise ValueError("該發票已作廢，不可再存檔")
+            raise ValueError("該收據已作廢，不可再存檔")
         if row:
             c.execute(
-                "UPDATE receipts SET payer=?, purpose=?, amount=?, method=?, note=?, "
+                "UPDATE receipts SET payer=?, purpose=?, amount=?, method=?, method_note=?, note=?, "
                 "payee=?, receipt_date=?, sealed=?, currency=?, status='ok', saved_at=?, "
                 "revision=COALESCE(revision,0)+1 WHERE no=?", vals + (no,),
             )
         else:
             c.execute(
-                "INSERT INTO receipts(no,payer,purpose,amount,method,note,payee,"
+                "INSERT INTO receipts(no,payer,purpose,amount,method,method_note,note,payee,"
                 "receipt_date,sealed,currency,status,saved_at,created_at,revision) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,'ok',?,?,1)", (no,) + vals + (_now(),),
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,'ok',?,?,1)", (no,) + vals + (_now(),),
             )
         rev = c.execute("SELECT revision FROM receipts WHERE no=?", (no,)).fetchone()["revision"]
     return {"no": no, "status": "ok", "revision": rev}

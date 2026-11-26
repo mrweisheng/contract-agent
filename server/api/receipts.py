@@ -22,7 +22,8 @@ class ReceiptPayload(BaseModel):
     purpose: str = ""
     amount: float = 0
     currency: str = "HKD"
-    method: str = ""
+    method: str = ""          # 多選：逗號分隔的 key（cash,cheque,bank,wechat）
+    method_note: str = ""     # 付款方式右側補充線文字（如：轉數快 FPS）
     note: str = ""
     payee: str = ""
     receipt_date: str = ""
