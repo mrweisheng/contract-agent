@@ -39,7 +39,7 @@ const MATRIX = [
     expect: {
       previewPane: true, pvHead: "合同实时预览", leftPane: "contract",
       leftHeadIncludes: "卖车", barsInclude: ["生成合同"],
-      barsForbidden: ["生成结算单", "下載發票"],
+      barsForbidden: ["生成结算单", "下載收據"],
       contractCellsMin: 1, stImg: false, invSvg: false,
     },
   },
@@ -48,15 +48,15 @@ const MATRIX = [
     expect: {
       previewPane: true, pvHead: "结算单成品", leftPane: "settlement",
       leftHead: "收款结算单", barsInclude: ["生成结算单"],
-      barsForbidden: ["生成合同", "下載發票"],
+      barsForbidden: ["生成合同", "下載收據"],
       contractCellsZero: true, stImg: true, invSvg: false,
     },
   },
   {
     name: "电子收据", nav: "电子收据",
     expect: {
-      previewPane: true, pvHead: "發票實時預覽", leftPane: "invoice",
-      leftHead: "电子收据", barsInclude: ["下載發票"],
+      previewPane: true, pvHead: "收據實時預覽", leftPane: "invoice",
+      leftHead: "电子收据", barsInclude: ["下載收據"],
       barsForbidden: ["生成合同", "生成结算单"],
       contractCellsZero: true, stImg: false, invSvg: true,
       invPayee: "陳煥明",
@@ -74,7 +74,7 @@ const MATRIX = [
     name: "切回合同（结算单→车务，覆盖原始 bug 的切换路径）", nav: "车务",
     expect: {
       previewPane: true, pvHead: "合同实时预览", leftPane: "contract",
-      barsInclude: ["生成合同"], barsForbidden: ["生成结算单", "下載發票"],
+      barsInclude: ["生成合同"], barsForbidden: ["生成结算单", "下載收據"],
       contractCellsMin: 1, stImg: false, invSvg: false,
     },
   },

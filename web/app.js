@@ -233,7 +233,7 @@ const app = createApp({
     }
     function selectMenu(it) {
       if (isActive(it)) return;
-      if (selected.type === "invoice" && it.key !== "invoice") invLeave();  // 離開發票頁：清空並釋放未存檔的號
+      if (selected.type === "invoice" && it.key !== "invoice") invLeave();  // 離開收據頁：清空並釋放未存檔的號
       cancelPending();
       selected.type = it.key; selected.port = it.port;
       result.value = null; extractNotes.value = []; warnNotes.value = [];
@@ -1273,6 +1273,8 @@ const app = createApp({
       error: "",          // 後端存檔/出圖失敗
       warn: "",           // 必填校驗未過的提示（與 error 分開：一個是沒填，一個是壞了）
       tried: false,       // 是否已按過下載：按過才標紅，避免一進頁滿屏紅
+      copyUrl: "",        // 剪貼板不可用時的圖片預覽 blob URL
+      copySize: "",       // 預覽圖片尺寸文案
     });
 
     /* 下載前的必填項：**除「備註」外全部必填**。
@@ -1357,7 +1359,7 @@ const app = createApp({
       return { y: y || "", m: m ? String(Number(m)) : "", d: d ? String(Number(d)) : "" };
     });
 
-    /* 印信：進入發票頁時取一次，轉 data URI 內嵌。
+    /* 印信：進入收據頁時取一次，轉 data URI 內嵌。
      * 好處：① 導出 PNG 時 SVG 完全自包含，不會因外部引用把 canvas 弄髒；
      *       ② 印章缺失時靜默留空，不阻斷開票。 */
     const invSign = ref("");
@@ -1381,6 +1383,7 @@ const app = createApp({
 
     /* 清空表單內容（不取號） */
     function invClear() {
+      invCloseCopy();
       inv.no = ""; inv.date = todayISO(); inv.currency = "HKD";
       inv.payer = ""; inv.purpose = ""; inv.amount = null; inv.note = "";
       inv.method = "bank"; inv.sealed = true;
@@ -1393,7 +1396,7 @@ const app = createApp({
       invReserve();
     }
 
-    /* 離開發票頁：清空內容。
+    /* 離開收據頁：清空內容。
      * 未存檔的占號**不即時釋放**，交給後端 30 分鐘超時回收 ——
      * 一來即時釋放的號會被下一個重用，用戶會看到「切走再回來編號沒變」，像沒生效；
      * 二來編號單向遞增，跳一個號比號碼倒退更符合直覺（4／7 本來就在跳）。 */
@@ -1416,7 +1419,7 @@ const app = createApp({
       }
     }
 
-    /* 切進發票頁：清合同聯動殘留；離開時已清空，這裡直接取新號 */
+    /* 切進收據頁：清合同聯動殘留；離開時已清空，這裡直接取新號 */
     function invSwitchIn() {
       clearTimeout(pvHitTimer); clearPvHit(); pvHit = null;
       clearTimeout(invHitTimer); invClearHit(); invHitKey = "";
@@ -1424,22 +1427,26 @@ const app = createApp({
       if (!inv.no) invReserve();
     }
 
+    /* 下載／複製圖片共用：必填校驗。缺項就地標紅 + 聚焦第一個缺項，
+     * 避免只彈一句「請填寫」用戶卻找不到是哪個框。 */
+    function invPassCheck() {
+      inv.tried = true;                       // 按過才標紅，不干擾首次填寫
+      const miss = invMissing();
+      if (!miss.length) { inv.warn = ""; return true; }
+      inv.warn = "請先填寫：" + miss.map(f => f.label).join("、");
+      toast(inv.warn, "bad", 3600);
+      const el = document.getElementById("inv-" + miss[0].key);
+      el?.focus?.();
+      el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      return false;
+    }
+
     /* 下載即存檔：先校驗必填 → UPSERT（同號覆蓋、revision 累加）→ 出圖。
      * 缺項**不存檔也不出圖**：空白收據一旦發出，號已消耗、客戶手上還有張沒金額的單。
      * 存檔失敗仍然出圖——客戶要拿到單子；錯誤在頁面標紅提示，不靜默吞掉。 */
     async function invDownload() {
       if (inv.exporting || inv.reserving) return;
-      inv.tried = true;                       // 按過才標紅，不干擾首次填寫
-      const miss = invMissing();
-      if (miss.length) {
-        inv.warn = "請先填寫：" + miss.map(f => f.label).join("、");
-        toast(inv.warn, "bad", 3600);
-        const el = document.getElementById("inv-" + miss[0].key);
-        el?.focus?.();
-        el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-        return;
-      }
-      inv.warn = "";
+      if (!invPassCheck()) return;
       if (!inv.no) { toast("編號生成中，請稍候重試", "bad"); return; }
       inv.exporting = true; inv.error = "";
       try {
@@ -1465,9 +1472,17 @@ const app = createApp({
       invExportPng();   // 存檔成敗都出圖
     }
 
-    /* ---------- 發票聯動：字段聚焦 → 紙面對應位置高亮 ----------
+    /* 右鍵／按鈕複製圖片：與下載同一道必填校驗，但不存檔、不耗號。
+     * 用途是貼到微信／Word 直接發客戶，不必先落一份文件再轉發。 */
+    async function invCopyImage() {
+      if (inv.exporting || inv.reserving) return;
+      if (!invPassCheck()) return;
+      await invExportPng("copy");
+    }
+
+    /* ---------- 收據聯動：字段聚焦 → 紙面對應位置高亮 ----------
      * 合同頁靠後端 field_anchors 做結構定位（docx 渲染的是格式化文本，值匹配必失敗）。
-     * 發票是 SVG，每個字段自帶 data-field，直接命中——零配置、零歧義。
+     * 收據是 SVG，每個字段自帶 data-field，直接命中——零配置、零歧義。
      * 視覺複用合同頁那套 .pv-hit + .pv-beacon 光環（同一種聯動語言，用戶不用重新學）。 */
     const invScroll = ref(null);
     const invSheet = ref(null);
@@ -1541,7 +1556,7 @@ const app = createApp({
       clearTimeout(invHitTimer); invClearHit(); invHitKey = "";
     }
 
-    /* 導出用：把發票相關 CSS 從當前樣式表裡抓出來，內嵌進克隆的 SVG。
+    /* 導出用：把收據相關 CSS 從當前樣式表裡抓出來，內嵌進克隆的 SVG。
      * 原因：SVG 序列化成獨立文件時不帶外部樣式表，class 全部丟失 ——
      * rect 默認黑色填充、text 默認黑色 16px，導出圖會整片變黑（2026-11-26 實測踩過）。
      * 只抓 .iv- / .inv- 前綴與 :root 變量，不影響其它樣式。 */
@@ -1559,46 +1574,78 @@ const app = createApp({
       return parts.join("\n");
     }
 
-    /* SVG → PNG（3 倍圖）。印信已內嵌為 data URI，導出不受外部資源影響。 */
-    function invExportPng() {
-      const svg = invSheet.value?.querySelector("svg");
-      if (!svg) return;
-      const vb = svg.viewBox.baseVal;
-      const clone = svg.cloneNode(true);
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      clone.setAttribute("width", vb.width);
-      clone.setAttribute("height", vb.height);
-      // 導出的圖不該帶聯動高亮
-      clone.querySelectorAll(".pv-hit").forEach(el => el.classList.remove("pv-hit"));
-      // 樣式內嵌：否則 class 全丟，紙面大面積變黑
-      const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
-      styleEl.textContent = invSvgCss();
-      clone.insertBefore(styleEl, clone.firstChild);
-      const xml = new XMLSerializer().serializeToString(clone);
-      const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
-      const img = new Image();
-      img.onload = () => {
-        const scale = 3, w = Math.round(vb.width * scale), h = Math.round(vb.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(url);
-        canvas.toBlob(blob => {
-          if (!blob) { toast("PNG 生成失敗", "bad"); return; }
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = `華星_電子收據_${inv.no || "未編號"}.png`;
-          document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(() => URL.revokeObjectURL(a.href), 1500);
-          toast(inv.error ? `已下載（${w} × ${h}）· 存檔失敗` : `已下載（${w} × ${h}）· 已存檔`,
-                inv.error ? "bad" : "ok", 3600);
-        }, "image/png");
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); toast("PNG 生成失敗，請換 Chrome／Edge 開啟", "bad"); };
-      img.src = url;
+    /* SVG → PNG Blob（3 倍圖）。印信已內嵌為 data URI，導出不受外部資源影響。
+     * 下載與「複製圖片」共用同一條出圖管線，避免兩處各寫一份 canvas 邏輯。 */
+    function invPngBlob() {
+      return new Promise((resolve, reject) => {
+        const svg = invSheet.value?.querySelector("svg");
+        if (!svg) { reject(new Error("紙面尚未渲染")); return; }
+        const vb = svg.viewBox.baseVal;
+        const clone = svg.cloneNode(true);
+        clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        clone.setAttribute("width", vb.width);
+        clone.setAttribute("height", vb.height);
+        // 導出的圖不該帶聯動高亮
+        clone.querySelectorAll(".pv-hit").forEach(el => el.classList.remove("pv-hit"));
+        // 樣式內嵌：否則 class 全丟，紙面大面積變黑
+        const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+        styleEl.textContent = invSvgCss();
+        clone.insertBefore(styleEl, clone.firstChild);
+        const xml = new XMLSerializer().serializeToString(clone);
+        const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
+        const img = new Image();
+        img.onload = () => {
+          const scale = 3, w = Math.round(vb.width * scale), h = Math.round(vb.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(b => b ? resolve({ blob: b, w, h }) : reject(new Error("PNG 生成失敗")), "image/png");
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("PNG 生成失敗，請換 Chrome／Edge 開啟")); };
+        img.src = url;
+      });
     }
+
+    /* 出圖：download=存檔後下載；copy=只複製進剪貼板（不存檔、不耗號）。 */
+    async function invExportPng(mode = "download") {
+      let png;
+      try { png = await invPngBlob(); }
+      catch (e) { toast(String(e.message || e), "bad", 4200); return; }
+      if (mode === "copy") { await invCopyBlob(png); return; }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(png.blob);
+      a.download = `華星_電子收據_${inv.no || "未編號"}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+      toast(inv.error ? `已下載（${png.w} × ${png.h}）· 存檔失敗` : `已下載（${png.w} × ${png.h}）· 已存檔`,
+            inv.error ? "bad" : "ok", 3600);
+    }
+
+    /* 寫入剪貼板：Clipboard API 只認安全上下文（https / localhost）。
+     * 局域網 http 打開時必然 NotAllowedError —— 退回「頁內圖片預覽」，
+     * 用戶在圖片上右鍵「複製圖片」照樣拿到圖，不必先落一份檔案再轉發。 */
+    async function invCopyBlob({ blob, w, h }) {
+      try {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
+          throw new Error("Clipboard API 不可用");
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        toast(`已複製圖片（${w} × ${h}），可直接貼到微信／Word`, "ok", 3800);
+        return;
+      } catch { /* 落到下面的預覽兜底 */ }
+      invCloseCopy();
+      inv.copyUrl = URL.createObjectURL(blob);
+      inv.copySize = `${w} × ${h}`;
+      toast("此環境不支援直接寫剪貼板：已開圖片預覽，右鍵「複製圖片」即可", "warn", 5200);
+    }
+
+    function invCloseCopy() {
+      if (inv.copyUrl) URL.revokeObjectURL(inv.copyUrl);
+      inv.copyUrl = ""; inv.copySize = "";
+    }
+
 
 
     /* ---------- 合同管理（卡片视图 + 签署人信息） ----------
@@ -2363,7 +2410,7 @@ const app = createApp({
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
       isInvoice, inv, INV_METHODS, INV_CURRENCIES, INV_PAYEE, invCur, invAmountText, invCNText, invDate, invSign, invSeal,
-      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited,
+      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited, invCopyImage, invCloseCopy,
       invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
@@ -2668,7 +2715,7 @@ const app = createApp({
 
         <div class="inv-nobar">
           <div class="inv-no">
-            <span class="inv-no-k">發票編號 No.</span>
+            <span class="inv-no-k">收據編號 No.</span>
             <b class="inv-no-v">{{ inv.no || (inv.reserving ? '生成中…' : '—') }}</b>
             <span class="inv-no-st" v-if="inv.revision > 0">已存檔 · 第 {{ inv.revision }} 版</span>
             <span class="inv-no-st wait" v-else-if="inv.no">自動生成</span>
@@ -3285,8 +3332,8 @@ const app = createApp({
     <!-- ================= 成品栏：结算单成品 / 合同实时预览 ================= -->
     <section class="pane preview-pane" v-if="!isFullPage" @pointerdown="onPreviewPanePointerdown">
       <div class="pv-head">
-        <b>{{ isSettlement ? '结算单成品' : isInvoice ? '發票實時預覽' : '合同实时预览' }}</b>
-        <span class="pv-sub" v-if="isInvoice">紙面全繁體 · 3:2 橫版 210 × 140 mm</span>
+        <b>{{ isSettlement ? '结算单成品' : isInvoice ? '收據實時預覽' : '合同实时预览' }}</b>
+        <span class="pv-sub" v-if="isInvoice">紙面全繁體 · 7:4 橫版 210 × 120 mm · 紙面右鍵可複製圖片</span>
         <span class="pv-sub" v-else-if="!isSettlement">与下载文件 1:1 同源</span>
         <span class="spacer"></span>
         <span v-if="!isSettlement && !isInvoice && pvState==='loading'" class="pv-status">渲染中…</span>
@@ -3327,104 +3374,106 @@ const app = createApp({
         </div>
       </div>
       <div class="pv-scroll inv-scroll" v-else-if="isInvoice" ref="invScroll" @pointerdown="invPreviewDown">
-        <div class="inv-sheet" ref="invSheet">
-          <svg viewBox="0 0 900 600" xmlns="http://www.w3.org/2000/svg" class="inv-paper" role="img" aria-label="電子收據">
-            <rect x="0" y="0" width="900" height="600" fill="#FFFFFF"/>
+        <!-- 紙面右鍵＝複製圖片（PNG）：發客戶時不必先下載再附檔 -->
+        <div class="inv-sheet" ref="invSheet" @contextmenu.prevent="invCopyImage"
+             title="右鍵：複製圖片，可直接粘貼到微信／Word">
+          <svg viewBox="0 0 900 514" xmlns="http://www.w3.org/2000/svg" class="inv-paper" role="img" aria-label="電子收據">
+            <rect x="0" y="0" width="900" height="514" fill="#FFFFFF"/>
 
-            <text class="iv-no" x="848" y="56" text-anchor="end" data-field="no">{{ inv.no || '—' }}</text>
+            <text class="iv-no" x="848" y="48" text-anchor="end" data-field="no">{{ inv.no || '—' }}</text>
 
-            <text class="iv-co" x="450" y="118" text-anchor="middle" data-field="co">華星資源開發有限公司</text>
-            <text class="iv-title" x="450" y="174" text-anchor="middle">收　據</text>
+            <text class="iv-co" x="450" y="106" text-anchor="middle" data-field="co">華星資源開發有限公司</text>
+            <text class="iv-title" x="450" y="158" text-anchor="middle">收　據</text>
 
             <!-- 日期 -->
-            <rect class="iv-hit" data-field="date" x="140" y="204" width="405" height="38"/>
-            <text class="iv-lab" x="150" y="228">日期：</text>
-            <line class="iv-ln" x1="215" y1="234" x2="300" y2="234"/>
-            <text class="iv-val" x="257" y="228" text-anchor="middle">{{ invDate.y }}</text>
-            <text class="iv-lab" x="310" y="228">年</text>
-            <line class="iv-ln" x1="340" y1="234" x2="410" y2="234"/>
-            <text class="iv-val" x="375" y="228" text-anchor="middle">{{ invDate.m }}</text>
-            <text class="iv-lab" x="420" y="228">月</text>
-            <line class="iv-ln" x1="450" y1="234" x2="520" y2="234"/>
-            <text class="iv-val" x="485" y="228" text-anchor="middle">{{ invDate.d }}</text>
-            <text class="iv-lab" x="530" y="228">日</text>
+            <rect class="iv-hit" data-field="date" x="140" y="182" width="405" height="34"/>
+            <text class="iv-lab" x="150" y="202">日期：</text>
+            <line class="iv-ln" x1="215" y1="208" x2="300" y2="208"/>
+            <text class="iv-val" x="257" y="202" text-anchor="middle">{{ invDate.y }}</text>
+            <text class="iv-lab" x="310" y="202">年</text>
+            <line class="iv-ln" x1="340" y1="208" x2="410" y2="208"/>
+            <text class="iv-val" x="375" y="202" text-anchor="middle">{{ invDate.m }}</text>
+            <text class="iv-lab" x="420" y="202">月</text>
+            <line class="iv-ln" x1="450" y1="208" x2="520" y2="208"/>
+            <text class="iv-val" x="485" y="202" text-anchor="middle">{{ invDate.d }}</text>
+            <text class="iv-lab" x="530" y="202">日</text>
 
-            <rect class="iv-bx" x="58" y="252" width="784" height="264" rx="2"/>
+            <rect class="iv-bx" x="58" y="224" width="784" height="196" rx="2"/>
 
             <!-- 今收到 -->
-            <rect class="iv-hit" data-field="payer" x="176" y="266" width="336" height="34"/>
-            <text class="iv-lab" x="76" y="288">今收到</text>
-            <line class="iv-ln" x1="178" y1="294" x2="508" y2="294"/>
-            <text class="iv-val" x="343" y="288" text-anchor="middle">{{ inv.payer }}</text>
-            <text class="iv-lab" x="520" y="288">交來金額：</text>
-            <rect class="iv-hit" data-field="amount" x="634" y="266" width="136" height="34"/>
-            <line class="iv-ln" x1="636" y1="294" x2="766" y2="294"/>
-            <text class="iv-val" x="701" y="288" text-anchor="middle">{{ invAmountText ? invCur.sign + invAmountText : '' }}</text>
-            <text class="iv-lab sm" x="772" y="288">（小寫）</text>
+            <rect class="iv-hit" data-field="payer" x="176" y="232" width="336" height="34"/>
+            <text class="iv-lab" x="76" y="254">今收到</text>
+            <line class="iv-ln" x1="178" y1="260" x2="508" y2="260"/>
+            <text class="iv-val" x="343" y="254" text-anchor="middle">{{ inv.payer }}</text>
+            <text class="iv-lab" x="520" y="254">交來金額：</text>
+            <rect class="iv-hit" data-field="amount" x="634" y="232" width="136" height="34"/>
+            <line class="iv-ln" x1="636" y1="260" x2="766" y2="260"/>
+            <text class="iv-val" x="701" y="254" text-anchor="middle">{{ invAmountText ? invCur.sign + invAmountText : '' }}</text>
+            <text class="iv-lab sm" x="772" y="254">（小寫）</text>
 
             <!-- 大寫 -->
-            <text class="iv-lab" x="76" y="328">金額（大寫）：</text>
-            <rect class="iv-hit" data-field="amount" x="260" y="306" width="460" height="34"/>
-            <line class="iv-ln" x1="262" y1="334" x2="718" y2="334"/>
-            <text class="iv-val" x="490" y="328" text-anchor="middle">{{ invCNText }}</text>
-            <text class="iv-lab" x="820" y="328" text-anchor="end">{{ invCur.cn }}</text>
+            <text class="iv-lab" x="76" y="292">金額（大寫）：</text>
+            <rect class="iv-hit" data-field="amount" x="260" y="272" width="460" height="34"/>
+            <line class="iv-ln" x1="262" y1="298" x2="718" y2="298"/>
+            <text class="iv-val" x="490" y="292" text-anchor="middle">{{ invCNText }}</text>
+            <text class="iv-lab" x="820" y="292" text-anchor="end">{{ invCur.cn }}</text>
 
             <!-- 款項說明 -->
-            <text class="iv-lab" x="76" y="368">該款項係付：</text>
-            <rect class="iv-hit" data-field="purpose" x="228" y="346" width="596" height="34"/>
-            <line class="iv-ln" x1="230" y1="374" x2="820" y2="374"/>
-            <text class="iv-val" x="525" y="368" text-anchor="middle">{{ inv.purpose }}</text>
+            <text class="iv-lab" x="76" y="330">該款項係付：</text>
+            <rect class="iv-hit" data-field="purpose" x="228" y="310" width="596" height="34"/>
+            <line class="iv-ln" x1="230" y1="336" x2="820" y2="336"/>
+            <text class="iv-val" x="525" y="330" text-anchor="middle">{{ inv.purpose }}</text>
 
             <!-- 付款方式 -->
             <g>
-              <rect class="iv-hit" data-field="method" x="190" y="388" width="640" height="30"/>
-              <text class="iv-lab" x="76" y="408">付款方式：</text>
-              <rect x="198" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <rect class="iv-hit" data-field="method" x="190" y="348" width="640" height="30"/>
+              <text class="iv-lab" x="76" y="368">付款方式：</text>
+              <rect x="198" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
               <g :opacity="inv.method === 'cash' ? 1 : 0">
-                <path d="M200 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M200 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
-              <text class="iv-lab sm2" x="220" y="408">現金</text>
+              <text class="iv-lab sm2" x="220" y="368">現金</text>
 
-              <rect x="298" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <rect x="298" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
               <g :opacity="inv.method === 'cheque' ? 1 : 0">
-                <path d="M300 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M300 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
-              <text class="iv-lab sm2" x="320" y="408">支票</text>
+              <text class="iv-lab sm2" x="320" y="368">支票</text>
 
-              <rect x="398" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <rect x="398" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
               <g :opacity="inv.method === 'bank' || inv.method === 'fps' ? 1 : 0">
-                <path d="M400 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M400 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
-              <text class="iv-lab sm2" x="420" y="408">銀行轉賬</text>
+              <text class="iv-lab sm2" x="420" y="368">銀行轉賬</text>
 
-              <rect x="548" y="395" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
+              <rect x="548" y="355" width="14" height="14" fill="none" stroke="#2B3A4A" stroke-width="1.3"/>
               <g :opacity="inv.method === 'wechat' ? 1 : 0">
-                <path d="M550 402 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M550 362 l4 4 l7 -9" fill="none" stroke="#2B3A4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </g>
-              <text class="iv-lab sm2" x="570" y="408">微信轉賬</text>
+              <text class="iv-lab sm2" x="570" y="368">微信轉賬</text>
 
-              <line class="iv-ln" x1="690" y1="414" x2="820" y2="414"/>
-              <text class="iv-val sm2" x="755" y="408" text-anchor="middle">{{ inv.method === 'fps' ? '轉數快 FPS' : '' }}</text>
+              <line class="iv-ln" x1="690" y1="374" x2="820" y2="374"/>
+              <text class="iv-val sm2" x="755" y="368" text-anchor="middle">{{ inv.method === 'fps' ? '轉數快 FPS' : '' }}</text>
             </g>
 
             <!-- 備註 -->
-            <text class="iv-lab" x="76" y="448">備　注：</text>
-            <rect class="iv-hit" data-field="note" x="176" y="426" width="648" height="34"/>
-            <line class="iv-ln" x1="178" y1="454" x2="820" y2="454"/>
-            <text class="iv-val sm3" x="499" y="448" text-anchor="middle">{{ inv.note }}</text>
+            <text class="iv-lab" x="76" y="406">備　注：</text>
+            <rect class="iv-hit" data-field="note" x="176" y="382" width="648" height="34"/>
+            <line class="iv-ln" x1="178" y1="412" x2="820" y2="412"/>
+            <text class="iv-val" x="499" y="406" text-anchor="middle">{{ inv.note }}</text>
 
-            <line class="iv-ln" x1="76" y1="484" x2="820" y2="484"/>
-            <line class="iv-ln" x1="76" y1="506" x2="820" y2="506"/>
+            <line class="iv-ln" x1="76" y1="428" x2="820" y2="428"/>
+            <line class="iv-ln" x1="76" y1="446" x2="820" y2="446"/>
 
             <!-- 收款人 + 印信 -->
-            <text class="iv-lab" x="110" y="560">收款人：</text>
-            <rect class="iv-hit" data-field="payee" x="190" y="538" width="156" height="34"/>
-            <line class="iv-ln" x1="192" y1="566" x2="342" y2="566"/>
-            <text class="iv-val" x="267" y="558" text-anchor="middle">{{ INV_PAYEE }}</text>
-            <text class="iv-lab sm2" x="358" y="560">（簽字蓋章）</text>
+            <text class="iv-lab" x="110" y="486">收款人：</text>
+            <rect class="iv-hit" data-field="payee" x="190" y="464" width="156" height="34"/>
+            <line class="iv-ln" x1="192" y1="492" x2="342" y2="492"/>
+            <text class="iv-val" x="267" y="486" text-anchor="middle">{{ INV_PAYEE }}</text>
+            <text class="iv-lab sm3" x="358" y="486">（簽字蓋章）</text>
 
-            <image v-if="inv.sealed && invSign" :href="invSign" x="492" y="496" width="118" height="79" opacity="0.92"/>
-            <image v-if="inv.sealed && invSeal" :href="invSeal" x="636" y="470" width="104" height="103" opacity="0.9" transform="rotate(-6 688 521)"/>
+            <image v-if="inv.sealed && invSign" :href="invSign" x="496" y="430" width="112" height="74" opacity="0.92"/>
+            <image v-if="inv.sealed && invSeal" :href="invSeal" x="644" y="418" width="88" height="88" opacity="0.9" transform="rotate(-6 688 462)"/>
           </svg>
         </div>
       </div>
@@ -3434,8 +3483,12 @@ const app = createApp({
         </span>
         <span class="gb-list">編號 {{ inv.no || '—' }}</span>
         <span class="spacer"></span>
+        <button class="btn ghost" :disabled="inv.exporting" @click="invCopyImage"
+                title="複製為 PNG 圖片，可直接粘貼到微信／Word（紙面上右鍵亦可）">
+          <span v-html="icon('copy','gb-ic')"></span>複製圖片
+        </button>
         <button class="btn accent" :disabled="inv.exporting || !inv.no" @click="invDownload">
-          <span v-if="inv.exporting" class="spin light"></span>{{ inv.exporting ? '生成中…' : '下載發票' }}
+          <span v-if="inv.exporting" class="spin light"></span>{{ inv.exporting ? '生成中…' : '下載收據' }}
         </button>
       </div>
       <!-- 合同预览+底栏：只属于合同业务页（曾误挂发票底栏的 v-else，致结算单页把合同预览渲染进成品栏） -->
@@ -3617,6 +3670,19 @@ const app = createApp({
             <span v-if="ctResetting" class="spin light"></span>{{ ctResetting ? '重置中…' : '确认重置' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 剪貼板不可用時的圖片預覽：圖上右鍵「複製圖片」即可 -->
+    <div class="img-modal" v-if="inv.copyUrl" @click.self="invCloseCopy">
+      <div class="img-modal-box">
+        <div class="img-modal-head">
+          <b>收據圖片</b><span>{{ inv.copySize }}</span>
+          <span class="spacer"></span>
+          <button class="btn sm" @click="invCloseCopy">關閉</button>
+        </div>
+        <img :src="inv.copyUrl" alt="電子收據">
+        <div class="img-modal-tip">在此圖片上右鍵 →「複製圖片」，即可粘貼到微信／Word</div>
       </div>
     </div>
 

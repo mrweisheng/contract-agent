@@ -251,6 +251,20 @@ select.f-inp { appearance: auto; }
 .gb-list { font-size: 11px; color: rgba(243,237,224,.65); overflow: hidden;
            text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
 .gb-timer { font-size: 11px; color: #f0d9a0; }
+/* 底栏按钮里的小图标：.st-ic 只作用于结算单栏，底栏要单独给尺寸 */
+.gb-ic { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px;
+  stroke: currentColor; fill: none; stroke-width: 2; }
+
+/* 收據圖片預覽層（剪貼板不可用時的兜底）：圖上右鍵即可「複製圖片」 */
+.img-modal { position: fixed; inset: 0; z-index: 85; background: rgba(20, 26, 24, .58);
+  display: flex; align-items: center; justify-content: center; padding: 24px; }
+.img-modal-box { background: #fff; border-radius: 10px; padding: 14px; display: flex;
+  flex-direction: column; gap: 10px; max-width: min(1100px, 94vw); max-height: 92vh;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .35); }
+.img-modal-head { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.img-modal-head b { font-size: 13.5px; color: var(--ink); }
+.img-modal-box img { max-width: 100%; max-height: 74vh; object-fit: contain; }
+.img-modal-tip { font-size: 11.5px; color: var(--muted); }
 
 /* ---------------- 按钮 ---------------- */
 .btn { border: none; border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer;
@@ -1101,7 +1115,7 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
   .ct-sigmeta { grid-template-columns: 1fr; }
 }
 
-/* ================= 電子收據（A 版 · 3:2 橫版 · 全繁體） =================
+/* ================= 電子收據（A 版 · 7:4 橫版 · 全繁體） =================
    聯動視覺沿用合同預覽那套 .pv-beacon 光環；
    但 SVG <text> 沒有 background，.pv-hit 的背景色對它無效，
    改用 stroke + paint-order:stroke 把描邊墊在字下，做出「螢光筆劃過」的效果。 */
@@ -1164,12 +1178,12 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .iv-no { font-family: Consolas, "Courier New", monospace; font-size: 25px; letter-spacing: 3px; fill: #C62828; }
 .iv-co { font-size: 34px; letter-spacing: 7px; fill: #3F444B; opacity: .82; }
 .iv-title { font-size: 40px; letter-spacing: 14px; fill: #2A3138; opacity: .9; font-weight: 700; }
-.iv-lab { font-size: 21px; fill: #4B5158; }
-.iv-val { font-size: 21px; fill: #202830; }
+.iv-lab { font-size: 20px; fill: #4B5158; }
+.iv-val { font-size: 20px; fill: #202830; }
 .iv-lab.sm { font-size: 15px; }
 .iv-lab.sm2 { font-size: 20px; }
+.iv-lab.sm3 { font-size: 15px; }
 .iv-val.sm2 { font-size: 15px; }
-.iv-val.sm3 { font-size: 19px; }
 .iv-ln { stroke: #8CA0B4; stroke-width: 1; fill: none; }
 .iv-bx { fill: none; stroke: #7E93A8; stroke-width: 1.2; }
 
