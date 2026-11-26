@@ -1101,7 +1101,7 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
   .ct-sigmeta { grid-template-columns: 1fr; }
 }
 
-/* ================= 電子發票（A 版 · 3:2 橫版 · 全繁體） =================
+/* ================= 電子收據（A 版 · 3:2 橫版 · 全繁體） =================
    聯動視覺沿用合同預覽那套 .pv-beacon 光環；
    但 SVG <text> 沒有 background，.pv-hit 的背景色對它無效，
    改用 stroke + paint-order:stroke 把描邊墊在字下，做出「螢光筆劃過」的效果。 */
@@ -1119,12 +1119,26 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .inv-no-hint { font-size: 11px; color: var(--muted); letter-spacing: .3px; }
 .inv-err { background: #FDECEA; border: 1px solid #F5C6C0; color: #C62828;
   font-size: 12px; padding: 8px 12px; border-radius: 7px; }
+/* 必填校驗提示：琥珀色，與「存檔失敗」的紅色區分開——一個是還沒填，一個是壞了 */
+.inv-warn { background: #FDF2E4; border: 1px solid #F0D6AE; color: #B26A00;
+  font-size: 12px; padding: 8px 12px; border-radius: 7px; }
 
 .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 .inv-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .inv-f.span2 { grid-column: span 2; }
+/* 下載校驗未過的字段：只在按過下載後才紅，填了即時撤掉 */
+.inv-f.miss .f-inp { border-color: #e5b3ac; background: #fffafa; }
+.inv-f.miss .inv-lab { color: #C62828; }
 .inv-lab { font-size: 11px; color: var(--muted); letter-spacing: .5px; }
 .inv-lab i { font-style: normal; opacity: .6; margin-left: 4px; }
+/* 字段標籤後的小徽記：固定=不可改；選填=唯一可空 */
+.inv-lab b.inv-fixed, .inv-lab b.inv-opt { font-weight: 400; font-size: 10px; line-height: 1;
+  padding: 2px 5px; border-radius: 4px; margin-left: 6px; letter-spacing: 0; }
+.inv-lab b.inv-fixed { background: #EFEAE0; color: #8a8378; }
+.inv-lab b.inv-opt { background: #F3F7F4; color: #4a7a63; }
+/* 固定收款人：灰底 + 禁用游標；仍可聚焦，聚焦照樣高亮右側紙面對應位置 */
+.inv-f .f-inp.locked { background: #F5F3EE; color: #6b655c; cursor: not-allowed; }
+.inv-f .f-inp.locked:focus { border-color: var(--line); box-shadow: none; }
 /* 幣種切換：標籤右側兩顆小分段鈕（HKD / CNY），默認港幣 */
 .inv-lab-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .inv-cur { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 5px;

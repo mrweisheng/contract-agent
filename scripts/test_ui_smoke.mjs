@@ -13,7 +13,7 @@
  *   2. agent-browser CLI 在 PATH（npm i -g agent-browser；首次需 agent-browser install）
  *   3. 动过 web/ 共享区域的提交，提交前必跑：node scripts/test_ui_smoke.mjs
  *
- * 注意：跑「电子发票」页会自动取號（未存檔佔號 30 分鐘自動回收），
+ * 注意：跑「电子收据」页会自动取號（未存檔佔號 30 分鐘自動回收），
  *       反复跑会滚动消耗编号段，属正常现象。
  */
 import { execSync } from "node:child_process";
@@ -53,17 +53,18 @@ const MATRIX = [
     },
   },
   {
-    name: "电子发票", nav: "电子发票",
+    name: "电子收据", nav: "电子收据",
     expect: {
       previewPane: true, pvHead: "發票實時預覽", leftPane: "invoice",
-      leftHead: "电子发票", barsInclude: ["下載發票"],
+      leftHead: "电子收据", barsInclude: ["下載發票"],
       barsForbidden: ["生成合同", "生成结算单"],
       contractCellsZero: true, stImg: false, invSvg: true,
+      invPayee: "陳煥明",
     },
   },
   {
     name: "合同管理（全宽页，无右栏）", nav: "合同管理",
-    expect: { previewPane: false },
+    expect: { previewPane: false, ctChips: ["近7天", "近30天", "本月"] },
   },
   {
     name: "用户管理（全宽页，无右栏）", nav: "用户管理",
@@ -124,6 +125,13 @@ function probe() {
       leftHead: document.querySelector(".pane .pane-top h2")?.textContent.trim() ?? null,
       leftPane: document.querySelector(".pane .st-pane") ? "settlement"
               : document.querySelector(".pane .inv-pane") ? "invoice" : "contract",
+      /* 收款人固定（業務要求 2026-11-26）：值必須是陳煥明且只讀，杜絕再被改回可編輯 */
+      invPayee: (() => {
+        const i = document.querySelector("#inv-payee");
+        return i ? { value: i.value, readonly: i.readOnly } : null;
+      })(),
+      /* 合同管理快捷日期標籤（業務要求只留三個：近7天/近30天/本月） */
+      ctChips: [...document.querySelectorAll(".ct-quick .chip")].map(b => b.textContent.trim()),
     });
   })()`;
   /* agent-browser 会把 JS 返回值再做一层 JSON 编码（字符串带引号）：
@@ -138,7 +146,12 @@ function checkPage(expect, act) {
   const has = (k) => expect[k] !== undefined;
   if (has("previewPane") && act.previewPane !== expect.previewPane)
     fails.push(`右栏存在=${act.previewPane}，期望 ${expect.previewPane}`);
-  if (!act.previewPane) return fails;   // 全宽页只断言这一条
+  /* 全宽页（合同管理）没有右栏，但左栏筛选区的断言照样要跑，所以放在早退之前 */
+  if (has("ctChips")) {
+    const want = JSON.stringify(expect.ctChips), got = JSON.stringify(act.ctChips || []);
+    if (want !== got) fails.push(`快捷日期标签 ${got}，期望 ${want}`);
+  }
+  if (!act.previewPane) return fails;   // 全宽页只断言以上几条
   if (has("pvHead") && act.pvHead !== expect.pvHead)
     fails.push(`右栏标题「${act.pvHead}」≠「${expect.pvHead}」`);
   if (has("leftPane") && act.leftPane !== expect.leftPane)
@@ -159,6 +172,14 @@ function checkPage(expect, act) {
     fails.push(`结算单成品图存在=${act.stImg}，期望 ${expect.stImg}`);
   if (has("invSvg") && act.invSvg !== expect.invSvg)
     fails.push(`发票 SVG 存在=${act.invSvg}，期望 ${expect.invSvg}`);
+  if (has("invPayee")) {
+    if (!act.invPayee) fails.push("找不到收款人字段 #inv-payee");
+    else {
+      if (act.invPayee.value !== expect.invPayee)
+        fails.push(`收款人「${act.invPayee.value}」≠「${expect.invPayee}」`);
+      if (act.invPayee.readonly !== true) fails.push("收款人字段可编辑（应固定只读）");
+    }
+  }
   return fails;
 }
 

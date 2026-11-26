@@ -175,7 +175,7 @@ const app = createApp({
       });
       if (get("immigration")) items.push({ title: "高才移民", list: [{ key: "immigration", port: "", label: "高才移民" }] });
       items.push({ title: "结算单", list: [{ key: "settlement", port: "", label: "结算单" }] });
-      items.push({ title: "电子发票", list: [{ key: "invoice", port: "", label: "电子发票" }] });
+      items.push({ title: "电子收据", list: [{ key: "invoice", port: "", label: "电子收据" }] });
       items.push({ title: "合同管理", list: [{ key: "contracts", port: "", label: "合同管理" }] });
       items.push({ title: "用户管理", list: [{ key: "users", port: "", label: "用户管理" }] });
       return items;
@@ -240,7 +240,7 @@ const app = createApp({
       nlText.value = "";  // 不残留上一类型的业务描述，避免误点 AI 提取按新类型抽旧文本
       if (it.key === "contracts") { ctFetch(); return; }   // 合同管理：独立列表页，不碰表单/预览/付款
       if (it.key === "users") { umFetch(); return; }        // 用户管理：同上，只读列表
-      if (it.key === "invoice") { invSwitchIn(); return; }  // 电子发票：独立视图，不读 cfg、不触发合同预览
+      if (it.key === "invoice") { invSwitchIn(); return; }  // 电子收据：独立视图，不读 cfg、不触发合同预览
       initForm(); initPayment();
       onlyIssue.value = false; openPay.value = 0; aiOpen.value = false;   // 台账视图态复位
       sealOn.value = true;   // 切业务/口岸恢复默认勾选：取消勾选态不跨业务沿用，防带着「不盖章」误生成
@@ -1240,7 +1240,7 @@ const app = createApp({
       st.port && !ST_PORTS.includes(st.port) ? [...ST_PORTS, st.port] : ST_PORTS);
     const isSettlement = computed(() => selected.type === "settlement");
 
-    /* ---------- 電子發票（A 版 · 原單 1:1 電子化） ----------
+    /* ---------- 電子收據（A 版 · 原單 1:1 電子化） ----------
      * 與合同鏈路完全獨立：不讀 cfg、不調 /api/preview、不寫 gens 表、不碰付款與 AI 提取。
      * 紙面全部用繁體（公司註冊名、大寫金額、欄位標籤），符合香港交易文書可讀性要求。
      * 編號走後端獨立號段：開頁占號 pending → 保存轉 ok → 作廢轉 void（號不回收）。 */
@@ -1261,12 +1261,41 @@ const app = createApp({
       { key: "CNY", code: "CNY", sign: "¥", cn: "人民幣", label: "人民幣 CNY" },
     ];
 
+    /* 收款人固定為公司指定人（業務要求，2026-11-26）：不做成可編輯字段，
+     * 紙面、存檔同源取這個常量，避免被改成與公司章不符的姓名。 */
+    const INV_PAYEE = "陳煥明";
+
     const inv = reactive({
       no: "", date: todayISO(), currency: "HKD",
       payer: "", purpose: "", amount: null, note: "",
-      payee: "陳煥明", method: "bank", sealed: true,
-      reserving: false, exporting: false, revision: 0, error: "",
+      method: "bank", sealed: true,
+      reserving: false, exporting: false, revision: 0,
+      error: "",          // 後端存檔/出圖失敗
+      warn: "",           // 必填校驗未過的提示（與 error 分開：一個是沒填，一個是壞了）
+      tried: false,       // 是否已按過下載：按過才標紅，避免一進頁滿屏紅
     });
+
+    /* 下載前的必填項：**除「備註」外全部必填**。
+     * 收款人為固定常量不列項；幣種有默認值、只能二選一，也不列項。 */
+    const INV_REQ = [
+      { key: "date", label: "日期" },
+      { key: "amount", label: "實收金額" },
+      { key: "payer", label: "付款方" },
+      { key: "purpose", label: "款項說明" },
+      { key: "method", label: "付款方式" },
+    ];
+    /* 純函數式取缺項，模板/下載共用同一口徑（避免兩處各寫一套「算不算填了」）。 */
+    function invMissing() {
+      return INV_REQ.filter(f => {
+        if (f.key === "amount") {
+          const n = Number(inv.amount);
+          return inv.amount === null || inv.amount === "" || !isFinite(n) || n <= 0;
+        }
+        return !String(inv[f.key] ?? "").trim();
+      });
+    }
+    /* 用戶開始改內容：撤掉「待補」紅標與提示，不讓上一次的報錯一直掛著。 */
+    function invEdited() { inv.tried = false; inv.warn = ""; }
 
     /* 繁體大寫金額（紙面用「參」不用「叁」：香港票據繁體規範寫法）
      * 與合同 toCN 各自獨立，避免動到既有出單口徑。 */
@@ -1354,8 +1383,8 @@ const app = createApp({
     function invClear() {
       inv.no = ""; inv.date = todayISO(); inv.currency = "HKD";
       inv.payer = ""; inv.purpose = ""; inv.amount = null; inv.note = "";
-      inv.payee = "陳煥明"; inv.method = "bank"; inv.sealed = true;
-      inv.revision = 0; inv.error = "";
+      inv.method = "bank"; inv.sealed = true;
+      inv.revision = 0; inv.error = ""; inv.warn = ""; inv.tried = false;
     }
 
     /* 新開一張：清空 + 取新號 */
@@ -1395,10 +1424,22 @@ const app = createApp({
       if (!inv.no) invReserve();
     }
 
-    /* 下載即存檔：先 UPSERT（同號覆蓋、revision 累加），再出圖。
+    /* 下載即存檔：先校驗必填 → UPSERT（同號覆蓋、revision 累加）→ 出圖。
+     * 缺項**不存檔也不出圖**：空白收據一旦發出，號已消耗、客戶手上還有張沒金額的單。
      * 存檔失敗仍然出圖——客戶要拿到單子；錯誤在頁面標紅提示，不靜默吞掉。 */
     async function invDownload() {
       if (inv.exporting || inv.reserving) return;
+      inv.tried = true;                       // 按過才標紅，不干擾首次填寫
+      const miss = invMissing();
+      if (miss.length) {
+        inv.warn = "請先填寫：" + miss.map(f => f.label).join("、");
+        toast(inv.warn, "bad", 3600);
+        const el = document.getElementById("inv-" + miss[0].key);
+        el?.focus?.();
+        el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+        return;
+      }
+      inv.warn = "";
       if (!inv.no) { toast("編號生成中，請稍候重試", "bad"); return; }
       inv.exporting = true; inv.error = "";
       try {
@@ -1408,7 +1449,7 @@ const app = createApp({
             no: inv.no,
             payer: inv.payer.trim(), purpose: inv.purpose.trim(),
             amount: Number(inv.amount || 0), currency: inv.currency, method: inv.method,
-            note: inv.note.trim(), payee: inv.payee.trim(),
+            note: inv.note.trim(), payee: INV_PAYEE,
             receipt_date: inv.date, sealed: inv.sealed,
           }),
         });
@@ -2321,8 +2362,8 @@ const app = createApp({
       generate, download, downloadPdfNow, downloadBlank, viewHistoryResult, viewHistoryPdf, pdfBusy,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      isInvoice, inv, INV_METHODS, INV_CURRENCIES, invCur, invAmountText, invCNText, invDate, invSign, invSeal,
-      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve,
+      isInvoice, inv, INV_METHODS, INV_CURRENCIES, INV_PAYEE, invCur, invAmountText, invCNText, invDate, invSign, invSeal,
+      invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited,
       invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
       stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
@@ -2388,11 +2429,9 @@ const app = createApp({
           <input class="f-inp" type="date" v-model="ct.to" title="结束日期（含当天）">
         </div>
         <div class="ct-quick">
-          <button class="chip" @click="ctQuick('today')">今天</button>
           <button class="chip" @click="ctQuick('7')">近7天</button>
           <button class="chip" @click="ctQuick('30')">近30天</button>
           <button class="chip" @click="ctQuick('month')">本月</button>
-          <button class="chip" @click="ctQuick('all')">全部</button>
         </div>
         <input class="f-inp ct-search" v-model.trim="ct.client"
                placeholder="客户 / 签署人 / 手机号 / 编号" @keyup.enter="ctFetch">
@@ -2610,7 +2649,7 @@ const app = createApp({
     <section class="pane" v-if="!isFullPage"
              @focusin="onPaneFocusin" @focusout="onPaneFocusout" @pointerdown="onPanePointerdown">
       <div class="pane-top">
-        <h2>{{ isSettlement ? '收款结算单' : isInvoice ? '电子发票' : (cfg?.label || '华星智能合同') }}</h2>
+        <h2>{{ isSettlement ? '收款结算单' : isInvoice ? '电子收据' : (cfg?.label || '华星智能合同') }}</h2>
         <span class="tpl-name" v-if="isInvoice">A 版 · 原單 1:1 電子化 · 全繁體</span>
         <span class="tpl-name" v-else-if="cfg">{{ templateName }}</span>
         <span class="spacer" v-if="!isSettlement && !isInvoice"></span>
@@ -2623,7 +2662,7 @@ const app = createApp({
         <span>合同完成度 {{ overall.done }}/{{ overall.total }}</span>
       </div>
       <transition name="pfade" mode="out-in">
-      <!-- ================ 電子發票：手填 → 紙面即時聯動 ================ -->
+      <!-- ================ 電子收據：手填 → 紙面即時聯動 ================ -->
       <div class="pane-body inv-pane" v-if="isInvoice" key="invoice"
            @focusin="invFocusin" @focusout="invFocusout" @pointerdown="invPointerdown">
 
@@ -2638,15 +2677,16 @@ const app = createApp({
           <span class="inv-no-hint">下載即自動存檔；改完再下載覆蓋同一編號</span>
         </div>
         <div class="inv-err" v-if="inv.error">⚠ {{ inv.error }}</div>
+        <div class="inv-warn" v-if="inv.warn && !inv.error">✎ {{ inv.warn }}</div>
 
         <div class="sec">
-          <div class="sec-head"><span class="dot"></span>收款資料<span class="sec-hint">輸入即時映射到右側紙面，聚焦會高亮對應位置</span></div>
-          <div class="sec-body inv-grid">
-            <div class="inv-f">
+          <div class="sec-head"><span class="dot"></span>收款資料<span class="sec-hint">除「備註」外均為必填 · 輸入即時映射到右側紙面，聚焦會高亮對應位置</span></div>
+          <div class="sec-body inv-grid" @input="invEdited">
+            <div class="inv-f" :class="{ miss: inv.tried && !inv.date }">
               <span class="inv-lab">日期 <i>Date</i></span>
               <input class="f-inp" id="inv-date" type="date" v-model="inv.date">
             </div>
-            <div class="inv-f">
+            <div class="inv-f" :class="{ miss: inv.tried && !(Number(inv.amount) > 0) }">
               <div class="inv-lab-row">
                 <span class="inv-lab">實收金額 <i>Amount</i></span>
                 <span class="inv-cur" role="group" aria-label="幣種">
@@ -2659,26 +2699,28 @@ const app = createApp({
               <input class="f-inp" id="inv-amount" type="number" step="0.01" inputmode="decimal"
                      v-model.number="inv.amount" placeholder="0.00">
             </div>
-            <div class="inv-f span2">
+            <div class="inv-f span2" :class="{ miss: inv.tried && !inv.payer.trim() }">
               <span class="inv-lab">付款方 <i>Received from</i></span>
               <input class="f-inp" id="inv-payer" v-model.trim="inv.payer" placeholder="客戶名稱／公司全稱">
             </div>
-            <div class="inv-f span2">
+            <div class="inv-f span2" :class="{ miss: inv.tried && !inv.purpose.trim() }">
               <span class="inv-lab">款項說明 <i>Description</i></span>
               <input class="f-inp" id="inv-purpose" v-model.trim="inv.purpose" placeholder="該款項係付：">
             </div>
-            <div class="inv-f">
+            <div class="inv-f" :class="{ miss: inv.tried && !inv.method }">
               <span class="inv-lab">付款方式 <i>Method</i></span>
               <select class="f-inp" id="inv-method" v-model="inv.method">
                 <option v-for="m in INV_METHODS" :key="m.key" :value="m.key">{{ m.label }}</option>
               </select>
             </div>
             <div class="inv-f">
-              <span class="inv-lab">收款人 <i>Received by</i></span>
-              <input class="f-inp" id="inv-payee" v-model.trim="inv.payee">
+              <span class="inv-lab">收款人 <i>Received by</i><b class="inv-fixed" title="公司指定收款人，不可修改">固定</b></span>
+              <!-- 收款人固定：不做 v-model，讀常量；只讀但仍可聚焦，聚焦照樣高亮右側紙面 -->
+              <input class="f-inp locked" id="inv-payee" :value="INV_PAYEE" readonly
+                     title="收款人固定為陳煥明，不可修改">
             </div>
             <div class="inv-f span2">
-              <span class="inv-lab">備註 <i>Remarks</i></span>
+              <span class="inv-lab">備註 <i>Remarks</i><b class="inv-opt">選填</b></span>
               <input class="f-inp" id="inv-note" v-model.trim="inv.note" placeholder="選填，如：總價 230000RMB">
             </div>
             <div class="inv-f span2 inv-ck">
@@ -3378,7 +3420,7 @@ const app = createApp({
             <text class="iv-lab" x="110" y="560">收款人：</text>
             <rect class="iv-hit" data-field="payee" x="190" y="538" width="156" height="34"/>
             <line class="iv-ln" x1="192" y1="566" x2="342" y2="566"/>
-            <text class="iv-val" x="267" y="558" text-anchor="middle">{{ inv.payee }}</text>
+            <text class="iv-val" x="267" y="558" text-anchor="middle">{{ INV_PAYEE }}</text>
             <text class="iv-lab sm2" x="358" y="560">（簽字蓋章）</text>
 
             <image v-if="inv.sealed && invSign" :href="invSign" x="492" y="496" width="118" height="79" opacity="0.92"/>
@@ -3387,8 +3429,8 @@ const app = createApp({
         </div>
       </div>
       <div class="gen-bar" v-if="isInvoice">
-        <span class="gb-pill" :class="inv.error ? 'bad' : 'ok'">
-          {{ inv.exporting ? '生成中' : inv.error ? '存檔異常' : '就緒' }}
+        <span class="gb-pill" :class="(inv.error || inv.warn) ? 'bad' : 'ok'">
+          {{ inv.exporting ? '生成中' : inv.error ? '存檔異常' : inv.warn ? '待補資料' : '就緒' }}
         </span>
         <span class="gb-list">編號 {{ inv.no || '—' }}</span>
         <span class="spacer"></span>

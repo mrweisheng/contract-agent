@@ -124,7 +124,7 @@ def init():
             user_id INTEGER,
             expires_at TEXT
         )""")
-        # 電子發票（2026-11-26）：与合同流水**完全隔离**的独立表。
+        # 電子收據（2026-11-26）：与合同流水**完全隔离**的独立表。
         # 不复用 gens —— gens 是合同总表，合同管理页直接全表查，发票混进去会污染列表与统计。
         # 号段独立：六位流水，**不使用数字 4 与 7**（香港讳 4「死」、7「执笠」，与楼宇无 4 楼同理），
         # 作废只置 status='void' 留痕不删（IRD：作废留存根）。
@@ -551,7 +551,7 @@ def session_user(token: str):
         return dict(row) if row else None
 
 
-# ===================== 電子發票 =====================
+# ===================== 電子收據 =====================
 # 與合同 gens 表完全隔離：獨立表、獨立號段、獨立狀態機。
 # 狀態機：開頁占號 pending → 下載即存檔 ok（同號可反覆覆蓋，revision 累加）
 #        → 切走/新開單釋放 pending 或保留 ok → 超時未存檔的 pending 自動回收。
@@ -596,7 +596,7 @@ def reserve_receipt_no() -> str:
                           (no, "pending", _now()))
                 return no
             seq += 1
-        raise RuntimeError("電子發票號段已用盡（六位、不含 4／7）")
+        raise RuntimeError("電子收據號段已用盡（六位、不含 4／7）")
 
 
 def save_receipt(payload: dict) -> dict:
@@ -614,14 +614,38 @@ def save_receipt(payload: dict) -> dict:
     cur_code = str(payload.get("currency") or "HKD").strip().upper()
     if cur_code not in ("HKD", "CNY"):
         cur_code = "HKD"
+    # 必填校驗（與前端同口徑）：除「備註」外全部必填。
+    # 前端已在下載前攔一次，這裡是第二道——存檔介面可被腳本直接呼叫，
+    # 一張空白/零元收據落庫後照樣能重印，資料髒了沒有撤回的路。
+    payer = str(payload.get("payer") or "").strip()
+    purpose = str(payload.get("purpose") or "").strip()
+    method = str(payload.get("method") or "").strip()
+    payee = str(payload.get("payee") or "").strip()
+    receipt_date = str(payload.get("receipt_date") or "").strip()
+    try:
+        amount = float(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    if not payer:
+        raise ValueError("付款方未填寫，不能存檔")
+    if not purpose:
+        raise ValueError("款項說明未填寫，不能存檔")
+    if amount <= 0:
+        raise ValueError("實收金額必須大於 0")
+    if not method:
+        raise ValueError("付款方式未選擇")
+    if not payee:
+        raise ValueError("收款人未填寫")
+    if not receipt_date:
+        raise ValueError("日期未填寫")
     vals = (
-        str(payload.get("payer") or "")[:200],
-        str(payload.get("purpose") or "")[:200],
-        float(payload.get("amount") or 0),
-        str(payload.get("method") or "")[:40],
+        payer[:200],
+        purpose[:200],
+        amount,
+        method[:40],
         str(payload.get("note") or "")[:200],
-        str(payload.get("payee") or "")[:60],
-        str(payload.get("receipt_date") or "")[:10],
+        payee[:60],
+        receipt_date[:10],
         1 if payload.get("sealed", True) else 0,
         cur_code,
         _now(),
