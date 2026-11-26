@@ -1254,8 +1254,15 @@ const app = createApp({
       { key: "fps", label: "轉數快 FPS" },
     ];
 
+    /* 幣種：默認港幣，可切人民幣。
+     * 紙面「小寫」前綴與「大寫」右側幣別同源，避免兩處各寫死一份而不同步。 */
+    const INV_CURRENCIES = [
+      { key: "HKD", code: "HKD", sign: "HK$", cn: "港幣", label: "港幣 HKD" },
+      { key: "CNY", code: "CNY", sign: "¥", cn: "人民幣", label: "人民幣 CNY" },
+    ];
+
     const inv = reactive({
-      no: "", date: todayISO(),
+      no: "", date: todayISO(), currency: "HKD",
       payer: "", purpose: "", amount: null, note: "",
       payee: "陳煥明", method: "bank", sealed: true,
       reserving: false, exporting: false, revision: 0, error: "",
@@ -1306,6 +1313,8 @@ const app = createApp({
     }
 
     /* 金額顯示保留小數（項目通用的 commas 走 parseInt，59369.5 會被截成 59,369） */
+    const invCur = computed(() =>
+      INV_CURRENCIES.find(c => c.key === inv.currency) || INV_CURRENCIES[0]);
     const invAmountText = computed(() => {
       if (inv.amount === null || inv.amount === "") return "";
       const n = Number(inv.amount);
@@ -1343,7 +1352,7 @@ const app = createApp({
 
     /* 清空表單內容（不取號） */
     function invClear() {
-      inv.no = ""; inv.date = todayISO();
+      inv.no = ""; inv.date = todayISO(); inv.currency = "HKD";
       inv.payer = ""; inv.purpose = ""; inv.amount = null; inv.note = "";
       inv.payee = "陳煥明"; inv.method = "bank"; inv.sealed = true;
       inv.revision = 0; inv.error = "";
@@ -1398,7 +1407,7 @@ const app = createApp({
           body: JSON.stringify({
             no: inv.no,
             payer: inv.payer.trim(), purpose: inv.purpose.trim(),
-            amount: Number(inv.amount || 0), method: inv.method,
+            amount: Number(inv.amount || 0), currency: inv.currency, method: inv.method,
             note: inv.note.trim(), payee: inv.payee.trim(),
             receipt_date: inv.date, sealed: inv.sealed,
           }),
@@ -2312,7 +2321,7 @@ const app = createApp({
       generate, download, downloadPdfNow, downloadBlank, viewHistoryResult, viewHistoryPdf, pdfBusy,
       toCN, commas, SEQ_CN, todayISO, nlPlaceholder, templateName, fxAbout, fxNotice,
       isSettlement, st, stPlaceholder, stTotals, stSrcOpen,
-      isInvoice, inv, INV_METHODS, invAmountText, invCNText, invDate, invSign, invSeal,
+      isInvoice, inv, INV_METHODS, INV_CURRENCIES, invCur, invAmountText, invCNText, invDate, invSign, invSeal,
       invScroll, invSheet, invDownload, invExportPng, invNew, invReserve,
       invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
@@ -2638,7 +2647,15 @@ const app = createApp({
               <input class="f-inp" id="inv-date" type="date" v-model="inv.date">
             </div>
             <div class="inv-f">
-              <span class="inv-lab">實收金額（HKD） <i>Amount</i></span>
+              <div class="inv-lab-row">
+                <span class="inv-lab">實收金額 <i>Amount</i></span>
+                <span class="inv-cur" role="group" aria-label="幣種">
+                  <button type="button" v-for="c in INV_CURRENCIES" :key="c.key"
+                          :class="{ on: inv.currency === c.key }" :title="c.label"
+                          :aria-pressed="inv.currency === c.key"
+                          @click="inv.currency = c.key">{{ c.code }}</button>
+                </span>
+              </div>
               <input class="f-inp" id="inv-amount" type="number" step="0.01" inputmode="decimal"
                      v-model.number="inv.amount" placeholder="0.00">
             </div>
@@ -3300,7 +3317,7 @@ const app = createApp({
             <text class="iv-lab" x="520" y="288">交來金額：</text>
             <rect class="iv-hit" data-field="amount" x="634" y="266" width="136" height="34"/>
             <line class="iv-ln" x1="636" y1="294" x2="766" y2="294"/>
-            <text class="iv-val" x="701" y="288" text-anchor="middle">{{ invAmountText ? 'HK$' + invAmountText : '' }}</text>
+            <text class="iv-val" x="701" y="288" text-anchor="middle">{{ invAmountText ? invCur.sign + invAmountText : '' }}</text>
             <text class="iv-lab sm" x="772" y="288">（小寫）</text>
 
             <!-- 大寫 -->
@@ -3308,7 +3325,7 @@ const app = createApp({
             <rect class="iv-hit" data-field="amount" x="260" y="306" width="460" height="34"/>
             <line class="iv-ln" x1="262" y1="334" x2="718" y2="334"/>
             <text class="iv-val" x="490" y="328" text-anchor="middle">{{ invCNText }}</text>
-            <text class="iv-lab" x="820" y="328" text-anchor="end">港幣</text>
+            <text class="iv-lab" x="820" y="328" text-anchor="end">{{ invCur.cn }}</text>
 
             <!-- 款項說明 -->
             <text class="iv-lab" x="76" y="368">該款項係付：</text>

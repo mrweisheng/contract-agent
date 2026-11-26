@@ -134,6 +134,7 @@ def init():
             payer TEXT DEFAULT '',
             purpose TEXT DEFAULT '',
             amount REAL DEFAULT 0,
+            currency TEXT DEFAULT 'HKD',
             method TEXT DEFAULT '',
             note TEXT DEFAULT '',
             payee TEXT DEFAULT '',
@@ -147,6 +148,11 @@ def init():
         # 旧库增量迁移：revision（同号覆盖次数）是后加的列
         try:
             c.execute("ALTER TABLE receipts ADD COLUMN revision INTEGER DEFAULT 0")
+        except Exception:
+            pass  # 列已存在
+        # 旧库增量迁移：currency（HKD/CNY，默认港币）是后加的列
+        try:
+            c.execute("ALTER TABLE receipts ADD COLUMN currency TEXT DEFAULT 'HKD'")
         except Exception:
             pass  # 列已存在
 
@@ -604,6 +610,10 @@ def save_receipt(payload: dict) -> dict:
         raise ValueError("發票編號不合法")
     if not _receipt_clean(no):
         raise ValueError("發票編號含忌諱數字")
+    # 幣種白名單：只認港幣 / 人民幣，其餘一律回落港幣（舊前端沒傳時也走默認）
+    cur_code = str(payload.get("currency") or "HKD").strip().upper()
+    if cur_code not in ("HKD", "CNY"):
+        cur_code = "HKD"
     vals = (
         str(payload.get("payer") or "")[:200],
         str(payload.get("purpose") or "")[:200],
@@ -613,6 +623,7 @@ def save_receipt(payload: dict) -> dict:
         str(payload.get("payee") or "")[:60],
         str(payload.get("receipt_date") or "")[:10],
         1 if payload.get("sealed", True) else 0,
+        cur_code,
         _now(),
     )
     with _lock, _conn(immediate=True) as c:
@@ -622,14 +633,14 @@ def save_receipt(payload: dict) -> dict:
         if row:
             c.execute(
                 "UPDATE receipts SET payer=?, purpose=?, amount=?, method=?, note=?, "
-                "payee=?, receipt_date=?, sealed=?, status='ok', saved_at=?, "
+                "payee=?, receipt_date=?, sealed=?, currency=?, status='ok', saved_at=?, "
                 "revision=COALESCE(revision,0)+1 WHERE no=?", vals + (no,),
             )
         else:
             c.execute(
                 "INSERT INTO receipts(no,payer,purpose,amount,method,note,payee,"
-                "receipt_date,sealed,status,saved_at,created_at,revision) "
-                "VALUES(?,?,?,?,?,?,?,?,?,'ok',?,?,1)", (no,) + vals + (_now(),),
+                "receipt_date,sealed,currency,status,saved_at,created_at,revision) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,'ok',?,?,1)", (no,) + vals + (_now(),),
             )
         rev = c.execute("SELECT revision FROM receipts WHERE no=?", (no,)).fetchone()["revision"]
     return {"no": no, "status": "ok", "revision": rev}

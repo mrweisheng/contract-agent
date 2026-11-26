@@ -21,6 +21,7 @@ class ReceiptPayload(BaseModel):
     payer: str = ""
     purpose: str = ""
     amount: float = 0
+    currency: str = "HKD"
     method: str = ""
     note: str = ""
     payee: str = ""
