@@ -87,6 +87,8 @@ NEXT_FILL = HexColor("#F4F5F7")   # 下次需付窄条：中性浅灰，弱于�
 NEXT_BLUE = HexColor("#8FA6BF")
 GIFT_GREEN = HexColor("#2E7955")
 GIFT_BG = HexColor("#E6F4EA")
+PAID_BLUE = HexColor("#3B6EA5")
+PAID_BG = HexColor("#E8EEF6")
 NET_FILL = HexColor("#D9E7F8")
 
 FILLS = {"CNY": RMB_FILL, "HKD": HKD_FILL}
@@ -169,7 +171,7 @@ HK_ACCOUNT = (
 HK_ENGLISH_LINES = ("CHINA STAR RESOURCE", "DEVELOPMENT LIMITED")
 
 STATUS_COLORS = {"paid": RED, "next": NEXT_BLUE, "today": NAVY, "normal": NAVY,
-                 "gift": GIFT_GREEN}
+                 "gift": GIFT_GREEN, "settled": PAID_BLUE}
 
 
 def register_font() -> str:
@@ -482,23 +484,28 @@ class Renderer:
         return y
 
     def draw_item_cell(self, top, fill, item, color, status, bold=False):
-        """项目格：赠送行画〔贈送〕圆角标签，超宽自动缩字。"""
+        """项目格：赠送/已付行画圆角标签，超宽自动缩字。"""
         x = X0 + SEQ_W
         self.box(x, top, ITEM_W, self.row_h, fill, TABLE_BORDER)
         size = S_ITEM
         avail = ITEM_W - 14.0
+        tag_text, tag_color, tag_bg = "", None, None
         if status == "gift":
-            tag_w = pdfmetrics.stringWidth("贈送", "CJK", 8.2) + 9.0
+            tag_text, tag_color, tag_bg = "贈送", GIFT_GREEN, GIFT_BG
+        elif status == "settled":
+            tag_text, tag_color, tag_bg = "已付", PAID_BLUE, PAID_BG
+        if tag_text:
+            tag_w = pdfmetrics.stringWidth(tag_text, "CJK", 8.2) + 9.0
             size = fit_size(item, size, avail - tag_w - 5.0)
             px = x + 7.0
             self.txt(px, top - self.row_h / 2 - size * 0.36, item, size, color, "left", bold)
             cy = top - self.row_h / 2
             ix = px + (pdfmetrics.stringWidth(item, "CJK", size) if item else 0) + 6.0
-            self.canvas.setFillColor(GIFT_BG)
-            self.canvas.setStrokeColor(GIFT_GREEN)
+            self.canvas.setFillColor(tag_bg)
+            self.canvas.setStrokeColor(tag_color)
             self.canvas.setLineWidth(0.7)
             self.canvas.roundRect(ix, cy - 6.5, tag_w, 13, 6.5, fill=1, stroke=1)
-            self.txt(ix + tag_w / 2, cy - 8.2 * 0.36, "贈送", 8.2, GIFT_GREEN, "center", True)
+            self.txt(ix + tag_w / 2, cy - 8.2 * 0.36, tag_text, 8.2, tag_color, "center", True)
         else:
             self.txt(x + 7.0, top - self.row_h / 2 - size * 0.36, item, size, color, "left", bold)
 

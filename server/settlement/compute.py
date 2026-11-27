@@ -195,7 +195,7 @@ def parse_text(text: str) -> dict:
             entry["hkd_equiv"] = hkd_equiv
         if cur != "CNY" and extra.get("cny_equiv") is not None:
             entry["cny_equiv"] = extra["cny_equiv"]
-        # 赠送：金额照显示、不进合计（gift 标记由引擎的 _sum skip_gift 消费）
+        # 赠送：金额照显示、不进合计（gift 标记由引擎的 _sum skip_nonpayable 消费）
         if GIFT_MARK.search(item) or GIFT_MARK.search(value):
             entry["gift"] = True
         # 减免：客户已付/抵扣，挪进「实收」段落（纸面红色负数扣减行）
@@ -214,13 +214,14 @@ def floor_amount(value: float) -> float:
     return math.floor(value + 1e-6)
 
 
-def _sum(entries, currency, skip_gift: bool = False):
+def _sum(entries, currency, skip_nonpayable: bool = False):
     total = 0.0
     for e in entries:
         if e.get("currency") != currency:
             continue
-        # 赠送项照显示金额，但不进任何合计（淇淇 2026-10-09 指定）
-        if skip_gift and e.get("gift"):
+        # 赠送/已付项照显示金额，但不进任何合计：
+        # 赠送＝公司承担；已付＝客户已付过，均只是纸面列示（2026-11-27）
+        if skip_nonpayable and (e.get("gift") or e.get("paid")):
             continue
         total += float(e.get("amount", 0))
     return total
@@ -372,13 +373,18 @@ def build_spec(data: dict) -> tuple:
             unpaid_equiv["CNY"] += amount * (hkd_to_cny or 0.0) * (factor if amount > 0 else 1.0)
 
     for e in data.get("extra_fees", []):
-        # 赠送项：明细行照原价列示，但不计入合同外应收合计。
-        # 纸面已有绿字+〔贈送〕标签（render 按 status 画），项目名里的标记后缀剥掉免得重复。
+        # 赠送/已付项：明细行照原价列示，但不计入合同外应收合计。
+        # 纸面已有标签（render 按 status 画），项目名里的标记后缀剥掉免得重复。
+        # 两者互斥；万一脏数据同时为真，赠送优先，避免一行出两个标签。
         item = str(e.get("item", "") or "")
-        for mark in ("（赠送）", "（贈送）", "(赠送)", "(贈送)", "（不计入应收）", "（不計入應收）"):
-            item = item.replace(mark, "")
+        mark = "gift" if e.get("gift") else ("settled" if e.get("paid") else "normal")
+        marks = ("（赠送）", "（贈送）", "(赠送)", "(贈送)", "（不计入应收）", "（不計入應收）")
+        if mark == "settled":
+            marks += ("（已付）", "(已付)")
+        for suffix in marks:
+            item = item.replace(suffix, "")
         push(e.get("currency", "HKD"), item, abs(float(e.get("amount", 0))),
-             "gift" if e.get("gift") else "normal", blank=bool(e.get("blank")), block="extra")
+             mark, blank=bool(e.get("blank")), block="extra")
     for e in data.get("extra_paid", []):
         item = str(e.get("item", "") or "")
         for mark in ("（减免）", "（減免）", "(减免)", "(減免)", "（已收）", "（已付）"):
@@ -399,8 +405,8 @@ def build_spec(data: dict) -> tuple:
     face_mode = False
 
     for currency in CUR_ORDER:
-        # 赠送项只上纸面、不进合计
-        extra_balance = (_sum(data.get("extra_fees", []), currency, skip_gift=True)
+        # 赠送/已付项只上纸面、不进合计
+        extra_balance = (_sum(data.get("extra_fees", []), currency, skip_nonpayable=True)
                          - _sum(data.get("extra_paid", []), currency))
         if not has_unpaid:
             contract_balance = _sum(data.get("contract_total", []), currency) - _sum(
@@ -411,7 +417,7 @@ def build_spec(data: dict) -> tuple:
         if extra_balance < -0.01 and not face_mode:
             warnings.append(
                 f"{CUR_NAME[currency]}合同外杂费应收 "
-                f"{_sum(data.get('extra_fees', []), currency, skip_gift=True):,.2f}，"
+                f"{_sum(data.get('extra_fees', []), currency, skip_nonpayable=True):,.2f}，"
                 f"客户已付 {_sum(data.get('extra_paid', []), currency):,.2f}，"
                 f"差额 {extra_balance:,.2f} 已作抵扣（客户垫付／预付现金），请核对。"
             )
@@ -576,18 +582,21 @@ def build_spec(data: dict) -> tuple:
             note = None
 
     amount_note = data.get("amount_note")
-    # 有赠送行时备注里点明性质（纸面绿字+〔贈送〕标，客户一眼分清收不收钱）
+    # 有赠送/已付行时备注里点明性质（纸面标签，客户一眼分清收不收钱）
     has_gift = any(e.get("gift") for e in data.get("extra_fees") or [])
+    has_paid = any(e.get("paid") and not e.get("gift") for e in data.get("extra_fees") or [])
     if amount_note is None:
         gift_clause = "贈送項目由本公司承擔，僅列示價值、不計入應收；" if has_gift else ""
+        paid_clause = "已付項目為客戶已付款項，僅列示價值、不重複收取；" if has_paid else ""
         if bits:
-            amount_note = (f"{gift_clause}負數表示已付款或扣減。人民幣與港幣分開核算，"
+            amount_note = (f"{gift_clause}{paid_clause}負數表示已付款或扣減。人民幣與港幣分開核算，"
                            "港幣等值僅作匯算參考，明細行只列示一次。")
         elif len(currencies) == 1:
-            amount_note = (f"{gift_clause}本單全部款項均為{CUR_NAME[currencies[0]]}，"
+            amount_note = (f"{gift_clause}{paid_clause}本單全部款項均為{CUR_NAME[currencies[0]]}，"
                            "無需進行跨幣種換算。")
         else:
-            amount_note = f"{gift_clause}負數表示已付款或扣減。人民幣與港幣分開核算，港幣總額已按上述匯率折算。"
+            amount_note = (f"{gift_clause}{paid_clause}負數表示已付款或扣減。"
+                           "人民幣與港幣分開核算，港幣總額已按上述匯率折算。")
 
     # 基本资料
     group = data.get("group", "")
@@ -608,10 +617,14 @@ def build_spec(data: dict) -> tuple:
         settle_shown = str(data.get("renew_type") or "").strip()
         if currencies == ["HKD"]:
             note = None
-            # 2026-11-22：有赠送项时必须点明「只展示、不收钱」，只出这一句，
-            # 不把「本單全部款項均為港幣」那句带回来
-            amount_note = ("贈送項目由本公司承擔，僅列示價值、不計入應收。"
-                           if has_gift else None)
+            # 2026-11-22 / 11-27：有赠送/已付项时必须点明「只展示、不收钱」，
+            # 只出这些说明，不把「本單全部款項均為港幣」那句带回来
+            mark_notes = []
+            if has_gift:
+                mark_notes.append("贈送項目由本公司承擔，僅列示價值、不計入應收")
+            if has_paid:
+                mark_notes.append("已付項目為客戶已付款項，僅列示價值、不重複收取")
+            amount_note = ("；".join(mark_notes) + "。") if mark_notes else None
     elif is_gaocai_biz:
         second_label, second_value = "業務", "高才移民"
     elif is_vehicle_biz:
@@ -672,7 +685,7 @@ def build_spec(data: dict) -> tuple:
         "today_pay": today_pay,
         "next_pay": np_spec,
         "amount_note": amount_note,
-        "note_hidden": is_renew_biz and currencies == ["HKD"] and not has_gift,
+        "note_hidden": is_renew_biz and currencies == ["HKD"] and not has_gift and not has_paid,
         "today_hkd_first": is_renew_biz,
     }
     if data.get("overrides"):

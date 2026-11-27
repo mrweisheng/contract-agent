@@ -1960,27 +1960,31 @@ const app = createApp({
         const hkd = f.hkd ?? null;
         const cny = hkd !== null && Number.isFinite(rate) && rate > 0
           ? Math.round(hkd / rate * 1.01 * 100) / 100 : null;
-        return { name: f.name, cny, hkd, gift: false,
+        return { name: f.name, cny, hkd, mark: "",
                  cnyAuto: cny !== null, hkdAuto: false, base: "hkd", on: false };
       });
     }
     function stAddRenew() {
       // 手动加一项（2026-11-18）：自定义费用同样走勾选逻辑；加即勾（加=要收），不想要就去勾或删行
-      st.fees.push({ name: "", cny: null, hkd: null, gift: false, cnyAuto: false, hkdAuto: false,
+      st.fees.push({ name: "", cny: null, hkd: null, mark: "", cnyAuto: false, hkdAuto: false,
                      base: null, on: true, manual: true });
     }
-    /* 续期勾选（2026-11-22）：取消勾选＝这单根本不提这一项，赠送标记一并清掉，
-       不留「勾了赠送却不上单」的矛盾态 */
+    /* 续期标记（2026-11-22 / 2026-11-27）：一行只可能无标记、赠送、已付三态之一。
+       赠送＝公司承担，已付＝客户已付；二者都只上单展示金额，不进任何合计，
+       所以用单一 mark 字段从数据结构上保证互斥，禁止出现两个独立布尔同时为真。 */
+    function stFeeMark(f) { return f.mark === "gift" || f.mark === "paid" ? f.mark : ""; }
+    function stSetRenewMark(f, mark) {
+      const next = stFeeMark(f) === mark ? "" : mark;
+      f.mark = next;
+      if (next) f.on = true;   // 标记隐含要上单展示
+    }
+    /* 取消勾选＝这单根本不提这一项，赠送/已付标记一并清掉 */
     function stRenewOn(f) {
       f.on = !f.on;
-      if (!f.on) f.gift = false;
+      if (!f.on) f.mark = "";
     }
-    /* 续期赠送（2026-11-22）：赠送隐含要上单展示（金额照列、不进任何合计），
-       所以点赠送自动把该项勾上；再点一次取消赠送、恢复为正常收取 */
-    function stRenewGift(f) {
-      f.gift = !f.gift;
-      if (f.gift) f.on = true;
-    }
+    function stRenewGift(f) { stSetRenewMark(f, "gift"); }
+    function stRenewPaid(f) { stSetRenewMark(f, "paid"); }
     function stSetBiz(biz) {
       if (stBizApplied === biz) return;
       stBizApplied = biz;
@@ -2149,12 +2153,17 @@ const app = createApp({
         if (!name) return null;
         // 续期勾选制（2026-11-18 定稿）：未勾的项不落单不参与计算，纸面只展示勾中的
         if (isRenew && !f.on) return null;
+        // 续期用单一 mark（gift/paid 互斥）；其他业务沿用原 gift 布尔
+        const mark = isRenew ? stFeeMark(f) : (f.gift ? "gift" : "");
+        const markFlag = mark === "gift" ? { gift: true }
+                       : mark === "paid" ? { paid: true } : {};
         const c = num(f.cny), h = num(f.hkd);
-        if (c === null && h === null) return draft ? { item: name, amount: 0, blank: true, ...(f.gift ? { gift: true } : {}) } : null;
+        if (c === null && h === null)
+          return draft ? { item: name, amount: 0, blank: true, ...markFlag } : null;
         if (c !== null && h !== null && f.base === "hkd")   // 先手填港币的杂费记港币
-          return { item: name, amount: h, currency: "HKD", ...(f.gift ? { gift: true } : {}) };
+          return { item: name, amount: h, currency: "HKD", ...markFlag };
         return { item: name, amount: c !== null ? c : h, currency: c !== null ? "CNY" : "HKD",
-                 ...(f.gift ? { gift: true } : {}) };
+                 ...markFlag };
       };
       // 实收/减免：什么币种就在哪个汇总里直接减，不做任何换算（也无第二框可填）
       const paid = p => {
@@ -2202,8 +2211,13 @@ const app = createApp({
       let inC = 0, inH = 0, outC = 0, outH = 0;
       st.rRows.forEach(r => { inC += num(r.cny); inH += num(r.hkd); });
       st.uRows.forEach(r => { outC += num(r.cny); outH += num(r.hkd); });
-      // 续期勾选制：未勾项不计（其余与其他业务完全同款双币列，2026-11-18 定稿）
-      st.fees.forEach(f => { if (!f.gift && !(st.biz === "续期" && !f.on)) { outC += num(f.cny); outH += num(f.hkd); } });
+      // 续期勾选制：未勾项不计；赠送/已付只展示、同样不计（2026-11-18 / 11-27 定稿）
+      st.fees.forEach(f => {
+        const mark = st.biz === "续期" ? stFeeMark(f) : (f.gift ? "gift" : "");
+        if (mark !== "gift" && mark !== "paid" && !(st.biz === "续期" && !f.on)) {
+          outC += num(f.cny); outH += num(f.hkd);
+        }
+      });
       st.paid.forEach(p => { if (p.currency === "CNY") inC += num(p.amount); else inH += num(p.amount); });
       // 减免不是收到的现金，不计入「已收」；真正数字以引擎生成为准
       const f2 = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2425,7 +2439,7 @@ const app = createApp({
       invScroll, invSheet, invDownload, invExportPng, invNew, invReserve, invEdited, invCopyImage, invCloseCopy, invMethodOn,
       invFocusin, invFocusout, invPointerdown, invPreviewDown,
       stRateDays, stRateLabel, stToggleRatePicker, stPickRateDay, stPorts, stSetBiz, stFeeNames, stFollowTail, stPresets,
-      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
+      stParse, stGenerate, stSync, stAddFee, stAddPaid, stAddRecv, stAddRenew, stRenewOn, stRenewGift, stRenewPaid, paidHasAmt, paidHkdOf, paidCnyOf, paidOnHkd, paidOnCny, stReset, stFetchRate, saveAs, icon,
       isContracts, ct, ctEmpty, ctFetch, ctReset, ctQuick, ctWord, ctPdf,
       ctItems, ctCounts, ctSetView, ctSetStatus, ctSigUrl, ctShortTime, ctPhone,
       ctNickFallback, ctCopyPhone, ctSig, ctOpenSig, ctCloseSig, CT_TABS,
@@ -2931,14 +2945,16 @@ const app = createApp({
             <template v-if="st.biz === '续期'">
               <!-- 续期费用清单（2026-11-18）：固定项全展示、勾选制（勾=本单收取），单港币；
                    手动加一项同走勾选，可删行。全不勾时右栏不展示成品、提示勾选后出单；
-                   2026-11-22：行尾加「赠」——勾=上单展示但不计入应收（同车辆业务） -->
-              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span class="col-h">人民币</span><span></span><span></span></div>
-              <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on, gifted: f.gift }">
+                   2026-11-22：行尾加「赠」——勾=上单展示但不计入应收（同车辆业务）；
+                   2026-11-27：加「已付」标记（客户已付过该项），与赠送严格互斥，二者都只展示不计 -->
+              <div class="st-fee renew-head"><span></span><span class="col-h" style="text-align:left">续期项目</span><span class="col-h">港币</span><span class="col-h">人民币</span><span class="col-h">赠送</span><span class="col-h">已付</span><span></span></div>
+              <div v-for="(f, i) in st.fees" :key="'rf' + i" class="st-fee renew" :class="{ off: !f.on, gifted: f.mark === 'gift', settled: f.mark === 'paid' }">
                 <button type="button" class="st-renew-ck" :class="{ on: f.on }" title="勾选＝本单收取" @click="stRenewOn(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i></button>
                 <input class="name" v-model.trim="f.name" :placeholder="f.manual ? '自定义项目' : ''">
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="折算"></span>
-                <button type="button" class="st-gift" :class="{ on: f.gift }" title="赠送：单据照显示，不计入应收" @click="stRenewGift(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
+                <button type="button" class="st-gift" :class="{ on: f.mark === 'gift' }" :aria-pressed="f.mark === 'gift'" title="赠送：公司承担，单据照显示，不计入应收" @click="stRenewGift(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
+                <button type="button" class="st-paidmark" :class="{ on: f.mark === 'paid' }" :aria-pressed="f.mark === 'paid'" title="已付：客户已付过该项目，单据照显示，不计入应收" @click="stRenewPaid(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">已付</span></button>
                 <button v-if="f.manual" class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
                 <span v-else></span>
               </div>

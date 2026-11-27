@@ -128,8 +128,11 @@ def sanitize(obj: dict) -> dict:
             if key == "contract_unpaid":
                 status = str(row.get("status") or "today")
                 entry["status"] = status if status in ("today", "next", "paid") else "today"
-            if key == "extra_fees" and row.get("gift"):
-                entry["gift"] = True
+            if key == "extra_fees":
+                if row.get("gift"):
+                    entry["gift"] = True
+                elif row.get("paid"):
+                    entry["paid"] = True
             if entry["currency"] is None:
                 entry.pop("currency")   # 缺省币种交给引擎按段落/分部默认处理
             rows.append(entry)

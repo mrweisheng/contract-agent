@@ -747,9 +747,12 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
           gap: 4px 6px; align-items: center; padding: 4px 6px; border-radius: 9px; }
 /* 续期收费费用清单（2026-11-18）：勾选制（勾=本单收取、不勾=置灰不落单）；
    港币在前人民币在后（¥ 列=换算展示，固定项锁港币为主）；
-   2026-11-22 加赠送列（第 5 列，勾=上单展示但不计入应收），手动项删行钮固定第 6 列 */
-.st-fee.renew { grid-template-columns: 30px minmax(110px, 1.1fr) 1fr 1fr 48px 24px; }
-.st-fee.renew-head { grid-template-columns: 30px minmax(110px, 1.1fr) 1fr 1fr 48px 24px; }
+   2026-11-22 加赠送列（勾=上单展示但不计入应收）；
+   2026-11-27 加已付列（客户已付过该项），与赠送互斥；项目列从 110px 收到 84px 让位。 */
+.st-fee.renew { grid-template-columns: 30px minmax(84px, .85fr) 1fr 1fr 48px 52px 22px;
+                column-gap: 4px; }
+.st-fee.renew-head { grid-template-columns: 30px minmax(84px, .85fr) 1fr 1fr 48px 52px 22px;
+                     column-gap: 4px; }
 .st-renew-ck { border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--muted-2);
                height: 32px; display: grid; place-items: center; user-select: none; cursor: pointer; }
 .st-renew-ck .ck { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px;
@@ -775,17 +778,49 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .st-fee.gifted .st-amt .pfx { color: var(--green); }
 .st-fee.gifted .st-amt input { color: var(--green); }
 .st-fee.gifted .st-amt input::placeholder { color: #9ec7ab; }
-.st-gift { flex: 0 0 auto; height: 28px; border: 1px solid var(--line); border-radius: 7px; background: #fff;
-           color: var(--muted-2); display: inline-flex; align-items: center; justify-content: center;
-           gap: 4px; user-select: none; padding: 0 7px; font-size: 12.5px; font-weight: 600; }
-.st-gift .tx { display: block; line-height: 1; }
-.st-gift .ck { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px;
-               display: grid; place-items: center; flex: 0 0 auto; }
-.st-gift .ck > span { display: flex; line-height: 0; }
-.st-gift .ck .st-ic { width: 10px; height: 10px; stroke-width: 3.2; opacity: 0; }
+.st-gift, .st-paidmark { flex: 0 0 auto; height: 28px; border: 1px solid var(--line); border-radius: 7px;
+           background: #fff; color: var(--muted-2); display: inline-flex; align-items: center;
+           justify-content: center; gap: 4px; user-select: none; padding: 0 6px;
+           font-size: 12.5px; font-weight: 600; }
+.st-gift .tx, .st-paidmark .tx { display: block; line-height: 1; }
+.st-gift .ck, .st-paidmark .ck { width: 13px; height: 13px; border: 1.5px solid currentColor;
+               border-radius: 4px; display: grid; place-items: center; flex: 0 0 auto; }
+.st-gift .ck > span, .st-paidmark .ck > span { display: flex; line-height: 0; }
+.st-gift .ck .st-ic, .st-paidmark .ck .st-ic { width: 10px; height: 10px; stroke-width: 3.2; opacity: 0; }
 .st-gift.on { border-color: var(--green); background: #eef7f0; color: var(--green); }
 .st-gift.on .ck { background: var(--green); border-color: var(--green); color: #fff; }
 .st-gift.on .ck .st-ic { opacity: 1; }
+/* 已付是另一回事：客户已经付过，用蓝灰与赠送（绿）区分，纸面写法也不同 */
+.st-paidmark.on { border-color: #3b6ea5; background: #e8eef6; color: #2f5f8f; }
+.st-paidmark.on .ck { background: #3b6ea5; border-color: #3b6ea5; color: #fff; }
+.st-paidmark.on .ck .st-ic { opacity: 1; }
+.st-fee.renew.settled { background: #e8eef6; box-shadow: inset 3px 0 0 #3b6ea5; }
+.st-fee.renew.settled .name { border-color: #9db6d2; color: #2f5f8f; font-weight: 600; }
+.st-fee.renew.settled .st-amt { border-color: #9db6d2; background: #f3f7fb; }
+.st-fee.renew.settled .st-amt .pfx { color: #3b6ea5; }
+.st-fee.renew.settled .st-amt input { color: #2f5f8f; }
+.st-fee.renew.settled .st-amt input::placeholder { color: #9db6d2; }
+/* 窄窗口：7 列会把金额输入压成只剩币种符号。改成两行：
+   第一行项目名 + 赠/已付/删行，第二行港币金额整行铺开。
+   人民币只是折算参考，窄屏先收起；底栏和纸面仍有人民币口径。 */
+@media (max-width: 900px) {
+  .st-fee.renew-head { display: none; }
+  .st-fee.renew {
+    grid-template-columns: 30px minmax(84px, 1fr) 48px 52px 22px;
+    grid-template-areas:
+      "ck name gift paid del"
+      "ck hkd  hkd  hkd  hkd";
+    row-gap: 4px;
+  }
+  .st-fee.renew > .st-renew-ck { grid-area: ck; }
+  .st-fee.renew > .name { grid-area: name; }
+  .st-fee.renew > .st-amt:nth-child(3) { grid-area: hkd; }
+  .st-fee.renew > .st-amt:nth-child(4) { display: none; }
+  .st-fee.renew > .st-gift { grid-area: gift; }
+  .st-fee.renew > .st-paidmark { grid-area: paid; }
+  .st-fee.renew > .st-row-x,
+  .st-fee.renew > span:last-child { grid-area: del; }
+}
 
 /* 杂费实收：总收 */
 .st-paid-sec { margin-top: 11px; padding-top: 9px; border-top: 1px dashed var(--line-soft); }
