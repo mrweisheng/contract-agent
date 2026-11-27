@@ -2953,8 +2953,8 @@ const app = createApp({
                 <input class="name" v-model.trim="f.name" :placeholder="f.manual ? '自定义项目' : ''">
                 <span class="st-amt"><span class="pfx">HK$</span><input type="number" v-model.number="f.hkd" @input="stSync(f, 'hkd')" placeholder="金额"></span>
                 <span class="st-amt"><span class="pfx">¥</span><input type="number" v-model.number="f.cny" @input="stSync(f, 'cny')" placeholder="折算"></span>
-                <button type="button" class="st-gift" :class="{ on: f.mark === 'gift' }" :aria-pressed="f.mark === 'gift'" title="赠送：公司承担，单据照显示，不计入应收" @click="stRenewGift(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">赠</span></button>
-                <button type="button" class="st-paidmark" :class="{ on: f.mark === 'paid' }" :aria-pressed="f.mark === 'paid'" title="已付：客户已付过该项目，单据照显示，不计入应收" @click="stRenewPaid(f)"><i class="ck"><span v-html="icon('check','st-ic')"></span></i><span class="tx">已付</span></button>
+                <button type="button" class="st-gift st-status-badge" :class="{ on: f.mark === 'gift' }" :aria-pressed="f.mark === 'gift'" aria-label="赠送" title="赠送：公司承担，单据照显示，不计入应收" @click="stRenewGift(f)"><span class="st-status-ic"><span v-html="icon('gift','st-ic')"></span></span><span class="st-status-check"><span v-html="icon('check','st-ic')"></span></span></button>
+                <button type="button" class="st-paidmark st-status-badge" :class="{ on: f.mark === 'paid' }" :aria-pressed="f.mark === 'paid'" aria-label="已付" title="已付：客户已付过该项目，单据照显示，不计入应收" @click="stRenewPaid(f)"><span class="st-status-ic"><span v-html="icon('circle-check','st-ic')"></span></span><span class="st-status-check"><span v-html="icon('check','st-ic')"></span></span></button>
                 <button v-if="f.manual" class="st-row-x" title="删这一行" @click="st.fees.splice(i, 1)"><span v-html="icon('x','st-ic')"></span></button>
                 <span v-else></span>
               </div>

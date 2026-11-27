@@ -794,6 +794,34 @@ label.ck:hover .lf-ck { border-color: var(--ai); }
 .st-paidmark.on { border-color: #3b6ea5; background: #e8eef6; color: #2f5f8f; }
 .st-paidmark.on .ck { background: #3b6ea5; border-color: #3b6ea5; color: #fff; }
 .st-paidmark.on .ck .st-ic { opacity: 1; }
+/* 续期费用状态徽章（2026-11-27）：未选=虚线圆环，选中=柔色圆形徽章+右下角小对勾。
+   只作用于续期行，合同外杂费仍沿用原来的「☑赠」控件，避免影响其他业务。 */
+.st-fee.renew .st-status-badge { position: relative; width: 34px; height: 34px; padding: 0;
+           border: 0; border-radius: 50%; background: transparent; color: var(--muted-2); }
+.st-fee.renew .st-status-badge .st-status-ic { width: 29px; height: 29px; display: grid; place-items: center;
+           border: 1px dashed #d5cdbf; border-radius: 50%; background: rgba(255,255,255,.45);
+           transition: all .16s ease; }
+.st-fee.renew .st-status-badge .st-status-ic > span { display: flex; line-height: 0; }
+.st-fee.renew .st-status-badge .st-status-ic .st-ic { width: 15px; height: 15px; stroke-width: 1.9; }
+.st-fee.renew .st-status-badge .st-status-check { position: absolute; right: -1px; bottom: -1px;
+           width: 13px; height: 13px; display: grid; place-items: center; border: 2px solid #fff;
+           border-radius: 50%; background: var(--muted-2); color: #fff; opacity: 0; transform: scale(.6);
+           transition: opacity .15s ease, transform .15s ease, background .15s ease; pointer-events: none; }
+.st-fee.renew .st-status-badge .st-status-check > span { display: flex; line-height: 0; }
+.st-fee.renew .st-status-badge .st-status-check .st-ic { width: 8px; height: 8px; stroke-width: 3; }
+.st-fee.renew .st-status-badge:not(.on):hover .st-status-ic { border-color: #a79e8d; color: #746d61; background: #f7f4ec; }
+.st-fee.renew .st-status-badge:active .st-status-ic { transform: scale(.94); }
+.st-fee.renew .st-status-badge:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(46,121,85,.20); }
+.st-fee.renew .st-status-badge.on { background: transparent; }
+.st-fee.renew .st-status-badge.on .st-status-ic { border-style: solid; }
+.st-fee.renew .st-status-badge.on .st-status-ic .st-ic { stroke-width: 2.15; }
+.st-fee.renew .st-status-badge.on .st-status-check { opacity: 1; transform: scale(1); }
+.st-fee.renew .st-gift.on { color: var(--green); }
+.st-fee.renew .st-gift.on .st-status-ic { border-color: #b9d8c5; background: #e9f5ee; box-shadow: 0 3px 8px rgba(46,121,85,.10); }
+.st-fee.renew .st-gift.on .st-status-check { background: var(--green); }
+.st-fee.renew .st-paidmark.on { color: #2f5f8f; }
+.st-fee.renew .st-paidmark.on .st-status-ic { border-color: #b7c9dd; background: #e8eef6; box-shadow: 0 3px 8px rgba(47,95,143,.10); }
+.st-fee.renew .st-paidmark.on .st-status-check { background: #3b6ea5; }
 .st-fee.renew.settled { background: #e8eef6; box-shadow: inset 3px 0 0 #3b6ea5; }
 .st-fee.renew.settled .name { border-color: #9db6d2; color: #2f5f8f; font-weight: 600; }
 .st-fee.renew.settled .st-amt { border-color: #9db6d2; background: #f3f7fb; }
